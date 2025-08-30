@@ -17,3 +17,6 @@ Imports:
     stringr,
     tibble,
     TwoSampleMR
+Depends: 
+    R (>= 3.5)
+LazyData: true
