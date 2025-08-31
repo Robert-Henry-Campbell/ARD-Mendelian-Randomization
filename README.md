@@ -7,6 +7,12 @@ Automates outcome resolution (ICD-10 ↔ GBD), SNP row extraction from Pan-UKB /
 
 ## Install
 
+Before developing or running tests, install package dependencies:
+
+```bash
+Rscript scripts/install_deps.R
+```
+
 ```r
 # requires: R >= 4.1, tabix in PATH, bgzip (.tbi) support
 # and CRAN/BioC deps: data.table, dplyr, ggplot2, TwoSampleMR, etc.

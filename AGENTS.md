@@ -46,6 +46,12 @@ This file guides AI agents (like OpenAI Codex) working on the \*\*ARDMR\*\* pack
 
 \## Build \& Test
 
+Before testing or development, install package dependencies:
+
+```bash
+Rscript scripts/install_deps.R
+```
+
 
 
 \*\*To run the full pipeline end-to-end (on real or fixture data):\*\*
