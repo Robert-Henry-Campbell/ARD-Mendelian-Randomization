@@ -17,7 +17,7 @@
 Outcome_setup <- function(sex, ancestry) {
   # ---- validations ---------------------------------------------------------
   sex <- match.arg(tolower(sex), c("both", "male", "female"))
-  ancestry <- match.arg(toupper(ancestry), c("EUR", "AFR", "AMR", "EAS", "SAS"))
+  ancestry <- match.arg(toupper(ancestry), c("AFR","AMR","CSA","EAS","EUR","MID"))
 
   if (sex %in% c("male", "female") && ancestry != "EUR") {
     stop("Sex-specific (male/female) runs currently require ancestry == 'EUR'", call. = FALSE)
@@ -69,3 +69,5 @@ get_pkg_obj <- function(name) {
   dplyr::as_tibble(obj)
 }
 
+#test it
+testo <- Outcome_setup(sex='male')

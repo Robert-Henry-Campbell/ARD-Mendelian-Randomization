@@ -52,7 +52,7 @@ Variant_manifest_downloader <- function(catalog, data_root = "data", overwrite =
 
   # Inform the user this can be large/slow
   message(sprintf(
-    "[%s] Downloading variant manifest to %s\n  URL: %s\n  This is a large file; please expect a long wait. Showing progress bar...",
+    "[%s] Downloading variant manifest to %s\n  URL: %s\n  This is a large file; please expect a 5-25 min wait.",
     catalog, dest, cfg$url
   ))
 
@@ -109,3 +109,12 @@ Variant_manifest_downloader <- function(catalog, data_root = "data", overwrite =
   out <- x / (1024 ^ e)
   sprintf("%.2f %s", out, units[e + 1])
 }
+
+
+
+##testing it:
+outy <- "G:\\My Drive\\Documents\\0Oxford_main\\ARD paper\\3_ARD_MR"
+Variant_manifest_downloader(
+  catalog = 'neale',
+  data_root = outy,
+  overwrite = TRUE)
