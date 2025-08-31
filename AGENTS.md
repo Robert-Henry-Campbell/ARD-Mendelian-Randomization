@@ -56,3 +56,12 @@ Rscript -e "devtools::load\_all(); run\_phenome\_mr(exposure\_snps = …, sex = 
 
 
 
+
+## Packaged data files
+
+The package ships with several `.rda` files (located in `data/`) used by `Outcome_setup()`:
+
+- `bothsex_ARD.rda`, `female_ARD.rda`, `male_ARD.rda` – ARD phenotype tables for both sexes, females, and males.
+- `neale_female_manifest.rda`, `neale_male_manifest.rda` – Neale sex-specific phenotype manifests containing case and control counts.
+- `neale_file_manifest.rda` – Neale download information for each GWAS.
+- `panukb_pheno_manifest.rda` – Pan-UKB phenotype manifest with metadata and download links.

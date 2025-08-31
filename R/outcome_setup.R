@@ -1,130 +1,71 @@
-# R/Outcome_setup.R
-
-#' Build MR_df (outcome plan) by mapping ARD phenotypes to provider manifests
+#' Build the outcome plan (`MR_df`) by mapping ARD phenotypes to GWAS manifests
 #'
 #' @description
-#' Creates the outcome plan **MR_df** for a phenome-wide MR run by:
-#' 1) selecting the ARD phenotype tibble for the requested `sex`
-#' 2) logging counts at ICD-10 and GBD cause level
-#' 3) mapping `ICD10_explo` to the appropriate provider manifest
-#'    - Pan-UKB if `sex == "both"`
-#'    - Neale if `sex %in% c("male","female")`
-#' 4) dropping unmapped phenotypes (no available GWAS)
-#' 5) returning a row per outcome with ARD + provider metadata
+#' Selects the appropriate age-related disease (ARD) phenotype table based on
+#' `sex`, logs counts at the ICD-10 and cause levels, then maps the
+#' `ICD10_explo` column to the relevant GWAS manifest. Pan-UKB is used when
+#' `sex == "both"`; otherwise Neale manifests are consulted. Phenotypes with no
+#' available GWAS are dropped.
 #'
-#' @param sex Character. One of `"both"`, `"male"`, `"female"`.
-#' @param ancestry Character. One of allowed ancestries (e.g., `"EUR"`, `"AFR"`, `"AMR"`, `"EAS"`, `"SAS"`).
-#'                 **Constraint:** if `sex` is `"male"` or `"female"`, `ancestry` must be `"EUR"` (Neale).
-#' @param verbose Logical. Print summary logs.
+#' @param sex Character. One of `"both"`, `"male"`, or `"female"`.
+#' @param ancestry Character ancestry code. If `sex` is `"male"` or
+#'   `"female"`, this must be `"EUR"`.
 #'
-#' @return A tibble `MR_df` with one row per outcome. Contains ARD fields
-#' (e.g., `ICD10_explo`, `gbd_cause`) plus provider fields (e.g., `provider`,
-#' `provider_key`, `download_url`/`local_filename`, column maps, etc.).
+#' @return A tibble `MR_df` combining the ARD data with GWAS manifest
+#'   metadata.
 #' @export
-Outcome_setup <- function(sex, ancestry, verbose = TRUE) {
-  # ---- validations ----
-  check_choice(sex, SEX_OPTIONS, "sex")
-  check_choice(ancestry, ANCESTRY_OPTIONS, "ancestry")
+Outcome_setup <- function(sex, ancestry) {
+  # ---- validations ---------------------------------------------------------
+  sex <- match.arg(tolower(sex), c("both", "male", "female"))
+  ancestry <- match.arg(toupper(ancestry), c("EUR", "AFR", "AMR", "EAS", "SAS"))
+
   if (sex %in% c("male", "female") && ancestry != "EUR") {
-    stop("Sex-specific (male/female) runs currently require ancestry == 'EUR' (Neale).", call. = FALSE)
+    stop("Sex-specific (male/female) runs currently require ancestry == 'EUR'", call. = FALSE)
   }
 
-  # ---- select ARD tibble for the requested sex ----
-  # Expect packaged data objects: bothsex_ARD, male_ARD, female_ARD
-  ard_df <- .select_ard_by_sex(sex)
+  # ---- select ARD tibble ---------------------------------------------------
+  ard_df <- switch(
+    sex,
+    "both"   = get_pkg_obj("bothsex_ARD"),
+    "male"   = get_pkg_obj("male_ARD"),
+    "female" = get_pkg_obj("female_ARD")
+  )
 
-  assert_cols(ard_df, c("ICD10_explo", "gbd_cause"), "ARD phenotype tibble")
+  logger::log_info(
+    "ARD phenotypes: {nrow(ard_df)} rows; {dplyr::n_distinct(ard_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(ard_df$cause_level_3)} unique causes"
+  )
 
-  # ---- basic logs ----
-  if (verbose) {
-    n_rows <- nrow(ard_df)
-    n_icd  <- dplyr::n_distinct(ard_df$ICD10_explo)
-    n_gbd  <- dplyr::n_distinct(ard_df$gbd_cause)
-    log_info("Outcome_setup: %d phenotypes | %d unique ICD10_explo | %d unique GBD causes", n_rows, n_icd, n_gbd)
-  }
-
-  # ---- choose provider & load manifest ----
-  provider <- if (sex == "both") "panukb" else "neale"
-
-  if (provider == "panukb") {
-    man <- load_panukb_manifest()
-    assert_cols(man, c("icd10_explo", "provider_key"), "Pan-UKB manifest")
+  # ---- load manifest -------------------------------------------------------
+  if (sex == "both") {
+    manifest <- get_pkg_obj("panukb_pheno_manifest")
+    join_col <- "phenocode"
   } else {
-    man <- load_neale_manifest()
-    assert_cols(man, c("icd10_explo", "provider_key"), "Neale manifest")
+    file_man <- get_pkg_obj("neale_file_manifest")
+    sex_man <- if (sex == "male") get_pkg_obj("neale_male_manifest") else get_pkg_obj("neale_female_manifest")
+    manifest <- dplyr::left_join(sex_man, file_man, by = c("phenotype" = "Phenotype Code"))
+    join_col <- "phenotype"
   }
 
-  # ---- join ARD to manifest on ICD10_explo ----
-  ard_key <- ard_df |>
-    dplyr::mutate(.key_ard = tolower(.data$ICD10_explo))
+  # ---- map ICD10 to manifest ----------------------------------------------
+  MR_df <- dplyr::left_join(ard_df, manifest, by = c("ICD10_explo" = join_col))
 
-  man_key <- man |>
-    dplyr::mutate(.key_man = tolower(.data$icd10_explo))
+  mapped <- !is.na(MR_df[[join_col]])
+  n_total <- nrow(MR_df)
+  n_mapped <- sum(mapped)
+  logger::log_info("Mapped {n_mapped} of {n_total} phenotypes; {n_total - n_mapped} without available GWAS")
 
-  joined <- ard_key |>
-    dplyr::left_join(
-      dplyr::select(man_key, .key_man, dplyr::everything()),
-      by = c(".key_ard" = ".key_man")
-    ) |>
-    dplyr::select(-.key_ard)
-
-
-  # ---- mapping diagnostics & drop unmapped ----
-  mapped_flag <- !is.na(joined$provider_key)
-  n_total  <- nrow(joined)
-  n_mapped <- sum(mapped_flag, na.rm = TRUE)
-  n_unmap  <- n_total - n_mapped
-
-  if (verbose) {
-    log_info("Provider = %s | mapped = %d / %d | unmapped = %d", provider, n_mapped, n_total, n_unmap)
-    if (n_unmap > 0) {
-      unmapped_preview <- joined$ICD10_explo[which(!mapped_flag)][seq_len(min(5, n_unmap))]
-      log_info("Unmapped (first up to 5): %s", paste(unmapped_preview, collapse = ", "))
-    }
-  }
-
-  MR_df <- dplyr::filter(joined, !!mapped_flag)
-
-  # ---- finalize shape & provider column ----
-  MR_df <- MR_df |>
-    dplyr::mutate(provider = provider) |>
-    # create a stable outcome_id if not present
-    dplyr::mutate(outcome_id = dplyr::coalesce(.data$provider_key, .data$ICD10_explo)) |>
-    dplyr::relocate(outcome_id, provider, provider_key, ICD10_explo, gbd_cause)
-
-  # ---- extra checks (extensible) ----
-  # Ensure manifest core columns exist post-join (soft assert: warn rather than stop)
-  expected_cols <- c("chr_col", "pos_col", "ea_col", "oa_col", "beta_col", "se_col", "p_col")
-  missing_manifest_cols <- setdiff(expected_cols, names(MR_df))
-  if (length(missing_manifest_cols) && verbose) {
-    log_info("Warning: Missing expected manifest columns in MR_df: %s", paste(missing_manifest_cols, collapse = ", "))
-  }
+  MR_df <- MR_df[mapped, ]
 
   MR_df
 }
 
-# ---- internal helpers ----
+# ---- helpers ---------------------------------------------------------------
 
-# Select ARD tibble by sex. Expects packaged data objects named:
-# bothsex_ARD, male_ARD, female_ARD (with columns including ICD10_explo, gbd_cause).
-.select_ard_by_sex <- function(sex) {
-  get_pkg_obj <- function(name) {
-    obj <- get0(name, envir = asNamespace(utils::packageName()), inherits = FALSE)
-    if (is.null(obj)) stop(sprintf("Packaged data object '%s' not found. Add it to data/ via data-raw/.", name), call. = FALSE)
-    dplyr::as_tibble(obj)
+get_pkg_obj <- function(name) {
+  obj <- get0(name, envir = asNamespace("ardmr"), inherits = FALSE)
+  if (is.null(obj)) {
+    stop(sprintf("Data object '%s' not found", name), call. = FALSE)
   }
-  switch(
-    sex,
-    "both"   = get_pkg_obj("bothsex_ARD"),
-    "male"   = get_pkg_obj("male_ARD"),
-    "female" = get_pkg_obj("female_ARD"),
-    stop("Invalid sex option.", call. = FALSE)
-  )
+  dplyr::as_tibble(obj)
 }
 
-# Note: load_panukb_manifest() and load_neale_manifest() are expected to be
-# defined elsewhere (e.g., in load_data helpers). They must return tibbles
-# with at least:
-#   icd10_explo, provider_key, and the column map fields used downstream:
-#   chr_col, pos_col, ea_col, oa_col, beta_col, se_col, p_col,
-#   plus either (download_url/tabix_url) for Pan-UKB or (local_filename/download_cmd) for Neale.
