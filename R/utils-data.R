@@ -15,3 +15,11 @@ get_pkg_obj <- function(name, pkg = "ardmr") {
   }
   get(name, envir = e, inherits = FALSE) |> dplyr::as_tibble()
 }
+
+# small internal assert (keeps orchestrator readable)
+assert_exposure <- function(x) {
+  req <- c("SNP","beta.exposure","se.exposure","effect_allele.exposure","other_allele.exposure","pval.exposure")
+  miss <- setdiff(req, names(x))
+  if (length(miss)) stop("exposure_snps missing columns: ", paste(miss, collapse=", "))
+  invisible(TRUE)
+}

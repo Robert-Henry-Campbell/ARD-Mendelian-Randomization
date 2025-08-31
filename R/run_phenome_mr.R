@@ -34,7 +34,7 @@ run_phenome_mr <- function(
     scatterplot = FALSE,
     snpforestplot = FALSE,
     leaveoneoutplot = FALSE,
-    plot_output_dir = "",
+    plot_output_dir = NULL,
     Neale_GWAS_dir = NULL,
     cache_dir = tools::R_user_dir("ardmr","cache"),
     logfile = NULL,
@@ -44,7 +44,7 @@ run_phenome_mr <- function(
   sex <- match.arg(sex)
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
   if (missing(ancestry) || !nzchar(ancestry)) stop("`ancestry` is mandatory.")
-  .assert_exposure(exposure_snps)
+  assert_exposure(exposure_snps)
   if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
   if (nzchar(plot_output_dir) && !dir.exists(plot_output_dir)) {
     dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
@@ -52,6 +52,14 @@ run_phenome_mr <- function(
   if (!is.null(Neale_GWAS_dir) && !dir.exists(Neale_GWAS_dir)) {
     dir.create(Neale_GWAS_dir, recursive = TRUE, showWarnings = FALSE)
   }
+
+  # ---- choose catalog ----
+  catalog <- if (sex == "both") {
+    "panukb"
+  } else {
+    "neale"
+  }
+
 
   logfile <- if (is.null(logfile) || !nzchar(logfile)) {
     file.path(cache_dir, sprintf("ardmr_%s.log", format(Sys.time(), "%Y%m%d_%H%M%S")))
@@ -65,6 +73,7 @@ run_phenome_mr <- function(
   cfg <- list(
     ancestry = ancestry,
     sex = sex,
+    catalog = catalog,
     checks_enabled = sensitivity_enabled,
     checks_pass_min = sensitivity_pass_min,
     mtc = Multiple_testing_correction,
@@ -83,6 +92,11 @@ run_phenome_mr <- function(
   MR_df <- outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry, verbose = cfg$verbose)
   metrics$outcomes <- nrow(MR_df)
   logger::log_info("Outcome setup: {metrics$outcomes} ARDs loaded")
+
+  logger::log_info("1.1) Variant manifest downloading…")
+  Variant_manifest_downloader(catalog = cfg$catalog, overwrite = FALSE)
+
+  browser() #run up to here
 
   logger::log_info("2) Map exposure SNPs to provider positions…")
   n_before <- nrow(exposure_snps)
@@ -147,10 +161,4 @@ run_phenome_mr <- function(
   ))
 }
 
-# small internal assert (keeps orchestrator readable)
-.assert_exposure <- function(x) {
-  req <- c("rsid","beta","se","effect_allele","other_allele")
-  miss <- setdiff(req, names(x))
-  if (length(miss)) stop("exposure_snps missing columns: ", paste(miss, collapse=", "))
-  invisible(TRUE)
-}
+
