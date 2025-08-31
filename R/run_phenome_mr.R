@@ -34,7 +34,7 @@ run_phenome_mr <- function(
     scatterplot = FALSE,
     snpforestplot = FALSE,
     leaveoneoutplot = FALSE,
-    plot_output_dir = NULL,
+    plot_output_dir = "",
     Neale_GWAS_dir = NULL,
     cache_dir = tools::R_user_dir("ardmr","cache"),
     logfile = NULL,
@@ -89,14 +89,12 @@ run_phenome_mr <- function(
   metrics <- list()
 
   logger::log_info("1) Outcome setup…")
-  MR_df <- outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry, verbose = cfg$verbose)
+  MR_df <- Outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry)
   metrics$outcomes <- nrow(MR_df)
   logger::log_info("Outcome setup: {metrics$outcomes} ARDs loaded")
 
   logger::log_info("1.1) Variant manifest downloading…")
   Variant_manifest_downloader(catalog = cfg$catalog, overwrite = FALSE)
-
-  browser() #run up to here
 
   logger::log_info("2) Map exposure SNPs to provider positions…")
   n_before <- nrow(exposure_snps)
@@ -104,6 +102,10 @@ run_phenome_mr <- function(
   metrics$exposure_in <- n_before
   metrics$exposure_mapped <- nrow(exposure_snps2)
   logger::log_info("Exposure mapping: {metrics$exposure_in - metrics$exposure_mapped} filtered; {metrics$exposure_mapped} remain")
+
+
+  browser() #run up to here
+
 
   if (cfg$sex == "both") {
     logger::log_info("3) Pull Pan-UKB outcome SNP rows…")
