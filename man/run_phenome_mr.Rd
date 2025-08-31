@@ -2,54 +2,56 @@
 % Please edit documentation in R/run_phenome_mr.R
 \name{run_phenome_mr}
 \alias{run_phenome_mr}
-\title{Run phenome-wide MR on ARDs}
+\title{Run phenome-wide MR on ARDs (orchestrator)}
 \usage{
 run_phenome_mr(
   exposure_snps,
   ancestry,
-  sex = c("both","male","female"),
-  sensitivity_enabled = c("egger_intercept","egger_slope_agreement","weighted_median",
-    "weighted_mode","steiger_direction","leave_one_out","ivw_Q","ivw_I2"),
+  sex = c("both", "male", "female"),
+  sensitivity_enabled = c("egger_intercept", "egger_slope_agreement", "weighted_median",
+    "weighted_mode", "steiger_direction", "leave_one_out", "ivw_Q", "ivw_I2"),
   sensitivity_pass_min = 6,
-  Multiple_testing_correction = c("BH","bonferroni"),
+  Multiple_testing_correction = c("BH", "bonferroni"),
   scatterplot = FALSE,
   snpforestplot = FALSE,
   leaveoneoutplot = FALSE,
   plot_output_dir = "",
   Neale_GWAS_dir = NULL,
-  cache_dir = tools::R_user_dir("ardmr","cache"),
+  cache_dir = tools::R_user_dir("ardmr", "cache"),
   logfile = NULL,
   verbose = TRUE
 )
 }
 \arguments{
-\item{exposure_snps}{Data frame of exposure instruments in TwoSampleMR format (must have rsid, beta, se, etc.)}
+\item{exposure_snps}{Data frame of exposure instruments (TwoSampleMR-like: rsid, beta, se, effect_allele, other_allele, eaf, etc.).}
 
-\item{ancestry}{Mandatory ancestry code (e.g. "EUR")}
+\item{ancestry}{Character (mandatory), e.g. "EUR".}
 
-\item{sex}{One of "both","male","female"}
+\item{sex}{One of "both","male","female". If not "both", you likely use Neale.}
 
-\item{sensitivity_enabled}{Vector of checks to run (default = all 8)}
+\item{sensitivity_enabled}{Character vector of checks (default = all 8).}
 
-\item{sensitivity_pass_min}{Minimum number of checks to pass (default = 6)}
+\item{sensitivity_pass_min}{Integer threshold to pass QC (default 6).}
 
-\item{Multiple_testing_correction}{"BH" or "bonferroni"}
+\item{Multiple_testing_correction}{"BH" or "bonferroni" (default "BH").}
 
-\item{scatterplot, snpforestplot, leaveoneoutplot}{Logical; diagnostics}
+\item{scatterplot, snpforestplot, leaveoneoutplot}{Logical; produce per-outcome diagnostics.}
 
-\item{plot_output_dir}{Directory for plots; "" = no save}
+\item{plot_output_dir}{Directory to write plots ("" = do not write).}
 
-\item{Neale_GWAS_dir}{Optional path to local Neale GWAS files}
+\item{Neale_GWAS_dir}{Optional path to Neale sumstats; created if missing.}
 
-\item{cache_dir}{Cache directory for temporary files}
+\item{cache_dir}{Cache directory for temporary files (default: user cache).}
 
-\item{logfile}{Optional path to log file}
+\item{logfile}{Optional path to log file. Defaults to a timestamped file in
+\code{cache_dir} if not supplied.}
 
-\item{verbose}{Logical; if FALSE, only warnings/errors are logged}
+\item{verbose}{Logical; if \code{FALSE}, only warnings/errors are logged.}
 }
 \value{
-A list with MR_df, results_df, and ggplot objects
+A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 }
 \description{
-High-level orchestrator: builds outcome plan, maps exposures, fetches SNPs, runs MR + QC, and generates plots.
+Builds the outcome plan, maps exposure SNPs, fetches outcome SNP rows,
+runs MR + sensitivity/QC, and returns results + plots.
 }

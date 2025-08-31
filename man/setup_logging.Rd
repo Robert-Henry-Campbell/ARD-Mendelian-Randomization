@@ -9,11 +9,12 @@ setup_logging(logfile, level = "INFO")
 \arguments{
 \item{logfile}{Path to a log file. If empty, logs only to the console.}
 
-\item{level}{Logging level threshold passed to logger::log_threshold().}
+\item{level}{Logging level threshold passed to \code{\link[logger:log_threshold]{logger::log_threshold()}}.}
 }
 \value{
 Invisibly returns the logfile path.
 }
 \description{
-Configures the logger package to emit messages to the console and, optionally, to a file.
+Configures the \link{logger} package to emit messages to the console and,
+optionally, to a file. The log level controls verbosity.
 }

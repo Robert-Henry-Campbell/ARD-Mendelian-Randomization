@@ -32,7 +32,7 @@ Outcome_setup <- function(sex, ancestry) {
   )
 
   logger::log_info(
-    "ARD phenotypes: {nrow(ard_df)} rows; {dplyr::n_distinct(ard_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(ard_df$cause_level_3)} unique causes"
+    "ARD phenotypes| {nrow(ard_df)} rows; {dplyr::n_distinct(ard_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(ard_df$cause_level_3)} unique causes"
   )
 
   # ---- load manifest -------------------------------------------------------
@@ -49,25 +49,13 @@ Outcome_setup <- function(sex, ancestry) {
   # ---- map ICD10 to manifest ----------------------------------------------
   MR_df <- dplyr::left_join(ard_df, manifest, by = c("ICD10_explo" = join_col))
 
-  mapped <- !is.na(MR_df[[join_col]])
+  mapped <- !is.na(MR_df[[ncol(MR_df)]]) #hand editted
   n_total <- nrow(MR_df)
   n_mapped <- sum(mapped)
   logger::log_info("Mapped {n_mapped} of {n_total} phenotypes; {n_total - n_mapped} without available GWAS")
 
-  MR_df <- MR_df[mapped, ]
+  MR_df <- MR_df[!is.na(MR_df[[ncol(MR_df)]]), ] #for some reason using mapped isn't ok here
 
   MR_df
 }
 
-# ---- helpers ---------------------------------------------------------------
-
-get_pkg_obj <- function(name) {
-  obj <- get0(name, envir = asNamespace("ardmr"), inherits = FALSE)
-  if (is.null(obj)) {
-    stop(sprintf("Data object '%s' not found", name), call. = FALSE)
-  }
-  dplyr::as_tibble(obj)
-}
-
-#test it
-#testo <- Outcome_setup(sex='male', ancestry= 'EUR')
