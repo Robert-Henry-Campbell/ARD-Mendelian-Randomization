@@ -7,16 +7,19 @@
 run_phenome_mr(
   exposure_snps,
   ancestry,
-  sex = c("both", "male", "female"),
-  sensitivity_enabled = c("egger_intercept", "egger_slope_agreement", "weighted_median",
-    "weighted_mode", "steiger_direction", "leave_one_out", "ivw_Q", "ivw_I2"),
+  sex = c("both","male","female"),
+  sensitivity_enabled = c("egger_intercept","egger_slope_agreement","weighted_median",
+    "weighted_mode","steiger_direction","leave_one_out","ivw_Q","ivw_I2"),
   sensitivity_pass_min = 6,
-  Multiple_testing_correction = c("BH", "bonferroni"),
+  Multiple_testing_correction = c("BH","bonferroni"),
   scatterplot = FALSE,
   snpforestplot = FALSE,
   leaveoneoutplot = FALSE,
   plot_output_dir = "",
-  Neale_GWAS_dir = NULL
+  Neale_GWAS_dir = NULL,
+  cache_dir = tools::R_user_dir("ardmr","cache"),
+  logfile = NULL,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -37,11 +40,16 @@ run_phenome_mr(
 \item{plot_output_dir}{Directory for plots; "" = no save}
 
 \item{Neale_GWAS_dir}{Optional path to local Neale GWAS files}
+
+\item{cache_dir}{Cache directory for temporary files}
+
+\item{logfile}{Optional path to log file}
+
+\item{verbose}{Logical; if FALSE, only warnings/errors are logged}
 }
 \value{
 A list with MR_df, results_df, and ggplot objects
 }
 \description{
-High-level orchestrator: builds outcome plan, maps exposures,
-fetches SNPs, runs MR + QC, and generates plots.
+High-level orchestrator: builds outcome plan, maps exposures, fetches SNPs, runs MR + QC, and generates plots.
 }

@@ -5,6 +5,7 @@
 #' @export
 neale_gwas_checker <- function(MR_df, neale_dir, verbose = TRUE) {
   # TODO: check presence per outcome; optionally download; log actions
+  logger::log_info("Neale GWAS check: {nrow(MR_df)} outcomes scanned")
   invisible(TRUE)
 }
 
@@ -14,6 +15,8 @@ neale_gwas_checker <- function(MR_df, neale_dir, verbose = TRUE) {
 #' @export
 neale_tbi_maker <- function(neale_dir, verbose = TRUE) {
   # TODO: run tabix indexing if missing
+  n_files <- length(list.files(neale_dir, pattern = "\\.bgz$"))
+  logger::log_info("Neale tbi maker: {n_files} files examined")
   invisible(TRUE)
 }
 
@@ -28,5 +31,7 @@ neale_tbi_maker <- function(neale_dir, verbose = TRUE) {
 neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir, verbose = TRUE) {
   # TODO: iterate MR_df[provider=="neale"], extract SNP rows; attach rsid; format for TwoSampleMR
   MR_df$outcome_snps <- vector("list", nrow(MR_df))
+  n_snps <- sum(lengths(MR_df$outcome_snps))
+  logger::log_info("Neale SNP grabber: {nrow(MR_df)} outcomes; {n_snps} SNP rows")
   MR_df
 }

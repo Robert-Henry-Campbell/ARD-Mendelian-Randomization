@@ -32,5 +32,6 @@ mr_business_logic <- function(
     qc_pass = logical(),
     nsnp_after = integer()
   )
+  logger::log_info("MR business logic: {nrow(results_df)} outcomes analysed")
   list(MR_df = MR_df, results_df = results_df)
 }

@@ -7,7 +7,7 @@
 outcome_setup <- function(sex, ancestry, verbose = TRUE) {
   # TODO: validate sex/ancestry; join your ARD→ICD10→GBD map with panukb/neale manifests
   # For now, return a tiny placeholder tibble
-  tibble::tibble(
+  out <- tibble::tibble(
     outcome_id = character(),
     provider = character(),      # "panukb" or "neale"
     provider_key = character(),  # e.g., file stem or phenocode
@@ -15,4 +15,6 @@ outcome_setup <- function(sex, ancestry, verbose = TRUE) {
     gbd_cause = character(),
     file_path = character()
   )
+  logger::log_info("Outcome setup: {nrow(out)} ARDs loaded")
+  out
 }
