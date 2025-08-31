@@ -13,7 +13,9 @@
 #' @param plot_output_dir Directory to write plots ("" = do not write).
 #' @param Neale_GWAS_dir Optional path to Neale sumstats; created if missing.
 #' @param cache_dir Cache directory for temporary files (default: user cache).
-#' @param verbose Logical; print progress messages.
+#' @param logfile Optional path to log file. Defaults to a timestamped file in
+#'   `cache_dir` if not supplied.
+#' @param verbose Logical; if `FALSE`, only warnings/errors are logged.
 #'
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
@@ -35,6 +37,7 @@ run_phenome_mr <- function(
     plot_output_dir = "",
     Neale_GWAS_dir = NULL,
     cache_dir = tools::R_user_dir("ardmr","cache"),
+    logfile = NULL,
     verbose = TRUE
 ) {
   # ---- validate args ----
@@ -49,6 +52,14 @@ run_phenome_mr <- function(
   if (!is.null(Neale_GWAS_dir) && !dir.exists(Neale_GWAS_dir)) {
     dir.create(Neale_GWAS_dir, recursive = TRUE, showWarnings = FALSE)
   }
+
+  logfile <- if (is.null(logfile) || !nzchar(logfile)) {
+    file.path(cache_dir, sprintf("ardmr_%s.log", format(Sys.time(), "%Y%m%d_%H%M%S")))
+  } else {
+    logfile
+  }
+  setup_logging(logfile, level = if (verbose) "INFO" else "WARN")
+  logger::log_info("Logging to {logfile}")
 
   # Keep config bundled for helper calls
   cfg <- list(
@@ -66,24 +77,34 @@ run_phenome_mr <- function(
     verbose = verbose
   )
 
-  if (cfg$verbose) message("1) Outcome setup…")
-  MR_df <- outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry, verbose = cfg$verbose)
+  metrics <- list()
 
-  if (cfg$verbose) message("2) Map exposure SNPs to provider positions…")
+  logger::log_info("1) Outcome setup…")
+  MR_df <- outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry, verbose = cfg$verbose)
+  metrics$outcomes <- nrow(MR_df)
+  logger::log_info("Outcome setup: {metrics$outcomes} ARDs loaded")
+
+  logger::log_info("2) Map exposure SNPs to provider positions…")
+  n_before <- nrow(exposure_snps)
   exposure_snps2 <- exposure_snp_mapper(exposure_snps, sex = cfg$sex, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
+  metrics$exposure_in <- n_before
+  metrics$exposure_mapped <- nrow(exposure_snps2)
+  logger::log_info("Exposure mapping: {metrics$exposure_in - metrics$exposure_mapped} filtered; {metrics$exposure_mapped} remain")
 
   if (cfg$sex == "both") {
-    if (cfg$verbose) message("3) Pull Pan-UKB outcome SNP rows…")
+    logger::log_info("3) Pull Pan-UKB outcome SNP rows…")
     MR_df <- panukb_snp_grabber(exposure_snps2, MR_df, ancestry = cfg$ancestry, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
   } else {
-    if (cfg$verbose) message("3a) Ensure Neale GWAS files + tbi present…")
+    logger::log_info("3a) Ensure Neale GWAS files + tbi present…")
     neale_gwas_checker(MR_df, neale_dir = cfg$neale_dir, verbose = cfg$verbose)
     neale_tbi_maker(neale_dir = cfg$neale_dir, verbose = cfg$verbose)
-    if (cfg$verbose) message("3b) Pull Neale outcome SNP rows…")
+    logger::log_info("3b) Pull Neale outcome SNP rows…")
     MR_df <- neale_snp_grabber(exposure_snps2, MR_df, neale_dir = cfg$neale_dir, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
   }
+  metrics$outcome_snps <- sum(lengths(MR_df$outcome_snps))
+  logger::log_info("Outcome SNPs: {metrics$outcome_snps} rows fetched")
 
-  if (cfg$verbose) message("4) Run MR + sensitivity/QC…")
+  logger::log_info("4) Run MR + sensitivity/QC…")
   mr_out <- mr_business_logic(
     MR_df = MR_df,
     exposure_snps = exposure_snps2,
@@ -98,8 +119,10 @@ run_phenome_mr <- function(
   )
   MR_df <- mr_out$MR_df
   results_df <- mr_out$results_df
+  metrics$results <- nrow(results_df)
+  logger::log_info("MR results: {metrics$results} outcomes analysed")
 
-  if (cfg$verbose) message("5) Build summary plots…")
+  logger::log_info("5) Build summary plots…")
   manhattan <- manhattan_plot(results_df, Multiple_testing_correction = cfg$mtc)
   volcano   <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
 
@@ -107,6 +130,14 @@ run_phenome_mr <- function(
     ggplot2::ggsave(file.path(cfg$plot_dir, "manhattan.png"), manhattan, width = 10, height = 6, dpi = 150)
     ggplot2::ggsave(file.path(cfg$plot_dir, "volcano.png"),   volcano,   width = 10, height = 6, dpi = 150)
   }
+
+  summary_tbl <- tibble::tibble(
+    stage = c("outcomes","exposure_in","exposure_mapped","outcome_snps","results"),
+    count = c(metrics$outcomes, metrics$exposure_in, metrics$exposure_mapped, metrics$outcome_snps, metrics$results)
+  )
+  logger::log_info(
+    "Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}"
+  )
 
   invisible(list(
     MR_df = MR_df,
