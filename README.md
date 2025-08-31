@@ -365,6 +365,19 @@ We also mark **Status** for the current v0:
   * **Pan-UKB:** remote tabix URL + manifested column map
   * **Neale:** local `.tsv.bgz` + `.tbi` in `neale_gwas_dir`
 
+### Packaged manifests
+
+The repository bundles several `.rda` files (in `data/`) consumed by
+`Outcome_setup()`:
+
+- `bothsex_ARD.rda`, `female_ARD.rda`, `male_ARD.rda` – ARD phenotype tables
+  for both sexes, females, and males.
+- `neale_female_manifest.rda`, `neale_male_manifest.rda` – Neale sex-specific
+  phenotype manifests with case and control counts.
+- `neale_file_manifest.rda` – Neale download information for each GWAS.
+- `panukb_pheno_manifest.rda` – Pan-UKB phenotype manifest with metadata and
+  download links.
+
 ---
 
 ## QC checklist (8)
