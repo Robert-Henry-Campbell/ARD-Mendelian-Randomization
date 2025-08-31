@@ -70,4 +70,4 @@ get_pkg_obj <- function(name) {
 }
 
 #test it
-testo <- Outcome_setup(sex='male')
+#testo <- Outcome_setup(sex='male', ancestry= 'EUR')

@@ -113,8 +113,5 @@ Variant_manifest_downloader <- function(catalog, data_root = "data", overwrite =
 
 
 ##testing it:
-outy <- "G:\\My Drive\\Documents\\0Oxford_main\\ARD paper\\3_ARD_MR"
-Variant_manifest_downloader(
-  catalog = 'neale',
-  data_root = outy,
-  overwrite = TRUE)
+#outy <- "G:\\My Drive\\Documents\\0Oxford_main\\ARD paper\\3_ARD_MR"
+#Variant_manifest_downloader(catalog = 'neale',  data_root = outy,  overwrite = TRUE)
