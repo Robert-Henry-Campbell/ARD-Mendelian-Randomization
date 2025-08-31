@@ -10,7 +10,7 @@ Automates outcome resolution (ICD-10 ↔ GBD), SNP row extraction from Pan-UKB /
 Before developing or running tests, install package dependencies:
 
 ```bash
-Rscript scripts/install_deps.R
+Rscript -e "source('R/install_deps.R'); install_deps()"
 ```
 
 ```r

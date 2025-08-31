@@ -4,6 +4,7 @@
 
 This file guides AI agents (like OpenAI Codex) working on the \*\*ARDMR\*\* package. Think of it as a README for AI, not humans — follow it precisely to produce consistent, high-quality code.
 
+- **Script location:** place all helper scripts in `R/`; the `scripts/` directory is deprecated.
 
 
 ---
@@ -49,7 +50,7 @@ This file guides AI agents (like OpenAI Codex) working on the \*\*ARDMR\*\* pack
 Before testing or development, install package dependencies:
 
 ```bash
-Rscript scripts/install_deps.R
+Rscript -e "source('R/install_deps.R'); install_deps()"
 ```
 
 
