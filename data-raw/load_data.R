@@ -12,16 +12,28 @@ req <- function(path) {
   if (!file.exists(path)) stop("File not found: ", path, call. = FALSE)
   path
 }
+# ---- Sex ARDs (CSV) ----
+bothsex_ARD_csv <- file.path(data_dir, "ARDs/bothsex_selected_ARDs_final.csv")
+male_ARD_csv <- file.path(data_dir, "ARDs/male_selected_ARDs_final.csv")
+female_ARD_csv <- file.path(data_dir, "ARDs/female_selected_ARDs_final.csv")
+
+req(bothsex_ARD_csv)
+req(male_ARD_csv)
+req(female_ARD_csv)
+
+bothsex_ARD <- read_csv(bothsex_ARD_csv, show_col_types = FALSE)
+male_ARD <- read_csv(male_ARD_csv, show_col_types = FALSE)
+female_ARD <- read_csv(female_ARD_csv, show_col_types = FALSE)
 
 # ---- Pan-UKB (CSV) ----
-panukb_csv <- file.path(data_dir, "PanUKB.phenotype.manifest.trimmed.csv")
+panukb_csv <- file.path(data_dir, "panUKB/PanUKB.phenotype.manifest.trimmed.csv")
 req(panukb_csv)
 panukb_pheno_manifest <- read_csv(panukb_csv, show_col_types = FALSE)
 
 # ---- Neale manifests ----
-neale_file_csv   <- file.path(data_dir, "Neale.File.Manifest.Release20180731.trimmed.csv")
-neale_male_bgz   <- file.path(data_dir, "neale.phenotypes.male.tsv.bgz")
-neale_female_bgz <- file.path(data_dir, "neale.phenotypes.female.tsv.bgz")  # fixed extension
+neale_file_csv   <- file.path(data_dir, "Neale/Neale.File.Manifest.Release20180731.trimmed.csv")
+neale_male_bgz   <- file.path(data_dir, "Neale/neale.phenotypes.male.tsv.bgz")
+neale_female_bgz <- file.path(data_dir, "Neale/neale.phenotypes.female.tsv.bgz")  # fixed extension
 
 req(neale_file_csv)
 req(neale_male_bgz)
@@ -41,6 +53,9 @@ neale_female_manifest <- read_tsv(neale_female_bgz, show_col_types = FALSE)
 
 # ---- Save as compressed R objects under data/ ----
 use_data(
+  bothsex_ARD,
+  male_ARD,
+  female_ARD,
   panukb_pheno_manifest,
   neale_file_manifest,
   neale_male_manifest,
