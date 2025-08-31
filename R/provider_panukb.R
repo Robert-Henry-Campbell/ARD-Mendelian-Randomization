@@ -9,5 +9,7 @@
 panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir, verbose = TRUE) {
   # TODO: iterate MR_df[provider=="panukb"], pull only needed rows per phenotype
   MR_df$outcome_snps <- vector("list", nrow(MR_df))
+  n_snps <- sum(lengths(MR_df$outcome_snps))
+  logger::log_info("Pan-UKB SNP grabber: {nrow(MR_df)} outcomes; {n_snps} SNP rows")
   MR_df
 }

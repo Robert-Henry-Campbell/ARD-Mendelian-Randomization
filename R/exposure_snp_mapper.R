@@ -6,7 +6,11 @@
 #' @return exposure_snps with new col "panukb_pos" or "neale_pos"
 #' @export
 exposure_snp_mapper <- function(exposure_snps, sex, cache_dir, verbose = TRUE) {
+  n_before <- nrow(exposure_snps)
   # TODO: load variant manifest (provider) and map rsid -> chr:pos (GRCh37)
   # Return unchanged for now (stub)
-  exposure_snps
+  out <- exposure_snps
+  n_after <- nrow(out)
+  logger::log_info("Exposure mapping: {n_before - n_after} filtered; {n_after} remain")
+  out
 }
