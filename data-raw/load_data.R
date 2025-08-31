@@ -13,9 +13,9 @@ req <- function(path) {
   path
 }
 # ---- Sex ARDs (CSV) ----
-bothsex_ARD_csv <- file.path(data_dir, "ARDs/bothsex_selected_ARDs_final.csv")
-male_ARD_csv <- file.path(data_dir, "ARDs/male_selected_ARDs_final.csv")
-female_ARD_csv <- file.path(data_dir, "ARDs/female_selected_ARDs_final.csv")
+bothsex_ARD_csv <- file.path(data_dir, "ARDs/bothsex_ARD_GBD_ICD10_exploded_20250830_214953.csv")
+male_ARD_csv <- file.path(data_dir, "ARDs/male_ARD_GBD_ICD10_exploded_20250830_215002.csv")
+female_ARD_csv <- file.path(data_dir, "ARDs/female_ARD_GBD_ICD10_exploded_20250830_215017.csv")
 
 req(bothsex_ARD_csv)
 req(male_ARD_csv)
