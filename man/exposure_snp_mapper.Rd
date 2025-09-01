@@ -4,14 +4,15 @@
 \alias{exposure_snp_mapper}
 \title{Map RSIDs to provider-specific positions and append columns}
 \usage{
-exposure_snp_mapper(exposure_snps, sex, cache_dir, verbose = TRUE)
+exposure_snp_mapper(exposure_snps, sex, cache_dir = ardmr_cache_dir(), verbose = TRUE)
 }
 \arguments{
 \item{exposure_snps}{data frame with rsid}
 
 \item{sex}{"both" -> panukb mapping; otherwise neale mapping}
 
-\item{cache_dir}{path for crosswalk caches}
+\item{cache_dir}{path for crosswalk caches (default
+\code{ardmr_cache_dir()})}
 
 \item{verbose}{logical}
 }

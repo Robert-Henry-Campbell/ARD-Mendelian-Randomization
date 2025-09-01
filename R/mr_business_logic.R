@@ -5,7 +5,7 @@
 #' @param sensitivity_pass_min integer threshold
 #' @param scatterplot,snpforestplot,leaveoneoutplot logical
 #' @param plot_output_dir output dir for optional per-outcome plots
-#' @param cache_dir path
+#' @param cache_dir path (default: [ardmr_cache_dir()])
 #' @param verbose logical
 #' @return list(MR_df=updated, results_df=tidy summary)
 #' @export
@@ -13,7 +13,7 @@ mr_business_logic <- function(
     MR_df, exposure_snps,
     sensitivity_enabled, sensitivity_pass_min,
     scatterplot, snpforestplot, leaveoneoutplot,
-    plot_output_dir, cache_dir, verbose = TRUE
+    plot_output_dir, cache_dir = ardmr_cache_dir(), verbose = TRUE
 ) {
   # TODO: for each outcome:
   #  - harmonise exposure/outcome

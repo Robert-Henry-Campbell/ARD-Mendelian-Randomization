@@ -15,14 +15,14 @@
 #' enough disk space (~hundreds of MB).
 #'
 #' @param catalog Character. One of `"neale"`, `"panukb"`.
-#' @param data_root Character. Root directory to store data
+#' @param cache_dir Character. Root directory to store data
 #'   (default: ardmr_cache_dir()).
 #' @param overwrite Logical. If `TRUE`, re-download even if the file exists.
 #' @return (Invisibly) the local file path to the downloaded (or existing) manifest.
 #' @export
 Variant_manifest_downloader <- function(
     catalog,
-    data_root = ardmr_cache_dir(),
+    cache_dir = ardmr_cache_dir(),
     overwrite = FALSE
 ) {
   allowed <- c("neale", "panukb")
@@ -41,7 +41,7 @@ Variant_manifest_downloader <- function(
   src_url <- url_map[[catalog]]
 
   # Single source of truth for destination path
-  dest <- variant_manifest_path(catalog, cache_dir = data_root)
+  dest <- variant_manifest_path(catalog, cache_dir = cache_dir)
   dir.create(dirname(dest), recursive = TRUE, showWarnings = FALSE)
 
   if (file.exists(dest) && !overwrite) {

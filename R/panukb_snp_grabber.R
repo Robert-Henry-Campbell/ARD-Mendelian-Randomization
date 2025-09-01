@@ -8,14 +8,15 @@
 #' @param exposure_snps mapped SNPs (must include `panukb_chrom` and `panukb_pos`)
 #' @param MR_df tibble with provider info (Pan-UKB rows and a column containing a sumstats URL or wget cmd)
 #' @param ancestry character (e.g. "EUR")
-#' @param cache_dir (unused here but kept for parity)
+#' @param cache_dir (unused here but kept for parity; default:
+#'   [ardmr_cache_dir()])
 #' @param verbose logical
 #' @return MR_df with a new list-column `outcome_snps` (TwoSampleMR-formatted)
 #' @export
 #' @importFrom Rsamtools TabixFile headerTabix scanTabix open.TabixFile close.TabixFile
 #' @importFrom GenomicRanges GRanges
 #' @importFrom IRanges IRanges
-panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir, verbose = TRUE) {
+panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr_cache_dir(), verbose = TRUE) {
   stopifnot(is.data.frame(exposure_snps), is.data.frame(MR_df))
   ancestry <- match.arg(toupper(ancestry), c("AFR","AMR","CSA","EAS","EUR","MID"))
 

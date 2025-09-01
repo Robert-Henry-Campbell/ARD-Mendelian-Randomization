@@ -24,11 +24,11 @@ neale_tbi_maker <- function(neale_dir, verbose = TRUE) {
 #' @param exposure_snps mapped snps (must include neale_pos when implemented)
 #' @param MR_df tibble (neale rows)
 #' @param neale_dir directory with sumstats
-#' @param cache_dir path
+#' @param cache_dir path (default: [ardmr_cache_dir()])
 #' @param verbose logical
 #' @return MR_df with list-column `outcome_snps`
 #' @export
-neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir, verbose = TRUE) {
+neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr_cache_dir(), verbose = TRUE) {
   # TODO: iterate MR_df[provider=="neale"], extract SNP rows; attach rsid; format for TwoSampleMR
   MR_df$outcome_snps <- vector("list", nrow(MR_df))
   n_snps <- sum(lengths(MR_df$outcome_snps))
