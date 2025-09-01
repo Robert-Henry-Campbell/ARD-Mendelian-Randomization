@@ -18,6 +18,7 @@
 #' @importFrom IRanges IRanges
 #' @importFrom tibble as_tibble tibble
 #' @importFrom dplyr select distinct inner_join relocate rename all_of mutate transmute
+#' @importFrom rlang .data
 panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr_cache_dir(), verbose = TRUE) {
   stopifnot(is.data.frame(exposure_snps), is.data.frame(MR_df))
   ancestry <- match.arg(toupper(ancestry), c("AFR","AMR","CSA","EAS","EUR","MID"))
@@ -66,9 +67,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
   }
 
   # ---- expected Pan-UKB column order (headerless tabix output) ----
-  # base columns always required:
   base_need <- c("chr","pos","ref","alt")
-  # ancestry-suffixed columns required:
   suf <- paste0("_", ancestry)
   anc_need <- paste0(c("af","beta","se","neglog10_pval","low_confidence"), suf)
   need <- c(base_need, anc_need)
@@ -83,7 +82,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (is.na(old_hts_cache)) Sys.unsetenv("HTS_CACHE_DIR") else Sys.setenv(HTS_CACHE_DIR = old_hts_cache)
   }, add = TRUE)
 
-  # ---- setup rds cachingo per phenotype snps
+  # ---- setup RDS caching per-phenotype SNPs ----
   cache_root <- file.path(cache_dir, "panukb_outcome_snps", ancestry)
   dir.create(cache_root, recursive = TRUE, showWarnings = FALSE)
   .slug <- function(x) {
@@ -91,6 +90,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     x <- gsub("[^A-Za-z0-9._-]+", "_", x)
     substr(x, 1, 120)
   }
+  .close_tf <- function(tf) try(Rsamtools::close.TabixFile(tf), silent = TRUE)
 
   # ---- build GRanges once ----
   gr_numeric <- GenomicRanges::GRanges(
@@ -116,18 +116,27 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (is.na(outcome_label) || !nzchar(outcome_label)) {
       outcome_label <- sprintf("panUKB_%03d", i)
     }
+    cache_file <- file.path(cache_root, paste0(.slug(outcome_label), ".rds"))
+
+    # resume from cache if available
+    if (file.exists(cache_file)) {
+      if (verbose) logger::log_info("Pan-UKB row {i}: using cached result {basename(cache_file)}")
+      MR_df$outcome_snps[[i]] <- readRDS(cache_file)
+      next
+    }
+
     url <- .clean_url(rec$aws_link[[1]])
     idx <- .clean_url(rec$aws_link_tabix[[1]])
 
     if (!is.character(url) || !nzchar(url) || !grepl("^(https?|s3)://", url)) {
       if (verbose) logger::log_warn("Pan-UKB row {i}: invalid or missing 'aws_link'; skipping")
       MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
       next
     }
     if (!is.character(idx) || !nzchar(idx) || !grepl("^(https?|s3)://", idx)) {
       if (verbose) logger::log_warn("Pan-UKB row {i}: invalid or missing 'aws_link_tabix'; skipping")
       MR_df$outcome_snps[[i]] <- tibble::tibble()
-      # cache formatted result for this phenotype
       try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
       next
     }
@@ -139,9 +148,9 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (!ok_open) {
       if (verbose) logger::log_warn("Pan-UKB row {i}: failed to open Tabix (data={url}, index={idx}); skipping")
       MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
       next
     }
-    on.exit(try(Rsamtools::close.TabixFile(tf), silent = TRUE), add = TRUE)
 
     # query all regions at once; if empty, retry with 'chr' prefix
     res <- Rsamtools::scanTabix(tf, param = gr_numeric)
@@ -150,6 +159,8 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
 
     if (!length(lines)) {
       MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+      .close_tf(tf)
       next
     }
 
@@ -163,6 +174,8 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (ncol(panukb_tmp) < length(need)) {
       if (verbose) logger::log_warn("Pan-UKB row {i}: expected >= {length(need)} columns, found {ncol(panukb_tmp)}; skipping")
       MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+      .close_tf(tf)
       next
     }
     if (ncol(panukb_tmp) > length(need)) {
@@ -201,6 +214,8 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (!"rsid" %in% names(panukb_std)) {
       if (verbose) logger::log_warn("Pan-UKB row {i}: RSID join failed; skipping")
       MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+      .close_tf(tf)
       next
     }
 
@@ -226,19 +241,19 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
         log_pval          = TRUE,
         phenotype_col     = "Phenotype"
       )
-      # keep helpers only (drop unused ancestry columns by design)
       panukb_fmt$chrpos <- panukb_std$chrpos
       panukb_fmt$low_confidence <- panukb_std$low_confidence
       MR_df$outcome_snps[[i]] <- tibble::as_tibble(panukb_fmt)
     } else {
-      # fallback: derive raw p and keep only needed columns
       panukb_std$pval <- 10^(-panukb_std$p_log10)
       MR_df$outcome_snps[[i]] <- tibble::as_tibble(
         dplyr::select(panukb_std, SNP, chr, pos, effect_allele, other_allele, beta, se, eaf, pval, chrpos, low_confidence)
       )
     }
 
-    try(Rsamtools::close.TabixFile(tf), silent = TRUE)
+    # cache formatted result for this phenotype and close tabix
+    try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+    .close_tf(tf)
   }
 
   total_rows <- sum(vapply(MR_df$outcome_snps, nrow, integer(1)))
