@@ -1,3 +1,4 @@
+#R/run_phenome.MR
 #' Run phenome-wide MR on ARDs (orchestrator)
 #'
 #' Builds the outcome plan, maps exposure SNPs, fetches outcome SNP rows,
