@@ -105,10 +105,6 @@ run_phenome_mr <- function(
   metrics$exposure_mapped <- nrow(exposure_snps2)
   logger::log_info("Exposure mapping: {metrics$exposure_in - metrics$exposure_mapped} filtered; {metrics$exposure_mapped} remain")
 
-
-  browser() #run up to here
-
-
   if (cfg$sex == "both") {
     logger::log_info("3) Pull Pan-UKB outcome SNP rows…")
     MR_df <- panukb_snp_grabber(exposure_snps2, MR_df, ancestry = cfg$ancestry, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
