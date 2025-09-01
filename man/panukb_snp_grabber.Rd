@@ -4,7 +4,7 @@
 \alias{panukb_snp_grabber}
 \title{Fetch outcome SNP rows from Pan-UKB sumstats for each outcome}
 \usage{
-panukb_snp_grabber(exposure_snps, MR_df, ancestry, cache_dir, verbose = TRUE)
+panukb_snp_grabber(exposure_snps, MR_df, ancestry, cache_dir = ardmr_cache_dir(), verbose = TRUE)
 }
 \arguments{
 \item{exposure_snps}{mapped snps (must include panukb_pos when implemented)}
@@ -13,7 +13,7 @@ panukb_snp_grabber(exposure_snps, MR_df, ancestry, cache_dir, verbose = TRUE)
 
 \item{ancestry}{character}
 
-\item{cache_dir}{path}
+\item{cache_dir}{path (default \code{ardmr_cache_dir()})}
 
 \item{verbose}{logical}
 }

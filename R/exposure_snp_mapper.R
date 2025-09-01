@@ -2,10 +2,11 @@
 #' @param exposure_snps data.frame/tibble with RSIDs (`rsid` or `SNP`)
 #' @param sex "both" → Pan-UKB; "male"/"female" → Neale
 #' @param cache_dir cache root holding the downloaded variant manifest
+#'   (default: [ardmr_cache_dir()])
 #' @param verbose logical; log counts
 #' @return exposure_snps with `panukb_chrom/pos` or `neale_chrom/pos`
 #' @export
-exposure_snp_mapper <- function(exposure_snps, sex, cache_dir, verbose = TRUE) {
+exposure_snp_mapper <- function(exposure_snps, sex, cache_dir = ardmr_cache_dir(), verbose = TRUE) {
   stopifnot(is.data.frame(exposure_snps))
   sex <- match.arg(tolower(sex), c("both","male","female"))
   catalog <- if (sex == "both") "panukb" else "neale"

@@ -13,7 +13,7 @@ mr_business_logic(
   snpforestplot,
   leaveoneoutplot,
   plot_output_dir,
-  cache_dir,
+  cache_dir = ardmr_cache_dir(),
   verbose = TRUE
 )
 }
@@ -30,7 +30,7 @@ mr_business_logic(
 
 \item{plot_output_dir}{output dir for optional per-outcome plots}
 
-\item{cache_dir}{path}
+\item{cache_dir}{path (default \code{ardmr_cache_dir()})}
 
 \item{verbose}{logical}
 }

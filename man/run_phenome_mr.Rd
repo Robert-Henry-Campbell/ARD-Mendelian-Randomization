@@ -17,7 +17,7 @@ run_phenome_mr(
   leaveoneoutplot = FALSE,
   plot_output_dir = "",
   Neale_GWAS_dir = NULL,
-  cache_dir = tools::R_user_dir("ardmr", "cache"),
+  cache_dir = ardmr_cache_dir(),
   logfile = NULL,
   verbose = TRUE
 )
@@ -41,7 +41,8 @@ run_phenome_mr(
 
 \item{Neale_GWAS_dir}{Optional path to Neale sumstats; created if missing.}
 
-\item{cache_dir}{Cache directory for temporary files (default: user cache).}
+\item{cache_dir}{Cache directory for temporary files (default:
+\code{ardmr_cache_dir()}).}
 
 \item{logfile}{Optional path to log file. Defaults to a timestamped file in
 \code{cache_dir} if not supplied.}

@@ -13,7 +13,8 @@
 #' @param scatterplot,snpforestplot,leaveoneoutplot Logical; produce per-outcome diagnostics.
 #' @param plot_output_dir Directory to write plots ("" = do not write).
 #' @param Neale_GWAS_dir Optional path to Neale sumstats; created if missing.
-#' @param cache_dir Cache directory for temporary files (default: user cache).
+#' @param cache_dir Cache directory for temporary files (default:
+#'   [ardmr_cache_dir()]).
 #' @param logfile Optional path to log file. Defaults to a timestamped file in
 #'   `cache_dir` if not supplied.
 #' @param verbose Logical; if `FALSE`, only warnings/errors are logged.
@@ -37,7 +38,7 @@ run_phenome_mr <- function(
     leaveoneoutplot = FALSE,
     plot_output_dir = "",
     Neale_GWAS_dir = NULL,
-    cache_dir = tools::R_user_dir("ardmr","cache"),
+    cache_dir = ardmr_cache_dir(),
     logfile = NULL,
     verbose = TRUE
 ) {
@@ -95,7 +96,7 @@ run_phenome_mr <- function(
   logger::log_info("Outcome setup: {metrics$outcomes} ARDs loaded")
 
   logger::log_info("1.1) Variant manifest downloading…")
-  Variant_manifest_downloader(catalog = cfg$catalog, overwrite = FALSE)
+  Variant_manifest_downloader(catalog = cfg$catalog, cache_dir = cfg$cache_dir, overwrite = FALSE)
 
   logger::log_info("2) Map exposure SNPs to provider positions…")
   n_before <- nrow(exposure_snps)

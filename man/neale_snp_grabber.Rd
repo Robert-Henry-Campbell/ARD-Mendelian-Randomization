@@ -4,7 +4,7 @@
 \alias{neale_snp_grabber}
 \title{Fetch outcome SNP rows from Neale sumstats for each outcome}
 \usage{
-neale_snp_grabber(exposure_snps, MR_df, neale_dir, cache_dir, verbose = TRUE)
+neale_snp_grabber(exposure_snps, MR_df, neale_dir, cache_dir = ardmr_cache_dir(), verbose = TRUE)
 }
 \arguments{
 \item{exposure_snps}{mapped snps (must include neale_pos when implemented)}
@@ -13,7 +13,7 @@ neale_snp_grabber(exposure_snps, MR_df, neale_dir, cache_dir, verbose = TRUE)
 
 \item{neale_dir}{directory with sumstats}
 
-\item{cache_dir}{path}
+\item{cache_dir}{path (default \code{ardmr_cache_dir()})}
 
 \item{verbose}{logical}
 }

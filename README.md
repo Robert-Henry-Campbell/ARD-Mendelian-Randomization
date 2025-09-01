@@ -25,6 +25,22 @@ Rscript -e "source('R/install_deps.R'); install_deps()"
 * `tabix` and `bgzip` (htslib) in your PATH
 * `wget` or `curl` for downloads (Neale / remote Pan-UKB slices)
 
+## Cache directory
+
+ARDMR caches large reference files (e.g., variant manifests) under a user
+specified directory. Set the location via the `ARDMR_CACHE_DIR` environment
+variable before running any functions:
+
+```bash
+export ARDMR_CACHE_DIR=/path/to/cache
+```
+
+Or within R:
+
+```r
+ardmr::set_cache_dir("/path/to/cache")
+```
+
 ---
 
 ## Quick start

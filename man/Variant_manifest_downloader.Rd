@@ -4,12 +4,13 @@
 \alias{Variant_manifest_downloader}
 \title{Download (if needed) the provider variant manifest (GRCh37) for RSID -> chr:pos mapping}
 \usage{
-Variant_manifest_downloader(catalog, data_root = "data", overwrite = FALSE)
+Variant_manifest_downloader(catalog, cache_dir = ardmr_cache_dir(), overwrite = FALSE)
 }
 \arguments{
 \item{catalog}{Character. One of \code{"neale"}, \code{"panukb"}.}
 
-\item{data_root}{Character. Root directory to store data (default \code{"data"}).}
+\item{cache_dir}{Character. Root directory to store data (default
+\code{ardmr_cache_dir()}).}
 
 \item{overwrite}{Logical. If \code{TRUE}, re-download even if the file exists.}
 }
@@ -20,8 +21,8 @@ Variant_manifest_downloader(catalog, data_root = "data", overwrite = FALSE)
 Downloads and caches the large \strong{variant manifest} required to map RSIDs to
 genomic positions for a given catalog (\code{"neale"} or \code{"panukb"}). Files are saved under:
 \itemize{
-\item \code{data/neale/variants.tsv.bgz}
-\item \code{data/panukb/full_variant_qc_metrics.txt.bgz}
+\item \code{<cache_dir>/neale/variants.tsv.bgz}
+\item \code{<cache_dir>/panukb/full_variant_qc_metrics.txt.bgz}
 }
 
 If the file already exists, nothing is downloaded.
