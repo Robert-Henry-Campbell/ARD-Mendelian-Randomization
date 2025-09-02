@@ -22,7 +22,8 @@ Imports:
     TwoSampleMR,
     Rsamtools,
     GenomicRanges,
-    IRanges
+    IRanges,
+    digest
 Suggests:
     testthat (>= 3.0.0),
     BiocManager          

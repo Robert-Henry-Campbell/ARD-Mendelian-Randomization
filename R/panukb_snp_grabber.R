@@ -82,6 +82,11 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (is.na(old_hts_cache)) Sys.unsetenv("HTS_CACHE_DIR") else Sys.setenv(HTS_CACHE_DIR = old_hts_cache)
   }, add = TRUE)
 
+  # cache directory for downloaded .tbi files (so they don't land in getwd())
+  idx_cache_dir <- file.path(cache_dir, "tabix_index")
+  dir.create(idx_cache_dir, recursive = TRUE, showWarnings = FALSE)
+
+
   # ---- setup RDS caching per-phenotype SNPs ----
   cache_root <- file.path(cache_dir, "panukb_outcome_snps", ancestry)
   dir.create(cache_root, recursive = TRUE, showWarnings = FALSE)
@@ -142,9 +147,29 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     }
 
     # Open remote tabix
-    tf <- Rsamtools::TabixFile(file = url, index = idx)
+    # ---- ensure the .tbi is cached locally (avoid Rsamtools writing to getwd) ----
+    idx_hash  <- tryCatch(digest::digest(idx, algo = "xxhash64"),
+                          error = function(e) digest::digest(idx))
+    idx_local <- file.path(idx_cache_dir, paste0(.slug(outcome_label), "_", idx_hash, ".tbi"))
+
+    if (!file.exists(idx_local)) {
+      if (verbose) logger::log_info("Pan-UKB row {i}: caching tabix index => {basename(idx_local)}")
+      ok_dl <- tryCatch({
+        utils::download.file(idx, destfile = idx_local, mode = "wb", quiet = !verbose)
+        TRUE
+      }, error = function(e) FALSE)
+      if (!ok_dl || !file.exists(idx_local)) {
+        if (verbose) logger::log_warn("Pan-UKB row {i}: failed to download index {idx}; skipping")
+        MR_df$outcome_snps[[i]] <- tibble::tibble()
+        next
+      }
+    }
+
+    # Open tabix using remote data URL + local index path
+    tf <- Rsamtools::TabixFile(file = url, index = idx_local)
     ok_open <- TRUE
     tryCatch(Rsamtools::open.TabixFile(tf), error = function(e) { ok_open <<- FALSE })
+
     if (!ok_open) {
       if (verbose) logger::log_warn("Pan-UKB row {i}: failed to open Tabix (data={url}, index={idx}); skipping")
       MR_df$outcome_snps[[i]] <- tibble::tibble()

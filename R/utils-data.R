@@ -23,3 +23,38 @@ assert_exposure <- function(x) {
   if (length(miss)) stop("exposure_snps missing columns: ", paste(miss, collapse=", "))
   invisible(TRUE)
 }
+
+
+fix_exposure_names <- function(df) {
+  stopifnot(is.data.frame(df))
+  nms  <- names(df)
+  nmsL <- tolower(nms)
+
+  # keep these unsuffixed (everything else gets '.exposure' if missing)
+  keep <- c("snp","exposure")
+
+  nms_fixed <- ifelse(
+    nmsL %in% keep,
+    nmsL,
+    ifelse(grepl("\\.exposure$", nmsL), nmsL, paste0(nmsL, ".exposure"))
+  )
+
+  # guard against accidental "exposure.exposure"
+  nms_fixed <- sub("^exposure\\.exposure$", "exposure", nms_fixed)
+
+  # de-dup just in case
+  nms_fixed <- make.unique(nms_fixed, sep = "_")
+
+  # enforce uppercase for the unsuffixed SNP column
+  nms_fixed[nms_fixed == "snp"] <- "SNP"
+
+  names(df) <- nms_fixed
+  tibble::as_tibble(df)
+}
+
+
+coerce_lowercase_colnames <- function(df) {
+  names(df) <- tolower(names(df))
+  return(df)
+}
+
