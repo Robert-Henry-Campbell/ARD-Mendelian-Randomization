@@ -1,3 +1,4 @@
+#R/mr_business_logic.R
 #' Harmonise, run MR methods, sensitivity & QC across outcomes (no auto-format of exposures)
 #' @param MR_df tibble with `outcome_snps` list-column (TwoSampleMR-formatted)
 #' @param exposure_snps exposure instruments (already asserted/validated; must have *.exposure cols)
@@ -16,7 +17,10 @@ mr_business_logic <- function(
     sensitivity_enabled,
     sensitivity_pass_min,
     scatterplot, snpforestplot, leaveoneoutplot,
-    plot_output_dir, cache_dir = ardmr_cache_dir(), verbose = TRUE
+    plot_output_dir,
+    cache_dir = ardmr_cache_dir(),
+    verbose = TRUE,
+    test = FALSE
 ) {
   if (!requireNamespace("TwoSampleMR", quietly = TRUE)) {
     stop("mr_business_logic() requires the TwoSampleMR package.", call. = FALSE)
@@ -37,8 +41,24 @@ mr_business_logic <- function(
   # ---- helpers ----
   .slug <- function(x) { x <- as.character(x); x[is.na(x)|!nzchar(x)] <- "NA"
   x <- gsub("[^A-Za-z0-9._-]+","_",x); substr(x,1,120) }
-  .nz <- function(x) !is.null(x) && length(x) > 0
+  .nz <- function(x) {
+    if (is.null(x)) return(FALSE)
+    if (is.data.frame(x)) return(nrow(x) > 0)  # require at least one row
+    length(x) > 0
+  }
   .as_num <- function(x) suppressWarnings(as.numeric(x))
+
+  .save_pub_plot <- function(plot, basepath, w_mm = 89, h_mm = 80, dpi = 500) {
+    # High-res PNG for quick viewing
+    ggplot2::ggsave(paste0(basepath, ".png"), plot,
+                    width = w_mm, height = h_mm, units = "mm",
+                    dpi = dpi, type = "cairo")         # better antialiasing
+    # Vector PDF for submission
+    ggplot2::ggsave(paste0(basepath, ".pdf"), plot,
+                    width = w_mm, height = h_mm, units = "mm",
+                    device = cairo_pdf)
+  }
+
 
   #quick naming of exposure columns
   exposure_snps <- fix_exposure_names(exposure_snps)
@@ -58,28 +78,57 @@ mr_business_logic <- function(
   if (!"harmonised"      %in% names(MR_df)) MR_df$harmonised      <- vector("list", nrow(MR_df))
   if (!"plots"           %in% names(MR_df)) MR_df$plots           <- vector("list", nrow(MR_df))
 
-  results_rows <- vector("list", nrow(MR_df))
+  # ---- pre-allocate all results_* columns on MR_df ----
+  add_col <- function(nm, prototype) {
+    if (!nm %in% names(MR_df)) MR_df[[nm]] <<- rep(prototype, nrow(MR_df))
+  }
+  add_col("results_outcome",              NA_character_)
+  add_col("results_nsnp_before",          NA_integer_)
+  add_col("results_nsnp_after",           NA_integer_)
+  add_col("results_beta_ivw",             NA_real_)
+  add_col("results_se_ivw",               NA_real_)
+  add_col("results_p_ivw",                NA_real_)
+  add_col("results_Q_ivw",                NA_real_)
+  add_col("results_Q_df_ivw",             NA_real_)
+  add_col("results_Q_p_ivw",              NA_real_)
+  add_col("results_I2_ivw",               NA_real_)
+  add_col("results_beta_egger",           NA_real_)
+  add_col("results_se_egger",             NA_real_)
+  add_col("results_p_egger",              NA_real_)
+  add_col("results_egger_intercept",      NA_real_)
+  add_col("results_egger_intercept_p",    NA_real_)
+  add_col("results_I2GX",                 NA_real_)
+  add_col("results_beta_wmed",            NA_real_)
+  add_col("results_se_wmed",              NA_real_)
+  add_col("results_p_wmed",               NA_real_)
+  add_col("results_beta_wmode",           NA_real_)
+  add_col("results_se_wmode",             NA_real_)
+  add_col("results_p_wmode",              NA_real_)
+  add_col("results_loo_flip",             NA)            # logical
+  add_col("results_steiger_fail_frac",    NA_real_)
+  add_col("results_checks_attempted",     NA_integer_)
+  add_col("results_checks_passed",        NA_integer_)
+  add_col("results_qc_pass",              NA)            # logical
 
-  # pre-allocate result columns to silence "Unknown or uninitialised column" warnings
-  if (!"qc_pass"      %in% names(MR_df)) MR_df$qc_pass      <- rep(NA, nrow(MR_df))
-  if (!"nsnp_before"  %in% names(MR_df)) MR_df$nsnp_before  <- rep(NA_integer_, nrow(MR_df))
-  if (!"nsnp_after"   %in% names(MR_df)) MR_df$nsnp_after   <- rep(NA_integer_, nrow(MR_df))
-  if (!"ivw_beta"     %in% names(MR_df)) MR_df$ivw_beta     <- rep(NA_real_,    nrow(MR_df))
-  if (!"ivw_se"       %in% names(MR_df)) MR_df$ivw_se       <- rep(NA_real_,    nrow(MR_df))
-  if (!"ivw_p"        %in% names(MR_df)) MR_df$ivw_p        <- rep(NA_real_,    nrow(MR_df))
-
-  # progress reporting
+  # just before creating the progress bar
   total <- nrow(MR_df)
-  pb <- utils::txtProgressBar(min = 0, max = total, style = 3)
+
+  # build the index of rows to run
+  idx <- seq_len(total)
+  if (isTRUE(test)) idx <- idx[seq_len(min(5L, total))]
+  n_to_run <- length(idx)
+  # progress bar uses the number we will actually run
+  pb <- utils::txtProgressBar(min = 0, max = n_to_run, style = 3)
   on.exit(try(close(pb), silent = TRUE), add = TRUE)
 
-  for (i in seq_len(nrow(MR_df))) {
 
-    #progress bar reporting
-    utils::setTxtProgressBar(pb, i)
-    if (i %% 10 == 0 || i == total) {
-      remaining <- total - i
-      logger::log_info("MR business: processed {i}/{total} outcomes; {remaining} to go")
+  for (k in seq_along(idx)) {
+    i <- idx[k]  # actual MR_df row we’re working on
+
+    utils::setTxtProgressBar(pb, k)
+    if (k %% 10 == 0 || k == n_to_run) {
+      remaining <- n_to_run - k
+      logger::log_info("MR business: processed {k}/{n_to_run} outcomes; {remaining} to go")
     }
 
 
@@ -108,20 +157,17 @@ mr_business_logic <- function(
     )
     if (is.null(hdat) || nrow(hdat) == 0) {
       MR_df$harmonised[[i]] <- tibble::tibble()
-      results_rows[[i]] <- tibble::tibble(
-        outcome = outcome_label,
-        nsnp_before = nsnp_start, nsnp_after = 0L,
-        beta_ivw = NA_real_, se_ivw = NA_real_, p_ivw = NA_real_,
-        Q_ivw = NA_real_, Q_df_ivw = NA_real_, Q_p_ivw = NA_real_, I2_ivw = NA_real_,
-        beta_egger = NA_real_, se_egger = NA_real_, p_egger = NA_real_,
-        egger_intercept = NA_real_, egger_intercept_p = NA_real_, I2GX = NA_real_,
-        beta_wmed = NA_real_, se_wmed = NA_real_, p_wmed = NA_real_,
-        beta_wmode = NA_real_, se_wmode = NA_real_, p_wmode = NA_real_,
-        loo_flip = NA, steiger_fail_frac = NA_real_,
-        checks_attempted = 0L, checks_passed = 0L, qc_pass = FALSE
-      )
+      # record results_* directly on MR_df
+      MR_df$results_outcome[i]           <- outcome_label
+      MR_df$results_nsnp_before[i]       <- nsnp_start
+      MR_df$results_nsnp_after[i]        <- 0L
+      MR_df$results_checks_attempted[i]  <- 0L
+      MR_df$results_checks_passed[i]     <- 0L
+      MR_df$results_qc_pass[i]           <- FALSE
       next
     }
+
+
     # Respect mr_keep if present
     hdat_use <- if ("mr_keep" %in% names(hdat)) hdat[hdat$mr_keep %in% TRUE, , drop = FALSE] else hdat
     MR_df$harmonised[[i]] <- hdat_use
@@ -155,6 +201,7 @@ mr_business_logic <- function(
       if (nrow(row) == 0) return(c(b = NA_real_, se = NA_real_, p = NA_real_, nsnp = NA_integer_))
       c(b = .as_num(row$b[1]), se = .as_num(row$se[1]), p = .as_num(row$pval[1]), nsnp = as.integer(row$nsnp[1]))
     }
+
     ivw   <- pick_est(mr_res, "Inverse variance weighted|mr_ivw")
     egger <- pick_est(mr_res, "Egger|egger_regression")
     wmed  <- pick_est(mr_res, "Weighted median|weighted_median")
@@ -166,33 +213,58 @@ mr_business_logic <- function(
       out_dir <- file.path(plot_output_dir, .slug(outcome_label))
       dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
+      # --- SCATTER ---
       if (scatterplot && !is.null(mr_res) && nrow(mr_res) > 0) {
         p_sc <- tryCatch(TS$mr_scatter_plot(mr_res, hdat_use), error = function(e) NULL)
         if (.nz(p_sc)) {
-          f <- file.path(out_dir, "scatter.png")
-          try(ggplot2::ggsave(f, p_sc[[1]], width = 6, height = 5, dpi = 150), silent = TRUE)
-          plot_files$scatter <- f
+          # save to a STEM (no extension) to avoid ".png.png" if your helper appends one
+          f_sc <- file.path(out_dir, "scatter")
+          .save_pub_plot(p_sc[[1]], f_sc, w_mm = 92, h_mm = 100)
+          plot_files$scatter <- paste0(f_sc, ".png")
         }
       }
+
+      # --- FOREST ---
       if (snpforestplot && nsnp_after > 1) {
         single <- tryCatch(TS$mr_singlesnp(hdat_use), error = function(e) NULL)
         if (.nz(single)) {
+          # shorten pooled label in the data
+          single$SNP <- gsub(
+            "^All\\s*-\\s*Inverse variance weighted(?:\\s*\\((?:fixed|random) effects\\))?$",
+            "All - IVW",
+            single$SNP
+          )
+
           p_forest <- tryCatch(TS$mr_forest_plot(single), error = function(e) NULL)
           if (.nz(p_forest)) {
-            f <- file.path(out_dir, "forest.png")
-            try(ggplot2::ggsave(f, p_forest[[1]], width = 6, height = 7, dpi = 150), silent = TRUE)
-            plot_files$forest <- f
+            # also relabel on the axis + wrap long SNP labels so they don't run off
+            pf <- p_forest[[1]] +
+              ggplot2::scale_y_discrete(
+                labels = if (requireNamespace("scales", quietly = TRUE))
+                  scales::label_wrap(28) else function(x) x
+              ) +
+              ggplot2::scale_y_discrete(labels = function(x) gsub(
+                "^All\\s*-\\s*Inverse variance weighted(?:\\s*\\((?:fixed|random) effects\\))?$",
+                "All - IVW", x
+              ))
+
+            f_forest <- file.path(out_dir, "forest")
+            # IMPORTANT: save the forest object, not the scatter
+            .save_pub_plot(pf, f_forest, h_mm = 80, w_mm = 89)
+            plot_files$forest <- paste0(f_forest, ".png")
           }
         }
       }
+
+      # --- LEAVE-ONE-OUT ---
       if (leaveoneoutplot && nsnp_after > 1) {
         loo_tmp <- tryCatch(TS$mr_leaveoneout(hdat_use), error = function(e) NULL)
         if (.nz(loo_tmp)) {
           p_loo <- tryCatch(TS$mr_leaveoneout_plot(loo_tmp), error = function(e) NULL)
           if (.nz(p_loo)) {
-            f <- file.path(out_dir, "leaveoneout.png")
-            try(ggplot2::ggsave(f, p_loo[[1]], width = 6, height = 5, dpi = 150), silent = TRUE)
-            plot_files$leaveoneout <- f
+            f_loo <- file.path(out_dir, "leaveoneout")  # stem (no extension)
+            .save_pub_plot(p_loo[[1]], f_loo)           # keep your defaults
+            plot_files$leaveoneout <- paste0(f_loo, ".png")
           }
         }
       }
@@ -219,12 +291,19 @@ mr_business_logic <- function(
 
     # 1e) Egger: slope & intercept; I2GX for precision
     egger_int <- tryCatch(TS$mr_pleiotropy_test(hdat_use), error = function(e) NULL)
+    if (is.null(egger_int)) egger_int <- tibble::tibble()   # ensure tibble, not NULL
     MR_df$egger_intercept[[i]] <- egger_int
-    egger_int_est <- egger_int_p <- I2GX <- NA_real_
-    if (.nz(egger_int)) {
-      egger_int_est <- .as_num(egger_int$estimate[1])
+
+    egger_int_est <- NA_real_
+    egger_int_p   <- NA_real_
+    I2GX          <- NA_real_
+
+    # use the columns you actually have: egger_intercept, pval
+    if (nrow(egger_int) > 0) {
+      egger_int_est <- .as_num(egger_int$egger_intercept[1])
       egger_int_p   <- .as_num(egger_int$pval[1])
     }
+
     if (nsnp_after > 1 && all(c("beta.exposure","se.exposure") %in% names(hdat_use))) {
       I2GX_raw <- tryCatch(TS$Isq(hdat_use$beta.exposure, hdat_use$se.exposure), error = function(e) NA_real_)
       if (is.list(I2GX_raw) && "I2" %in% names(I2GX_raw)) I2GX_raw <- I2GX_raw$I2
@@ -239,6 +318,7 @@ mr_business_logic <- function(
     } else {
       chk_Eslope <- if ("egger_slope_agreement" %in% enabled) check_pass(isTRUE(slope_agree)) else NA
     }
+
 
     # 1f/1g) Weighted median/mode checks (sign agreement + |Δβ| <= 1*SE_IVW)
     compare_to_ivw <- function(b_alt) {
@@ -283,34 +363,53 @@ mr_business_logic <- function(
     core_viable <- is.finite(as.numeric(ivw["b"])) && is.finite(as.numeric(ivw["se"]))
     qc_ok <- (checks_passed >= sensitivity_pass_min) && core_viable
 
-    # results row
-    results_rows[[i]] <- tibble::tibble(
-      outcome = outcome_label,
-      nsnp_before = nsnp_start,
-      nsnp_after  = nsnp_after,
-      beta_ivw = as.numeric(ivw["b"]),  se_ivw = as.numeric(ivw["se"]),  p_ivw = as.numeric(ivw["p"]),
-      Q_ivw = Q_ivw, Q_df_ivw = Q_df_ivw, Q_p_ivw = Q_p_ivw, I2_ivw = I2_ivw,
-      beta_egger = as.numeric(egger["b"]), se_egger = as.numeric(egger["se"]), p_egger = as.numeric(egger["p"]),
-      egger_intercept = egger_int_est, egger_intercept_p = egger_int_p, I2GX = I2GX,
-      beta_wmed = as.numeric(wmed["b"]),  se_wmed = as.numeric(wmed["se"]),  p_wmed = as.numeric(wmed["p"]),
-      beta_wmode = as.numeric(wmode["b"]), se_wmode = as.numeric(wmode["se"]), p_wmode = as.numeric(wmode["p"]),
-      loo_flip = if (is.na(chk_LOO)) NA else !chk_LOO,
-      steiger_fail_frac = steiger_fail_frac,
-      checks_attempted = checks_attempted,
-      checks_passed = checks_passed,
-      qc_pass = qc_ok
-    )
+    # write all results_* fields directly on MR_df
+    MR_df$results_outcome[i]            <- outcome_label
+    MR_df$results_nsnp_before[i]        <- nsnp_start
+    MR_df$results_nsnp_after[i]         <- nsnp_after
+    MR_df$results_beta_ivw[i]           <- as.numeric(ivw["b"])
+    MR_df$results_se_ivw[i]             <- as.numeric(ivw["se"])
+    MR_df$results_p_ivw[i]              <- as.numeric(ivw["p"])
+    MR_df$results_Q_ivw[i]              <- Q_ivw
+    MR_df$results_Q_df_ivw[i]           <- Q_df_ivw
+    MR_df$results_Q_p_ivw[i]            <- Q_p_ivw
+    MR_df$results_I2_ivw[i]             <- I2_ivw
+    MR_df$results_beta_egger[i]         <- as.numeric(egger["b"])
+    MR_df$results_se_egger[i]           <- as.numeric(egger["se"])
+    MR_df$results_p_egger[i]            <- as.numeric(egger["p"])
+    MR_df$results_egger_intercept[i]    <- egger_int_est
+    MR_df$results_egger_intercept_p[i]  <- egger_int_p
+    MR_df$results_I2GX[i]               <- I2GX
+    MR_df$results_beta_wmed[i]          <- as.numeric(wmed["b"])
+    MR_df$results_se_wmed[i]            <- as.numeric(wmed["se"])
+    MR_df$results_p_wmed[i]             <- as.numeric(wmed["p"])
+    MR_df$results_beta_wmode[i]         <- as.numeric(wmode["b"])
+    MR_df$results_se_wmode[i]           <- as.numeric(wmode["se"])
+    MR_df$results_p_wmode[i]            <- as.numeric(wmode["p"])
+    MR_df$results_loo_flip[i]           <- if (is.na(chk_LOO)) NA else !chk_LOO
+    MR_df$results_steiger_fail_frac[i]  <- steiger_fail_frac
+    MR_df$results_checks_attempted[i]   <- checks_attempted
+    MR_df$results_checks_passed[i]      <- checks_passed
+    MR_df$results_qc_pass[i]            <- qc_ok
 
-    # compact summary back on MR_df
-    MR_df$qc_pass[i]     <- qc_ok
-    MR_df$nsnp_before[i] <- nsnp_start
-    MR_df$nsnp_after[i]  <- nsnp_after
-    MR_df$ivw_beta[i]    <- as.numeric(ivw["b"])
-    MR_df$ivw_se[i]      <- as.numeric(ivw["se"])
-    MR_df$ivw_p[i]       <- as.numeric(ivw["p"])
   }
 
-  results_df <- dplyr::bind_rows(results_rows)
+  # derive results_df from MR_df's results_* columns (+ carry group/meta)
+  results_cols <- grep("^results_", names(MR_df), value = TRUE)
+  group_meta <- intersect(
+    c("Cause Name", "Cause Hierarchy Level", "ICD10",
+      "cause_level_1", "cause_level_2", "cause_level_3", "_cause_level_4",
+      "icd10_explo", "pheno_sex", "description", "plots"),
+    names(MR_df)
+  )
+  results_df <- tibble::as_tibble(
+    dplyr::bind_cols(
+      MR_df[, group_meta, drop = FALSE],
+      MR_df[, results_cols, drop = FALSE]
+    )
+  )
+
   if (verbose) logger::log_info("MR business logic: {nrow(results_df)} outcomes analysed")
   list(MR_df = MR_df, results_df = results_df)
+
 }

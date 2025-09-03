@@ -1,3 +1,4 @@
+#/R/exposure_snp_mapper.R
 #' Map RSIDs to provider-specific positions and append columns
 #' @param exposure_snps data.frame/tibble with RSIDs (`rsid` or `SNP`)
 #' @param sex "both" → Pan-UKB; "male"/"female" → Neale

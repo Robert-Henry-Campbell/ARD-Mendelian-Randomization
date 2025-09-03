@@ -33,11 +33,9 @@ run_phenome_mr <- function(
     ),
     sensitivity_pass_min = 6,
     Multiple_testing_correction = c("BH","bonferroni"),
-    scatterplot = FALSE,
-    snpforestplot = FALSE,
-    leaveoneoutplot = FALSE,
-    plot_output_dir = "",
-    Neale_GWAS_dir = NULL,
+    scatterplot = TRUE,
+    snpforestplot = TRUE,
+    leaveoneoutplot = TRUE,
     cache_dir = ardmr_cache_dir(),
     logfile = NULL,
     verbose = TRUE
@@ -48,12 +46,13 @@ run_phenome_mr <- function(
   if (missing(ancestry) || !nzchar(ancestry)) stop("`ancestry` is mandatory.")
   assert_exposure(exposure_snps)
   if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
-  if (nzchar(plot_output_dir) && !dir.exists(plot_output_dir)) {
-    dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
-  }
-  if (!is.null(Neale_GWAS_dir) && !dir.exists(Neale_GWAS_dir)) {
-    dir.create(Neale_GWAS_dir, recursive = TRUE, showWarnings = FALSE)
-  }
+
+  # Always derive standard subfolders inside cache_dir
+  plot_output_dir <- file.path(cache_dir, "plots")
+  Neale_GWAS_dir  <- file.path(cache_dir, "neale_sumstats")
+  dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(Neale_GWAS_dir,  recursive = TRUE, showWarnings = FALSE)
+
 
   # ---- choose catalog ----
   catalog <- if (sex == "both") {

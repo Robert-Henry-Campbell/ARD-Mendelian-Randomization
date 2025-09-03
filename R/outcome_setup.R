@@ -1,3 +1,4 @@
+#R/outcome_setup.R
 #' Build the outcome plan (`MR_df`) by mapping ARD phenotypes to GWAS manifests
 #'
 #' @description
