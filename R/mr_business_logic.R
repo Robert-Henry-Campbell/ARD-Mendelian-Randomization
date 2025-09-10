@@ -168,8 +168,8 @@ mr_business_logic <- function(
     }
 
 
-    # Respect mr_keep if present
-    hdat_use <- if ("mr_keep" %in% names(hdat)) hdat[hdat$mr_keep %in% TRUE, , drop = FALSE] else hdat
+    # Respect mr_keep if present (drop NAs)
+    hdat_use <- if ("mr_keep" %in% names(hdat)) hdat[!is.na(hdat$mr_keep) & hdat$mr_keep, , drop = FALSE] else hdat
     MR_df$harmonised[[i]] <- hdat_use
     nsnp_after <- length(unique(hdat_use$SNP))
     if (nsnp_after < 1) {
@@ -189,8 +189,8 @@ mr_business_logic <- function(
     }
 
     # 1) Main MR
-    method_list <- if (nsnp_after == 1) "mr_wald_ratio"
-    else c("mr_ivw", "mr_egger_regression", "mr_weighted_median", "mr_weighted_mode")
+    method_list <- if (nsnp_after == 1) "mr_wald_ratio" else
+      c("mr_ivw", "mr_egger_regression", "mr_weighted_median", "mr_weighted_mode")
     mr_res <- tryCatch(TS$mr(hdat_use, method_list = method_list), error = function(e) NULL)
     MR_df$mr_summary[[i]] <- mr_res
 
@@ -202,7 +202,8 @@ mr_business_logic <- function(
       c(b = .as_num(row$b[1]), se = .as_num(row$se[1]), p = .as_num(row$pval[1]), nsnp = as.integer(row$nsnp[1]))
     }
 
-    ivw   <- pick_est(mr_res, "Inverse variance weighted|mr_ivw")
+    ivw_pattern <- if (nsnp_after == 1) "Wald ratio|mr_wald_ratio" else "Inverse variance weighted|mr_ivw"
+    ivw   <- pick_est(mr_res, ivw_pattern)
     egger <- pick_est(mr_res, "Egger|egger_regression")
     wmed  <- pick_est(mr_res, "Weighted median|weighted_median")
     wmode <- pick_est(mr_res, "Weighted mode|weighted_mode")
@@ -272,7 +273,7 @@ mr_business_logic <- function(
     MR_df$plots[[i]] <- plot_files
 
     # 1d) IVW heterogeneity (Q, I2)
-    het <- tryCatch(TS$mr_heterogeneity(hdat_use, method_list = c("mr_ivw","mr_egger_regression")), error = function(e) NULL)
+    het <- if (nsnp_after > 1) tryCatch(TS$mr_heterogeneity(hdat_use, method_list = c("mr_ivw","mr_egger_regression")), error = function(e) NULL) else NULL
     MR_df$heterogeneity[[i]] <- het
     Q_ivw <- Q_df_ivw <- Q_p_ivw <- I2_ivw <- NA_real_
     if (.nz(het)) {
@@ -286,8 +287,8 @@ mr_business_logic <- function(
         }
       }
     }
-    chk_Q  <- if ("ivw_Q" %in% enabled)  check_pass(!(is.na(Q_p_ivw) || Q_p_ivw < 0.05)) else NA
-    chk_I2 <- if ("ivw_I2" %in% enabled) check_pass(!(is.na(I2_ivw) || I2_ivw > 50)) else NA
+    chk_Q  <- if (nsnp_after > 1 && "ivw_Q" %in% enabled)  check_pass(!(is.na(Q_p_ivw) || Q_p_ivw < 0.05)) else NA
+    chk_I2 <- if (nsnp_after > 1 && "ivw_I2" %in% enabled) check_pass(!(is.na(I2_ivw) || I2_ivw > 50)) else NA
 
     # 1e) Egger: slope & intercept; I2GX for precision
     egger_int <- tryCatch(TS$mr_pleiotropy_test(hdat_use), error = function(e) NULL)
@@ -308,15 +309,16 @@ mr_business_logic <- function(
       I2GX_raw <- tryCatch(TS$Isq(hdat_use$beta.exposure, hdat_use$se.exposure), error = function(e) NA_real_)
       if (is.list(I2GX_raw) && "I2" %in% names(I2GX_raw)) I2GX_raw <- I2GX_raw$I2
       I2GX <- suppressWarnings(as.numeric(I2GX_raw))
-      if (!is.na(I2GX) && I2GX > 1) I2GX <- I2GX / 100
+      if (!is.na(I2GX) && I2GX >= 1) I2GX <- I2GX / 100
     }
     chk_Eint  <- if ("egger_intercept" %in% enabled) check_pass(!(is.na(egger_int_p) || egger_int_p < 0.05)) else NA
     slope_agree <- (sign(ivw["b"]) == sign(egger["b"]))
-    if (is.na(slope_agree)) slope_agree <- NA
     if (!is.na(I2GX) && I2GX < 0.60) {
       chk_Eslope <- if ("egger_slope_agreement" %in% enabled) check_pass(TRUE) else NA
+    } else if (!is.na(slope_agree)) {
+      chk_Eslope <- if ("egger_slope_agreement" %in% enabled) check_pass(slope_agree) else NA
     } else {
-      chk_Eslope <- if ("egger_slope_agreement" %in% enabled) check_pass(isTRUE(slope_agree)) else NA
+      chk_Eslope <- NA
     }
 
 
@@ -325,7 +327,8 @@ mr_business_logic <- function(
       if (is.na(ivw["b"]) || is.na(ivw["se"]) || is.na(b_alt)) return(NA)
       agree  <- sign(b_alt) == sign(ivw["b"])
       within <- abs(b_alt - ivw["b"]) <= as.numeric(ivw["se"])
-      isTRUE(agree && within)
+      if (is.na(agree) || is.na(within)) return(NA)
+      agree && within
     }
     chk_Wmed  <- if ("weighted_median" %in% enabled) check_pass(compare_to_ivw(wmed["b"]))  else NA
     chk_Wmode <- if ("weighted_mode"   %in% enabled) check_pass(compare_to_ivw(wmode["b"])) else NA
@@ -361,7 +364,11 @@ mr_business_logic <- function(
 
     # QC decision
     core_viable <- is.finite(as.numeric(ivw["b"])) && is.finite(as.numeric(ivw["se"]))
-    qc_ok <- (checks_passed >= sensitivity_pass_min) && core_viable
+    qc_ok <- if (nsnp_after == 1) {
+      core_viable
+    } else {
+      (checks_passed >= sensitivity_pass_min) && core_viable
+    }
 
     # write all results_* fields directly on MR_df
     MR_df$results_outcome[i]            <- outcome_label
@@ -398,7 +405,7 @@ mr_business_logic <- function(
   results_cols <- grep("^results_", names(MR_df), value = TRUE)
   group_meta <- intersect(
     c("Cause Name", "Cause Hierarchy Level", "ICD10",
-      "cause_level_1", "cause_level_2", "cause_level_3", "_cause_level_4",
+      "cause_level_1", "cause_level_2", "cause_level_3", "cause_level_4",
       "icd10_explo", "pheno_sex", "description", "plots"),
     names(MR_df)
   )
