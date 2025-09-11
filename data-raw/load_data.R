@@ -25,6 +25,19 @@ bothsex_ARD <- read_csv(bothsex_ARD_csv, show_col_types = FALSE)
 male_ARD <- read_csv(male_ARD_csv, show_col_types = FALSE)
 female_ARD <- read_csv(female_ARD_csv, show_col_types = FALSE)
 
+# ---- Sex All cause (CSV) ---
+bothsex_all_csv <- file.path(data_dir, "AllCauses/bothsex_all_MR_ready.csv")
+male_all_csv <- file.path(data_dir, "AllCauses/male_all_MR_ready.csv")
+female_all_csv <- file.path(data_dir, "AllCauses/female_all_MR_ready.csv")
+
+req(bothsex_all_csv)
+req(male_all_csv)
+req(female_all_csv)
+
+bothsex_all <- read_csv(bothsex_all_csv, show_col_types = FALSE)
+male_all <- read_csv(male_all_csv, show_col_types = FALSE)
+female_all <- read_csv(female_all_csv, show_col_types = FALSE)
+
 # ---- Pan-UKB (CSV) ----
 panukb_csv <- file.path(data_dir, "panUKB/PanUKB.phenotype.manifest.trimmed.csv")
 req(panukb_csv)
@@ -56,6 +69,9 @@ use_data(
   bothsex_ARD,
   male_ARD,
   female_ARD,
+  bothsex_all,
+  male_all,
+  female_all,
   panukb_pheno_manifest,
   neale_file_manifest,
   neale_male_manifest,

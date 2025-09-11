@@ -4,51 +4,90 @@
 #' @param results_df tidy results (must contain p_ivw; ideally qc_pass)
 #' @param Multiple_testing_correction "BH" or "bonferroni"
 #' @param alpha significance level for corrections (default 0.05)
+#' @param verbose if TRUE, emit step-by-step logs via {logger}
 #' @export
 manhattan_plot <- function(results_df,
                            Multiple_testing_correction = c("BH","bonferroni"),
-                           alpha = 0.05) {
+                           alpha = 0.05,
+                           verbose = TRUE) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
 
   if (is.null(results_df) || !nrow(results_df)) {
+    if (verbose) logger::log_warn("Manhattan: input results_df is NULL or has 0 rows; returning placeholder plot.")
     return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no results)"))
   }
+
+  if (verbose) logger::log_info("Manhattan: starting with {nrow(results_df)} rows; MTC = {Multiple_testing_correction}, alpha = {alpha}")
+
   df <- tibble::as_tibble(results_df)
 
   # keep only QC-pass (if column missing, assume all pass)
-  if (!"qc_pass" %in% names(df)) df$qc_pass <- TRUE
+  if (!"qc_pass" %in% names(df)) {
+    if (verbose) logger::log_info("Manhattan: 'qc_pass' column not present; assuming all pass.")
+    df$qc_pass <- TRUE
+  }
+  n_before <- nrow(df)
   df <- dplyr::filter(df, .data$qc_pass %in% TRUE)
+  n_after  <- nrow(df)
+  if (verbose) logger::log_info("Manhattan: filtered to QC-pass => {n_after}/{n_before} rows remain.")
 
   if (!nrow(df) || !"p_ivw" %in% names(df)) {
+    if (!"p_ivw" %in% names(df) && verbose) {
+      logger::log_warn("Manhattan: required column 'p_ivw' missing after filtering; returning placeholder plot.")
+    } else if (verbose) {
+      logger::log_warn("Manhattan: no QC-pass rows; returning placeholder plot.")
+    }
     return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no QC-pass results)"))
   }
 
   # group label for coloring (use whatever is available)
+  group_source <- NULL
   group_col <- dplyr::coalesce(
     df$cause_level_3 %||% NULL,
     df$cause_level_2 %||% NULL,
     df$gbd_cause     %||% NULL
   )
+  if (!is.null(df$cause_level_3 %||% NULL)) group_source <- "cause_level_3" else
+    if (!is.null(df$cause_level_2 %||% NULL)) group_source <- "cause_level_2" else
+      if (!is.null(df$gbd_cause %||% NULL))   group_source <- "gbd_cause" else
+        group_source <- "constant('All')"
+
   if (is.null(group_col)) group_col <- factor("All")
   df$group <- as.factor(group_col)
 
-  # positions
+  if (verbose) {
+    logger::log_info("Manhattan: grouping by {group_source}; {length(levels(df$group))} groups.")
+  }
+
+  # positions (deterministic within group, then outcome label if present)
   df <- dplyr::arrange(df, .data$group, dplyr::coalesce(.data$outcome, ""))
   df$idx <- seq_len(nrow(df))
 
   # -log10 p
   df$logp <- -log10(pmax(df$p_ivw, .Machine$double.xmin))
+  if (verbose) {
+    rng <- range(df$logp, finite = TRUE)
+    logger::log_info("Manhattan: computed -log10(p); range = [{round(rng[1], 3)}, {round(rng[2], 3)}].")
+  }
 
   # Multiple testing handling
   if (Multiple_testing_correction == "BH") {
     df$q_bh <- stats::p.adjust(df$p_ivw, method = "BH")
     df$sig  <- df$q_bh < alpha
     thr_y   <- NA_real_
+    if (verbose) {
+      n_sig <- sum(df$sig %in% TRUE, na.rm = TRUE)
+      logger::log_info("Manhattan: BH adjustment done; {n_sig} hits at q < {alpha}. No single threshold line drawn.")
+    }
   } else {
     m       <- nrow(df)
     alpha_b <- alpha / max(1L, m)
     df$sig  <- df$p_ivw < alpha_b
     thr_y   <- -log10(alpha_b)
+    if (verbose) {
+      n_sig <- sum(df$sig %in% TRUE, na.rm = TRUE)
+      logger::log_info("Manhattan: Bonferroni with m={m}; alpha_b={signif(alpha_b, 3)}; threshold y={round(thr_y, 3)}; {n_sig} hits.")
+    }
   }
 
   p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$idx, y = .data$logp, colour = .data$group)) +
@@ -64,6 +103,7 @@ manhattan_plot <- function(results_df,
       panel.grid.minor.x = ggplot2::element_blank()
     )
 
+  if (verbose) logger::log_info("Manhattan: plot object constructed; returning ggplot.")
   p
 }
 
