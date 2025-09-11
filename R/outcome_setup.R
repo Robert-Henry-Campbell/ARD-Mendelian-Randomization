@@ -25,7 +25,7 @@ Outcome_setup <- function(sex, ancestry) {
   }
 
   # ---- select ARD tibble ---------------------------------------------------
-  ard_df <- switch(
+  pheno_df <- switch(
     sex,
     "both"   = get_pkg_obj("bothsex_ARD"),
     "male"   = get_pkg_obj("male_ARD"),
@@ -33,7 +33,7 @@ Outcome_setup <- function(sex, ancestry) {
   )
 
   logger::log_info(
-    "ARD phenotypes| {nrow(ard_df)} rows; {dplyr::n_distinct(ard_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(ard_df$cause_level_3)} unique causes"
+    "ARD+non-ARD phenotypes| {nrow(pheno_df)} rows; {dplyr::n_distinct(pheno_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(pheno_df$cause_level_3)} unique causes"
   )
 
   # ---- load manifest -------------------------------------------------------
@@ -48,7 +48,7 @@ Outcome_setup <- function(sex, ancestry) {
   }
 
   # ---- map ICD10 to manifest ----------------------------------------------
-  MR_df <- dplyr::left_join(ard_df, manifest, by = c("ICD10_explo" = join_col))
+  MR_df <- dplyr::left_join(pheno_df, manifest, by = c("ICD10_explo" = join_col))
 
   mapped <- !is.na(MR_df[[ncol(MR_df)]]) #hand editted
   n_total <- nrow(MR_df)
