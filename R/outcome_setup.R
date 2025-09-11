@@ -27,9 +27,9 @@ Outcome_setup <- function(sex, ancestry) {
   # ---- select ARD tibble ---------------------------------------------------
   pheno_df <- switch(
     sex,
-    "both"   = get_pkg_obj("bothsex_ARD"),
-    "male"   = get_pkg_obj("male_ARD"),
-    "female" = get_pkg_obj("female_ARD")
+    "both"   = get_pkg_obj("bothsex_all"),
+    "male"   = get_pkg_obj("male_all"),
+    "female" = get_pkg_obj("female_all")
   )
 
   logger::log_info(
