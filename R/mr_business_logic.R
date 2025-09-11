@@ -406,7 +406,7 @@ mr_business_logic <- function(
   group_meta <- intersect(
     c("Cause Name", "Cause Hierarchy Level", "ICD10",
       "cause_level_1", "cause_level_2", "cause_level_3", "cause_level_4",
-      "icd10_explo", "pheno_sex", "description", "plots"),
+      "icd10_explo", "pheno_sex", "description", "plots","ARD_selected"),
     names(MR_df)
   )
   results_df <- tibble::as_tibble(
