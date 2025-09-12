@@ -32,8 +32,10 @@ Outcome_setup <- function(sex, ancestry) {
     "female" = get_pkg_obj("female_all")
   )
 
+  n_ard <- sum(pheno_df$ARD_selected)
+  n_non <- nrow(pheno_df) - n_ard
   logger::log_info(
-    "ARD+non-ARD phenotypes| {nrow(pheno_df)} rows; {dplyr::n_distinct(pheno_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(pheno_df$cause_level_3)} unique causes"
+    "ARD+non-ARD phenotypes| {nrow(pheno_df)} rows ({n_ard} ARD, {n_non} non-ARD); {dplyr::n_distinct(pheno_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(pheno_df$cause_level_3)} unique causes"
   )
 
   # ---- load manifest -------------------------------------------------------
