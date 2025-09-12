@@ -273,8 +273,21 @@ mr_business_logic <- function(
     MR_df$plots[[i]] <- plot_files
 
     # 1d) IVW heterogeneity (Q, I2)
-    het <- if (nsnp_after > 1) tryCatch(TS$mr_heterogeneity(hdat_use, method_list = c("mr_ivw","mr_egger_regression")), error = function(e) NULL) else NULL
-    MR_df$heterogeneity[[i]] <- het
+    #testing a potential issue with null het shrinking row size
+    het <- if (nsnp_after > 1) {
+      tryCatch(TS$mr_heterogeneity(hdat_use, method_list = c("mr_ivw","mr_egger_regression")),
+               error = function(e) NULL)
+    } else {
+      NULL
+    }
+
+    # ensure the stored value is never a raw NULL (which would delete the element)
+    if (is.null(het)) het <- tibble::tibble()
+
+    # always assign list-cols with [i] <- list(...)
+    MR_df$heterogeneity[i] <- list(het)
+
+
     Q_ivw <- Q_df_ivw <- Q_p_ivw <- I2_ivw <- NA_real_
     if (.nz(het)) {
       row_ivw <- het[grepl("Inverse variance weighted|mr_ivw", het$method, ignore.case = TRUE), , drop = FALSE]
