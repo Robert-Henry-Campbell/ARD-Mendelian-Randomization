@@ -7,7 +7,8 @@
 #' GWAS manifest. The table contains age-related disease (ARD) and non-ARD
 #' phenotypes; `ARD_selected` marks the ARD subset. Pan-UKB is used when
 #' `sex == "both"`; otherwise Neale manifests are consulted. Phenotypes with no
-#' available GWAS are dropped.
+#' available GWAS are dropped and duplicated ICD10 codes are resolved using
+#' `ARD_selected` as a tiebreaker.
 #'
 #' @param sex Character. One of `"both"`, `"male"`, or `"female"`.
 #' @param ancestry Character ancestry code. If `sex` is `"male"` or
@@ -59,6 +60,49 @@ Outcome_setup <- function(sex, ancestry) {
   logger::log_info("Mapped {n_mapped} of {n_total} phenotypes; {n_total - n_mapped} without available GWAS")
 
   MR_df <- MR_df[!is.na(MR_df[[ncol(MR_df)]]), ] #for some reason using mapped isn't ok here
+  # ---- resolve duplicate ICD10s -------------------------------------------
+  dup_stats <- MR_df |>
+    dplyr::group_by(ICD10_explo) |>
+    dplyr::summarise(
+      n = dplyr::n(),
+      n_true = sum(ARD_selected %in% TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::filter(n > 1) |>
+    dplyr::mutate(
+      resolution = dplyr::case_when(
+        n_true > n / 2 ~ "ARD",
+        n_true < n / 2 ~ "non-ARD",
+        TRUE ~ "dropped"
+      )
+    )
+
+  logger::log_info(
+    "Duplicate ICD10 resolution| {nrow(dup_stats)} codes ({sum(dup_stats$resolution == 'ARD')} ARD, {sum(dup_stats$resolution == 'non-ARD')} non-ARD, {sum(dup_stats$resolution == 'dropped')} dropped)"
+  )
+
+  if (nrow(dup_stats) > 0) {
+    MR_df <- MR_df |>
+      dplyr::group_by(ICD10_explo) |>
+      dplyr::group_modify(~{
+        n <- nrow(.x)
+        if (n == 1) return(.x)
+
+        n_true <- sum(.x$ARD_selected %in% TRUE)
+        if (n_true > n / 2) {
+          .x |>
+            dplyr::filter(ARD_selected %in% TRUE) |>
+            dplyr::slice(1)
+        } else if (n_true < n / 2) {
+          .x |>
+            dplyr::filter(!(ARD_selected %in% TRUE)) |>
+            dplyr::slice(1)
+        } else {
+          .x[0, ]
+        }
+      }) |>
+      dplyr::ungroup()
+  }
 
   MR_df
 }
