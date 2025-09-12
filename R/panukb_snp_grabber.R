@@ -36,7 +36,11 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
   }
 
   # ---- exposure mapping cols ----
-  req_cols <- c("panukb_chrom","panukb_pos","rsid")
+  req_cols <- c("panukb_chrom","panukb_pos","rsid","effect_allele.exposure")
+  if (!"effect_allele.exposure" %in% names(exposure_snps) &&
+      "effect_allele" %in% names(exposure_snps)) {
+    exposure_snps <- dplyr::rename(exposure_snps, effect_allele.exposure = effect_allele)
+  }
   missing <- setdiff(req_cols, names(exposure_snps))
   if (length(missing)) {
     stop("exposure_snps missing columns: ", paste(missing, collapse = ", "),
@@ -44,7 +48,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
   }
 
   exp_lu <- tibble::as_tibble(exposure_snps) |>
-    dplyr::select(rsid, panukb_chrom, panukb_pos, effect_allele) |>
+    dplyr::select(rsid, panukb_chrom, panukb_pos, effect_allele.exposure) |>
     dplyr::distinct()
 
   # ---- enforce link columns in MR_df ----
@@ -233,7 +237,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     panukb_std <- dplyr::inner_join(
       panukb_std,
       exp_lu,
-      by = c("chr" = "panukb_chrom", "pos" = "panukb_pos", "effect_allele")
+      by = c("chr" = "panukb_chrom", "pos" = "panukb_pos", "effect_allele" = "effect_allele.exposure")
     )
 
     if (!"rsid" %in% names(panukb_std)) {
