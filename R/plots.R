@@ -22,7 +22,7 @@ manhattan_plot <- function(results_df,
   df <- tibble::as_tibble(results_df)
 
   # keep only QC-pass (if column missing, assume all pass)
-  if (!"qc_pass" %in% names(df)) {
+  if (!"results_qc_pass" %in% names(df)) {
     if (verbose) logger::log_info("Manhattan: 'qc_pass' column not present; assuming all pass.")
     df$qc_pass <- TRUE
   }
