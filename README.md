@@ -1,7 +1,6 @@
 # ARDMR
 
-**One-exposure → many-outcomes Mendelian Randomization for Age-Related Diseases (ARDs).**
-Automates outcome resolution (ICD-10 ↔ GBD), SNP row extraction from Pan-UKB / Neale, harmonisation, a battery of **8 sensitivity/QC checks**, multiple testing correction, and scalable visualisation (volcano, Manhattan). Designed to **ship fast**; runtime efficiency is secondary.
+**One-exposure → many-phenotype Mendelian Randomization.** Automates outcome resolution (ICD-10 ↔ GBD), SNP row extraction from Pan-UKB / Neale, harmonisation, a battery of **8 sensitivity/QC checks**, multiple testing correction, and scalable visualisation (volcano, Manhattan). Phenotype tables span age-related diseases (ARDs) and other traits, with the `ARD_selected` column flagging the ARD subset. Designed to **ship fast**; runtime efficiency is secondary.
 
 ---
 

@@ -2,7 +2,7 @@
 % Please edit documentation in R/run_phenome_mr.R
 \name{run_phenome_mr}
 \alias{run_phenome_mr}
-\title{Run phenome-wide MR on ARDs (orchestrator)}
+\title{Run phenome-wide MR across phenotypes (orchestrator)}
 \usage{
 run_phenome_mr(
   exposure_snps,
@@ -12,9 +12,9 @@ run_phenome_mr(
     "weighted_mode", "steiger_direction", "leave_one_out", "ivw_Q", "ivw_I2"),
   sensitivity_pass_min = 6,
   Multiple_testing_correction = c("BH", "bonferroni"),
-  scatterplot = FALSE,
-  snpforestplot = FALSE,
-  leaveoneoutplot = FALSE,
+  scatterplot = TRUE,
+  snpforestplot = TRUE,
+  leaveoneoutplot = TRUE,
   plot_output_dir = "",
   Neale_GWAS_dir = NULL,
   cache_dir = ardmr_cache_dir(),
@@ -54,5 +54,6 @@ A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 }
 \description{
 Builds the outcome plan, maps exposure SNPs, fetches outcome SNP rows,
-runs MR + sensitivity/QC, and returns results + plots.
+runs MR + sensitivity/QC, and returns results + plots. Phenotypes flagged by
+\code{ARD_selected} denote age-related diseases.
 }
