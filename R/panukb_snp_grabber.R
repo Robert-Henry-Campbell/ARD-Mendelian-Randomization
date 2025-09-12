@@ -247,6 +247,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     panukb_std <- dplyr::relocate(panukb_std, rsid, .before = 1)
     panukb_std <- dplyr::distinct(panukb_std, SNP, effect_allele, .keep_all = TRUE)
     names(panukb_std)[names(panukb_std) == "rsid"] <- "SNP"
+    panukb_std <- dplyr::distinct(panukb_std, SNP, effect_allele, .keep_all = TRUE)
     panukb_std$chrpos <- paste0(panukb_std$chr, ":", panukb_std$pos)
     panukb_std$Phenotype <- outcome_label
 
