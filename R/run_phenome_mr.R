@@ -93,8 +93,10 @@ run_phenome_mr <- function(
   logger::log_info("1) Outcome setup…")
   MR_df <- Outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry)
   metrics$outcomes <- nrow(MR_df)
-  metrics$ards <- sum(MR_df$ARD_selected)
-  logger::log_info("Outcome setup: {metrics$outcomes} phenotypes loaded ({metrics$ards} ARDs flagged)")
+
+  metrics$n_ard <- sum(MR_df$ARD_selected)
+  metrics$n_non <- metrics$outcomes - metrics$n_ard
+  logger::log_info("Outcome setup: {metrics$outcomes} phenotypes loaded ({metrics$n_ard} ARD, {metrics$n_non} non-ARD)")
 
   logger::log_info("1.1) Variant manifest downloading…")
   Variant_manifest_downloader(catalog = cfg$catalog, cache_dir = cfg$cache_dir, overwrite = FALSE)
@@ -147,8 +149,14 @@ run_phenome_mr <- function(
   }
 
   summary_tbl <- tibble::tibble(
-    stage = c("outcomes","exposure_in","exposure_mapped","outcome_snps","results"),
-    count = c(metrics$outcomes, metrics$exposure_in, metrics$exposure_mapped, metrics$outcome_snps, metrics$results)
+    stage = c(
+      "outcomes","outcomes_ARD","outcomes_nonARD",
+      "exposure_in","exposure_mapped","outcome_snps","results"
+    ),
+    count = c(
+      metrics$outcomes, metrics$n_ard, metrics$n_non,
+      metrics$exposure_in, metrics$exposure_mapped, metrics$outcome_snps, metrics$results
+    )
   )
   logger::log_info(
     "Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}"
