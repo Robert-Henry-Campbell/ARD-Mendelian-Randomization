@@ -87,6 +87,7 @@ mr_business_logic <- function(
   add_col("results_nsnp_after",           NA_integer_)
   add_col("results_beta_ivw",             NA_real_)
   add_col("results_se_ivw",               NA_real_)
+  add_col("results_log10p_ivw",           NA_real_)
   add_col("results_p_ivw",                NA_real_)
   add_col("results_Q_ivw",                NA_real_)
   add_col("results_Q_df_ivw",             NA_real_)
@@ -387,9 +388,14 @@ mr_business_logic <- function(
     MR_df$results_outcome[i]            <- outcome_label
     MR_df$results_nsnp_before[i]        <- nsnp_start
     MR_df$results_nsnp_after[i]         <- nsnp_after
-    MR_df$results_beta_ivw[i]           <- as.numeric(ivw["b"])
-    MR_df$results_se_ivw[i]             <- as.numeric(ivw["se"])
-    MR_df$results_p_ivw[i]              <- as.numeric(ivw["p"])
+    b  <- as.numeric(ivw["b"])
+    se <- as.numeric(ivw["se"])
+    z  <- b / se
+    log10p <- stats::pnorm(abs(z), lower.tail = FALSE, log.p = TRUE) / log(10)
+    MR_df$results_beta_ivw[i]       <- b
+    MR_df$results_se_ivw[i]         <- se
+    MR_df$results_log10p_ivw[i]     <- log10p
+    MR_df$results_p_ivw[i]          <- 10^log10p
     MR_df$results_Q_ivw[i]              <- Q_ivw
     MR_df$results_Q_df_ivw[i]           <- Q_df_ivw
     MR_df$results_Q_p_ivw[i]            <- Q_p_ivw
