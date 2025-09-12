@@ -1,7 +1,7 @@
 # R/plots.R (UNTESTED)
 
 #' Manhattan plot over outcomes (IVW p-values on QC-pass outcomes)
-#' @param results_df tidy results (must contain results_p_ivw; ideally results_qc_pass)
+#' @param results_df tidy results (must contain results_log10p_ivw and results_p_ivw; ideally results_qc_pass)
 #' @param Multiple_testing_correction "BH" or "bonferroni"
 #' @param alpha significance level for corrections (default 0.05)
 #' @param verbose if TRUE, emit step-by-step logs via {logger}
@@ -41,18 +41,20 @@ manhattan_plot <- function(results_df,
   if (verbose) logger::log_info("Manhattan: filtered to QC-pass => {n_after}/{n_before} rows remain.")
 
   # Required p
-  if (!nrow(df) || !"results_p_ivw" %in% names(df)) {
-    if (!"results_p_ivw" %in% names(df) && verbose) {
-      logger::log_warn("Manhattan: required column 'results_p_ivw' missing after filtering; returning placeholder plot.")
+  need_cols <- c("results_p_ivw", "results_log10p_ivw")
+  if (!nrow(df) || !all(need_cols %in% names(df))) {
+    if (!all(need_cols %in% names(df)) && verbose) {
+      miss <- paste(setdiff(need_cols, names(df)), collapse = ", ")
+      logger::log_warn("Manhattan: required column(s) {miss} missing after filtering; returning placeholder plot.")
     } else if (verbose) {
       logger::log_warn("Manhattan: no QC-pass rows; returning placeholder plot.")
     }
     return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no QC-pass results)"))
   }
 
-  # Compute -log10(p)
-  df <- dplyr::filter(df, !is.na(.data$results_p_ivw))
-  df$logp <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  # Compute -log10(p) from stored log10p
+  df <- dplyr::filter(df, !is.na(.data$results_log10p_ivw))
+  df$logp <- -pmax(df$results_log10p_ivw, log10(.Machine$double.xmin))
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no finite p-values)"))
 
   # ==============================
@@ -170,7 +172,7 @@ manhattan_plot <- function(results_df,
 
 
 #' Volcano plot over outcomes
-#' @param results_df tidy results (needs results_beta_ivw, results_se_ivw, results_p_ivw; ideally results_qc_pass, results_nsnp_after)
+#' @param results_df tidy results (needs results_beta_ivw, results_se_ivw, results_log10p_ivw, results_p_ivw; ideally results_qc_pass, results_nsnp_after)
 #' @param Multiple_testing_correction "BH" or "bonferroni"
 #' @param alpha significance level for corrections (default 0.05)
 #' @param label_top_n integer; label top N significant hits if ggrepel available
@@ -185,14 +187,14 @@ volcano_plot <- function(results_df,
     return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (no results)"))
   }
   df <- tibble::as_tibble(results_df)
-  need <- c("results_beta_ivw","results_se_ivw","results_p_ivw")
+  need <- c("results_beta_ivw","results_se_ivw","results_log10p_ivw","results_p_ivw")
   if (!all(need %in% names(df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (missing beta/se/p)"))
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (missing beta/se/log10p/p)"))
   }
 
   # computed axes
   df$z_ivw   <- df$results_beta_ivw / df$results_se_ivw
-  df$logp    <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  df$logp    <- -pmax(df$results_log10p_ivw, log10(.Machine$double.xmin))
   if (!"results_qc_pass" %in% names(df)) df$results_qc_pass <- TRUE
   if (!"results_nsnp_after" %in% names(df)) df$results_nsnp_after <- NA_integer_
 
