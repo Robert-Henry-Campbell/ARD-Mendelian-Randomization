@@ -47,6 +47,19 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
          "\nDid you run exposure_snp_mapper() with sex='both'?", call. = FALSE)
   }
 
+  exposure_snps <- exposure_snps |>
+    dplyr::mutate(effect_allele.exposure = toupper(.data$effect_allele.exposure))
+  bad_alleles <- unique(exposure_snps$effect_allele.exposure[
+    !exposure_snps$effect_allele.exposure %in% c("A", "C", "G", "T")
+  ])
+  if (length(bad_alleles)) {
+    stop(
+      "effect_allele.exposure contains non-ACGT values: ",
+      paste(bad_alleles, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
   exp_lu <- tibble::as_tibble(exposure_snps) |>
     dplyr::select(rsid, panukb_chrom, panukb_pos, effect_allele.exposure) |>
     dplyr::distinct()
