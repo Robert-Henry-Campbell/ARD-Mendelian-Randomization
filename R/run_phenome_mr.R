@@ -1,8 +1,9 @@
 #R/run_phenome.MR
-#' Run phenome-wide MR on ARDs (orchestrator)
+#' Run phenome-wide MR across phenotypes (orchestrator)
 #'
 #' Builds the outcome plan, maps exposure SNPs, fetches outcome SNP rows,
-#' runs MR + sensitivity/QC, and returns results + plots.
+#' runs MR + sensitivity/QC, and returns results + plots. Phenotypes flagged by
+#' `ARD_selected` denote age-related diseases.
 #'
 #' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like: rsid, beta, se, effect_allele, other_allele, eaf, etc.).
 #' @param ancestry Character (mandatory), e.g. "EUR".
@@ -92,7 +93,8 @@ run_phenome_mr <- function(
   logger::log_info("1) Outcome setup…")
   MR_df <- Outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry)
   metrics$outcomes <- nrow(MR_df)
-  logger::log_info("Outcome setup: {metrics$outcomes} ARDs loaded")
+  metrics$ards <- sum(MR_df$ARD_selected)
+  logger::log_info("Outcome setup: {metrics$outcomes} phenotypes loaded ({metrics$ards} ARDs flagged)")
 
   logger::log_info("1.1) Variant manifest downloading…")
   Variant_manifest_downloader(catalog = cfg$catalog, cache_dir = cfg$cache_dir, overwrite = FALSE)
