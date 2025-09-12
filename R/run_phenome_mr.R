@@ -139,6 +139,7 @@ run_phenome_mr <- function(
   metrics$results <- nrow(results_df)
   logger::log_info("MR results: {metrics$results} outcomes analysed")
 
+
   logger::log_info("5) Build summary plots…")
   manhattan <- manhattan_plot(results_df, Multiple_testing_correction = cfg$mtc)
   volcano   <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
