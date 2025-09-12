@@ -72,6 +72,8 @@ res$volcano         # ggplot
 res$manhattan       # ggplot
 ```
 
+`run_phenome_mr()` builds `MR_df` from phenotypes defined by the Global Burden of Disease (GBD) cause ontology. Age-related diseases and other outcomes share this structure and are distinguished by an `ARD_selected` flag, so the instructions above apply uniformly across phenotypes.`
+
 ---
 
 ## Package workflow (modules)
@@ -139,15 +141,16 @@ We also mark **Status** for the current v0:
   * `ancestry` (EUR, AFR, …)
 * **Actions**
 
-  1. **Sets `MR_df` equal to relevant sex using ARD phenotype tibble.**
-     *In practice:* filter ARD tibble and attach a **provider** (Pan-UKB for `both`; Neale for `male`/`female`).
+  1. **Sets `MR_df` equal to relevant sex using the GBD-derived phenotype tibble.**
+     *In practice:* filter the tibble to the requested sex and attach a **provider** (Pan-UKB for `both`; Neale for `male`/`female`).  
+     All phenotypes originate from the Global Burden of Disease cause ontology and include an `ARD_selected` flag distinguishing age-related diseases from other outcomes.  
      *(Your earlier phrase “define `MR_df` as one of `bothsex_ARD`, `male_ARD`, `female_ARD`” is captured here via filtering / provider selection.)*
   2. **Log phenotypes** at **ICD-10** and **GBD cause** level.
   3. **Map `ICD10_explo`** in `MR_df` to the **provider pheno manifest** (Pan-UKB if sex=both, Neale otherwise).
 
      * Log **mapped vs. unmapped** rows
      * **Drop unmapped** (no available GWAS)
-     * `MR_df` now contains **ARD** data + **GWAS manifest** data per row
+     * `MR_df` now contains phenotype data + **GWAS manifest** data per row, with ARD and non-ARD phenotypes distinguished by `ARD_selected`
 * **Checks**
 
   1. If `sex` is *female* or *male*, require `ancestry == "EUR"`.
@@ -391,8 +394,9 @@ We also mark **Status** for the current v0:
 The repository bundles several `.rda` files (in `data/`) consumed by
 `Outcome_setup()`:
 
-- `bothsex_ARD.rda`, `female_ARD.rda`, `male_ARD.rda` – ARD phenotype tables
-  for both sexes, females, and males.
+ - `bothsex_ARD.rda`, `female_ARD.rda`, `male_ARD.rda` – GBD-derived phenotype tables
+   for both sexes, females, and males; each row includes `ARD_selected` to identify
+   age-related diseases.
 - `neale_female_manifest.rda`, `neale_male_manifest.rda` – Neale sex-specific
   phenotype manifests with case and control counts.
 - `neale_file_manifest.rda` – Neale download information for each GWAS.
