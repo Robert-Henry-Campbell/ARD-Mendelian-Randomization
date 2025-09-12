@@ -288,7 +288,7 @@ We also mark **Status** for the current v0:
 
   * **For each phenotype** in `MR_df`:
 
-    1. **Harmonize** exposure/outcome; **log** `nsnp_before` → `nsnp_after`.
+    1. **Harmonize** exposure/outcome; **log** `results_nsnp_before` → `results_nsnp_after`.
        Use MAF/EAF where available to deal with palindromes.
     2. **Main MR** (IVW, MR-Egger, Weighted median, Weighted mode).
        Optional per-outcome plots:
@@ -357,7 +357,7 @@ We also mark **Status** for the current v0:
   * **y** = −log10(p\_IVW) (or −log10(q) visually)
   * **Color** = GBD cause (level 2/3)
   * **Alpha** = QC pass (opaque) vs fail (faint)
-  * **Size** = `nsnp_after`
+  * **Size** = `results_nsnp_after`
   * **Shape/ring** = residual issues (e.g., heterogeneity fail or Egger intercept p<0.05) *(optional)*
   * **Labels** = top-N by |Z| or smallest q (`ggrepel`)
   * **Thresholds**
@@ -376,7 +376,7 @@ We also mark **Status** for the current v0:
 ## Multiple testing
 
 * Default on **QC-pass** set: `BH` or `bonferroni`
-* You can expose `mtc_population = c("qc_pass","all_tested")` later if reviewers want both.
+* You can expose `mtc_population = c("results_qc_pass","all_tested")` later if reviewers want both.
 
 ---
 

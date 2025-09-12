@@ -1,7 +1,7 @@
 # R/plots.R (UNTESTED)
 
 #' Manhattan plot over outcomes (IVW p-values on QC-pass outcomes)
-#' @param results_df tidy results (must contain p_ivw; ideally qc_pass)
+#' @param results_df tidy results (must contain results_p_ivw; ideally results_qc_pass)
 #' @param Multiple_testing_correction "BH" or "bonferroni"
 #' @param alpha significance level for corrections (default 0.05)
 #' @param verbose if TRUE, emit step-by-step logs via {logger}
@@ -23,17 +23,17 @@ manhattan_plot <- function(results_df,
 
   # keep only QC-pass (if column missing, assume all pass)
   if (!"results_qc_pass" %in% names(df)) {
-    if (verbose) logger::log_info("Manhattan: 'qc_pass' column not present; assuming all pass.")
-    df$qc_pass <- TRUE
+    if (verbose) logger::log_info("Manhattan: 'results_qc_pass' column not present; assuming all pass.")
+    df$results_qc_pass <- TRUE
   }
   n_before <- nrow(df)
-  df <- dplyr::filter(df, .data$qc_pass %in% TRUE)
+  df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
   n_after  <- nrow(df)
   if (verbose) logger::log_info("Manhattan: filtered to QC-pass => {n_after}/{n_before} rows remain.")
 
-  if (!nrow(df) || !"p_ivw" %in% names(df)) {
-    if (!"p_ivw" %in% names(df) && verbose) {
-      logger::log_warn("Manhattan: required column 'p_ivw' missing after filtering; returning placeholder plot.")
+  if (!nrow(df) || !"results_p_ivw" %in% names(df)) {
+    if (!"results_p_ivw" %in% names(df) && verbose) {
+      logger::log_warn("Manhattan: required column 'results_p_ivw' missing after filtering; returning placeholder plot.")
     } else if (verbose) {
       logger::log_warn("Manhattan: no QC-pass rows; returning placeholder plot.")
     }
@@ -60,11 +60,11 @@ manhattan_plot <- function(results_df,
   }
 
   # positions (deterministic within group, then outcome label if present)
-  df <- dplyr::arrange(df, .data$group, dplyr::coalesce(.data$outcome, ""))
+  df <- dplyr::arrange(df, .data$group, dplyr::coalesce(.data$results_outcome, ""))
   df$idx <- seq_len(nrow(df))
 
   # -log10 p
-  df$logp <- -log10(pmax(df$p_ivw, .Machine$double.xmin))
+  df$logp <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
   if (verbose) {
     rng <- range(df$logp, finite = TRUE)
     logger::log_info("Manhattan: computed -log10(p); range = [{round(rng[1], 3)}, {round(rng[2], 3)}].")
@@ -72,7 +72,7 @@ manhattan_plot <- function(results_df,
 
   # Multiple testing handling
   if (Multiple_testing_correction == "BH") {
-    df$q_bh <- stats::p.adjust(df$p_ivw, method = "BH")
+    df$q_bh <- stats::p.adjust(df$results_p_ivw, method = "BH")
     df$sig  <- df$q_bh < alpha
     thr_y   <- NA_real_
     if (verbose) {
@@ -82,7 +82,7 @@ manhattan_plot <- function(results_df,
   } else {
     m       <- nrow(df)
     alpha_b <- alpha / max(1L, m)
-    df$sig  <- df$p_ivw < alpha_b
+    df$sig  <- df$results_p_ivw < alpha_b
     thr_y   <- -log10(alpha_b)
     if (verbose) {
       n_sig <- sum(df$sig %in% TRUE, na.rm = TRUE)
@@ -108,7 +108,7 @@ manhattan_plot <- function(results_df,
 }
 
 #' Volcano plot over outcomes
-#' @param results_df tidy results (needs beta_ivw, se_ivw, p_ivw; ideally qc_pass, nsnp_after)
+#' @param results_df tidy results (needs results_beta_ivw, results_se_ivw, results_p_ivw; ideally results_qc_pass, results_nsnp_after)
 #' @param Multiple_testing_correction "BH" or "bonferroni"
 #' @param alpha significance level for corrections (default 0.05)
 #' @param label_top_n integer; label top N significant hits if ggrepel available
@@ -123,16 +123,16 @@ volcano_plot <- function(results_df,
     return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (no results)"))
   }
   df <- tibble::as_tibble(results_df)
-  need <- c("beta_ivw","se_ivw","p_ivw")
+  need <- c("results_beta_ivw","results_se_ivw","results_p_ivw")
   if (!all(need %in% names(df))) {
     return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (missing beta/se/p)"))
   }
 
   # computed axes
-  df$z_ivw   <- df$beta_ivw / df$se_ivw
-  df$logp    <- -log10(pmax(df$p_ivw, .Machine$double.xmin))
-  if (!"qc_pass" %in% names(df)) df$qc_pass <- TRUE
-  if (!"nsnp_after" %in% names(df)) df$nsnp_after <- NA_integer_
+  df$z_ivw   <- df$results_beta_ivw / df$results_se_ivw
+  df$logp    <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  if (!"results_qc_pass" %in% names(df)) df$results_qc_pass <- TRUE
+  if (!"results_nsnp_after" %in% names(df)) df$results_nsnp_after <- NA_integer_
 
   # group (colour)
   group_col <- dplyr::coalesce(
@@ -144,19 +144,19 @@ volcano_plot <- function(results_df,
   df$group <- as.factor(group_col)
 
   # flags for outline ring
-  het_fail   <- (!is.na(df$Q_p_ivw) & df$Q_p_ivw < 0.05) | (!is.na(df$I2_ivw) & df$I2_ivw > 50)
-  egger_fail <- !is.na(df$egger_intercept_p) & df$egger_intercept_p < 0.05
+  het_fail   <- (!is.na(df$results_Q_p_ivw) & df$results_Q_p_ivw < 0.05) | (!is.na(df$results_I2_ivw) & df$results_I2_ivw > 50)
+  egger_fail <- !is.na(df$results_egger_intercept_p) & df$results_egger_intercept_p < 0.05
   df$flag_any <- het_fail | egger_fail
 
   # multiple-testing significance
   if (Multiple_testing_correction == "BH") {
-    df$q_bh <- stats::p.adjust(df$p_ivw, method = "BH")
+    df$q_bh <- stats::p.adjust(df$results_p_ivw, method = "BH")
     df$sig  <- df$q_bh < alpha
     thr_y   <- NA_real_
   } else {
-    m       <- sum(!is.na(df$p_ivw))
+    m       <- sum(!is.na(df$results_p_ivw))
     alpha_b <- alpha / max(1L, m)
-    df$sig  <- df$p_ivw < alpha_b
+    df$sig  <- df$results_p_ivw < alpha_b
     thr_y   <- -log10(alpha_b)
   }
 
@@ -165,8 +165,8 @@ volcano_plot <- function(results_df,
     df,
     ggplot2::aes(x = .data$z_ivw, y = .data$logp,
                  fill = .data$group,
-                 alpha = .data$qc_pass,
-                 size = .data$nsnp_after)
+                 alpha = .data$results_qc_pass,
+                 size = .data$results_nsnp_after)
   ) +
     ggplot2::geom_point(shape = 21, colour = NA) +
     # add outline for flagged
@@ -188,7 +188,7 @@ volcano_plot <- function(results_df,
 
   # Label top N significant hits if ggrepel present
   if (requireNamespace("ggrepel", quietly = TRUE)) {
-    lab_df <- dplyr::mutate(df, label = dplyr::coalesce(.data$outcome, NA_character_))
+    lab_df <- dplyr::mutate(df, label = dplyr::coalesce(.data$results_outcome, NA_character_))
     lab_df <- dplyr::filter(lab_df, .data$sig %in% TRUE, !is.na(.data$label))
     if (nrow(lab_df)) {
       lab_df <- lab_df %>%
