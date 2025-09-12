@@ -2,7 +2,7 @@
 % Please edit documentation in R/outcome_setup.R
 \name{Outcome_setup}
 \alias{Outcome_setup}
-\title{Build the outcome plan (\code{MR_df}) by mapping ARD phenotypes to GWAS manifests}
+\title{Build the outcome plan (\code{MR_df}) by mapping phenotypes to GWAS manifests}
 \usage{
 Outcome_setup(sex, ancestry)
 }
@@ -13,13 +13,14 @@ Outcome_setup(sex, ancestry)
 \code{"female"}, this must be \code{"EUR"}.}
 }
 \value{
-A tibble \code{MR_df} combining the ARD data with GWAS manifest
-metadata.
+A tibble \code{MR_df} combining the phenotype data with GWAS manifest
+metadata. The column \code{ARD_selected} flags age-related diseases.
 }
 \description{
-Selects the appropriate age-related disease (ARD) phenotype table based on
-\code{sex}, logs counts at the ICD-10 and cause levels, then maps the
-\code{ICD10_explo} column to the relevant GWAS manifest. Pan-UKB is used when
+Selects the appropriate phenotype table based on \code{sex}, logs counts at the
+ICD-10 and cause levels, then maps the \code{ICD10_explo} column to the relevant
+GWAS manifest. The table contains age-related disease (ARD) and non-ARD
+phenotypes; \code{ARD_selected} marks the ARD subset. Pan-UKB is used when
 \code{sex == "both"}; otherwise Neale manifests are consulted. Phenotypes with no
 available GWAS are dropped.
 }

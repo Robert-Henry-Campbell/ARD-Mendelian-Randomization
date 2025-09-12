@@ -1,10 +1,11 @@
 #R/outcome_setup.R
-#' Build the outcome plan (`MR_df`) by mapping ARD phenotypes to GWAS manifests
+#' Build the outcome plan (`MR_df`) by mapping phenotypes to GWAS manifests
 #'
 #' @description
-#' Selects the appropriate age-related disease (ARD) phenotype table based on
-#' `sex`, logs counts at the ICD-10 and cause levels, then maps the
-#' `ICD10_explo` column to the relevant GWAS manifest. Pan-UKB is used when
+#' Selects the appropriate phenotype table based on `sex`, logs counts at the
+#' ICD-10 and cause levels, then maps the `ICD10_explo` column to the relevant
+#' GWAS manifest. The table contains age-related disease (ARD) and non-ARD
+#' phenotypes; `ARD_selected` marks the ARD subset. Pan-UKB is used when
 #' `sex == "both"`; otherwise Neale manifests are consulted. Phenotypes with no
 #' available GWAS are dropped.
 #'
@@ -12,8 +13,8 @@
 #' @param ancestry Character ancestry code. If `sex` is `"male"` or
 #'   `"female"`, this must be `"EUR"`.
 #'
-#' @return A tibble `MR_df` combining the ARD data with GWAS manifest
-#'   metadata.
+#' @return A tibble `MR_df` combining the phenotype data with GWAS manifest
+#'   metadata. The column `ARD_selected` flags age-related diseases.
 #' @export
 Outcome_setup <- function(sex, ancestry) {
   # ---- validations ---------------------------------------------------------
@@ -32,8 +33,10 @@ Outcome_setup <- function(sex, ancestry) {
     "female" = get_pkg_obj("female_all")
   )
 
+  n_ard <- sum(pheno_df$ARD_selected)
+  n_non <- nrow(pheno_df) - n_ard
   logger::log_info(
-    "ARD+non-ARD phenotypes| {nrow(pheno_df)} rows; {dplyr::n_distinct(pheno_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(pheno_df$cause_level_3)} unique causes"
+    "ARD+non-ARD phenotypes| {nrow(pheno_df)} rows ({n_ard} ARD, {n_non} non-ARD); {dplyr::n_distinct(pheno_df$ICD10_explo)} unique ICD10; {dplyr::n_distinct(pheno_df$cause_level_3)} unique causes"
   )
 
   # ---- load manifest -------------------------------------------------------
