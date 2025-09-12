@@ -6,6 +6,10 @@
 #' @param alpha significance level for corrections (default 0.05)
 #' @param verbose if TRUE, emit step-by-step logs via {logger}
 #' @export
+# helpers (keep these once at top-level)
+col_or_null <- function(df, nm) if (nm %in% names(df)) df[[nm]] else NULL
+`%||%`      <- function(a, b) if (!is.null(a)) a else b
+
 manhattan_plot <- function(results_df,
                            Multiple_testing_correction = c("BH","bonferroni"),
                            alpha = 0.05,
@@ -21,7 +25,12 @@ manhattan_plot <- function(results_df,
 
   df <- tibble::as_tibble(results_df)
 
-  # keep only QC-pass (if column missing, assume all pass)
+  # Alias AFTER df exists
+  if (!"gbd_cause" %in% names(df) && "Cause Name" %in% names(df)) {
+    df$gbd_cause <- df[["Cause Name"]]
+  }
+
+  # QC-pass
   if (!"results_qc_pass" %in% names(df)) {
     if (verbose) logger::log_info("Manhattan: 'results_qc_pass' column not present; assuming all pass.")
     df$results_qc_pass <- TRUE
@@ -31,6 +40,7 @@ manhattan_plot <- function(results_df,
   n_after  <- nrow(df)
   if (verbose) logger::log_info("Manhattan: filtered to QC-pass => {n_after}/{n_before} rows remain.")
 
+  # Required p
   if (!nrow(df) || !"results_p_ivw" %in% names(df)) {
     if (!"results_p_ivw" %in% names(df) && verbose) {
       logger::log_warn("Manhattan: required column 'results_p_ivw' missing after filtering; returning placeholder plot.")
@@ -40,72 +50,124 @@ manhattan_plot <- function(results_df,
     return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no QC-pass results)"))
   }
 
-  # group label for coloring (use whatever is available)
-  group_source <- NULL
-  group_col <- dplyr::coalesce(
-    df$cause_level_3 %||% NULL,
-    df$cause_level_2 %||% NULL,
-    df$gbd_cause     %||% NULL
+  # Compute -log10(p)
+  df <- dplyr::filter(df, !is.na(.data$results_p_ivw))
+  df$logp <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no finite p-values)"))
+
+  # ==============================
+  # GROUPING & X POSITIONS (L1→L2)
+  # ==============================
+  # Use L3 only for colouring if you ever want; for layout we stop at L2 as requested.
+  # Arrange deterministically: L1 → L2 → outcome label
+  df <- dplyr::arrange(
+    df,
+    dplyr::coalesce(.data$cause_level_1, "~"),
+    dplyr::coalesce(.data$cause_level_2, "~"),
+    dplyr::coalesce(.data$results_outcome, "")
   )
-  if (!is.null(df$cause_level_3 %||% NULL)) group_source <- "cause_level_3" else
-    if (!is.null(df$cause_level_2 %||% NULL)) group_source <- "cause_level_2" else
-      if (!is.null(df$gbd_cause %||% NULL))   group_source <- "gbd_cause" else
-        group_source <- "constant('All')"
-
-  if (is.null(group_col)) group_col <- factor("All")
-  df$group <- as.factor(group_col)
-
-  if (verbose) {
-    logger::log_info("Manhattan: grouping by {group_source}; {length(levels(df$group))} groups.")
-  }
-
-  # positions (deterministic within group, then outcome label if present)
-  df <- dplyr::arrange(df, .data$group, dplyr::coalesce(.data$results_outcome, ""))
   df$idx <- seq_len(nrow(df))
 
-  # -log10 p
-  df$logp <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
-  if (verbose) {
-    rng <- range(df$logp, finite = TRUE)
-    logger::log_info("Manhattan: computed -log10(p); range = [{round(rng[1], 3)}, {round(rng[2], 3)}].")
-  }
+  # Build block maps for L2 (within L1) and for L1
+  l2_map <- df |>
+    dplyr::group_by(.data$cause_level_1, .data$cause_level_2) |>
+    dplyr::summarise(start = min(.data$idx), end = max(.data$idx), .groups = "drop") |>
+    dplyr::arrange(.data$cause_level_1, .data$start) |>
+    dplyr::mutate(center = (start + end)/2,
+                  alt_id = dplyr::row_number()) # for alternating colours
 
-  # Multiple testing handling
+  l1_map <- df |>
+    dplyr::group_by(.data$cause_level_1) |>
+    dplyr::summarise(start = min(.data$idx), end = max(.data$idx), .groups = "drop") |>
+    dplyr::arrange(.data$start) |>
+    dplyr::mutate(center = (start + end)/2)
+
+  # Alternate black/grey by L2 blocks
+  df <- df |>
+    dplyr::left_join(l2_map |> dplyr::select(.data$cause_level_1, .data$cause_level_2, .data$alt_id),
+                     by = c("cause_level_1","cause_level_2")) |>
+    dplyr::mutate(alt_col = ifelse(.data$alt_id %% 2L == 1L, "grey20", "grey65"))
+
+  # =======================
+  # MULTIPLE TESTING LINES
+  # =======================
   if (Multiple_testing_correction == "BH") {
     df$q_bh <- stats::p.adjust(df$results_p_ivw, method = "BH")
     df$sig  <- df$q_bh < alpha
     thr_y   <- NA_real_
-    if (verbose) {
-      n_sig <- sum(df$sig %in% TRUE, na.rm = TRUE)
-      logger::log_info("Manhattan: BH adjustment done; {n_sig} hits at q < {alpha}. No single threshold line drawn.")
-    }
+    if (verbose) logger::log_info("Manhattan: BH done; {sum(df$sig, na.rm=TRUE)} hits at q < {alpha}.")
   } else {
     m       <- nrow(df)
     alpha_b <- alpha / max(1L, m)
     df$sig  <- df$results_p_ivw < alpha_b
     thr_y   <- -log10(alpha_b)
-    if (verbose) {
-      n_sig <- sum(df$sig %in% TRUE, na.rm = TRUE)
-      logger::log_info("Manhattan: Bonferroni with m={m}; alpha_b={signif(alpha_b, 3)}; threshold y={round(thr_y, 3)}; {n_sig} hits.")
-    }
+    if (verbose) logger::log_info("Manhattan: Bonferroni m={m}; ythr={round(thr_y,3)}; hits={sum(df$sig, na.rm=TRUE)}.")
   }
 
-  p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$idx, y = .data$logp, colour = .data$group)) +
-    ggplot2::geom_point(alpha = 0.9) +
+  # ============================
+  # BRACKET (“TREE”) ANNOTATIONS
+  # ============================
+  # We'll allocate a little negative y-space to draw brackets and labels.
+  y_max <- max(df$logp, na.rm = TRUE)
+  y_l2  <- -0.8   # L2 bracket baseline
+  y_l1  <- -1.6   # L1 bracket baseline
+  cap   <- 0.35   # bracket end "teeth" height
+  lab_gap <- 0.25 # label offset below the bracket
+
+  # Build segments for horizontal bars and vertical "teeth"
+  seg_l2 <- l2_map |>
+    dplyr::transmute(x = start, xend = end, y = y_l2, yend = y_l2)
+  teeth_l2 <- dplyr::bind_rows(
+    l2_map |> dplyr::transmute(x = start, xend = start, y = y_l2, yend = y_l2 - cap),
+    l2_map |> dplyr::transmute(x = end,   xend = end,   y = y_l2, yend = y_l2 - cap)
+  )
+  lab_l2 <- l2_map |>
+    dplyr::transmute(x = center, y = y_l2 - lab_gap,
+                     label = dplyr::coalesce(cause_level_2, "NA"))
+
+  seg_l1 <- l1_map |>
+    dplyr::transmute(x = start, xend = end, y = y_l1, yend = y_l1)
+  teeth_l1 <- dplyr::bind_rows(
+    l1_map |> dplyr::transmute(x = start, xend = start, y = y_l1, yend = y_l1 - cap),
+    l1_map |> dplyr::transmute(x = end,   xend = end,   y = y_l1, yend = y_l1 - cap)
+  )
+  lab_l1 <- l1_map |>
+    dplyr::transmute(x = center, y = y_l1 - lab_gap,
+                     label = dplyr::coalesce(cause_level_1, "NA"))
+
+  # =================
+  # BUILD THE PLOT
+  # =================
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$idx, y = .data$logp)) +
+    ggplot2::geom_point(ggplot2::aes(colour = .data$alt_col), alpha = 0.9) +
+    ggplot2::scale_colour_identity(guide = "none") +
     { if (!is.na(thr_y)) ggplot2::geom_hline(yintercept = thr_y, linetype = "dashed") } +
     ggplot2::labs(
-      x = "Outcome (grouped)", y = expression(-log[10](p[IVW])),
-      colour = "Cause"
+      x = NULL,
+      y = expression(-log[10](p[IVW])),
+      title = "Manhattan of MR IVW results (grouped L1→L2)"
     ) +
     ggplot2::theme_minimal(base_size = 12) +
     ggplot2::theme(
       panel.grid.major.x = ggplot2::element_blank(),
-      panel.grid.minor.x = ggplot2::element_blank()
-    )
+      panel.grid.minor.x = ggplot2::element_blank(),
+      plot.margin = ggplot2::margin(t = 10, r = 10, b = 60, l = 10) # extra bottom room for brackets
+    ) +
+    # Brackets & labels for L2 (near axis)
+    ggplot2::geom_segment(data = seg_l2, ggplot2::aes(x = x, xend = xend, y = y, yend = yend), linewidth = 0.4) +
+    ggplot2::geom_segment(data = teeth_l2, ggplot2::aes(x = x, xend = xend, y = y, yend = yend), linewidth = 0.4) +
+    ggplot2::geom_text(data = lab_l2, ggplot2::aes(x = x, y = y, label = label), vjust = 1, size = 3) +
+    # Brackets & labels for L1 (below)
+    ggplot2::geom_segment(data = seg_l1, ggplot2::aes(x = x, xend = xend, y = y, yend = yend), linewidth = 0.5) +
+    ggplot2::geom_segment(data = teeth_l1, ggplot2::aes(x = x, xend = xend, y = y, yend = yend), linewidth = 0.5) +
+    ggplot2::geom_text(data = lab_l1, ggplot2::aes(x = x, y = y, label = label), vjust = 1, fontface = "bold", size = 3.3) +
+    # Make room below 0 for the “brackets”
+    ggplot2::coord_cartesian(ylim = c(min(y_l1 - 0.8, 0), y_max * 1.05), clip = "off")
 
   if (verbose) logger::log_info("Manhattan: plot object constructed; returning ggplot.")
   p
 }
+
 
 #' Volcano plot over outcomes
 #' @param results_df tidy results (needs results_beta_ivw, results_se_ivw, results_p_ivw; ideally results_qc_pass, results_nsnp_after)
@@ -138,7 +200,7 @@ volcano_plot <- function(results_df,
   group_col <- dplyr::coalesce(
     df$cause_level_3 %||% NULL,
     df$cause_level_2 %||% NULL,
-    df$gbd_cause     %||% NULL
+    df$`Cause Name`     %||% NULL
   )
   if (is.null(group_col)) group_col <- factor("All")
   df$group <- as.factor(group_col)
@@ -190,10 +252,12 @@ volcano_plot <- function(results_df,
   if (requireNamespace("ggrepel", quietly = TRUE)) {
     lab_df <- dplyr::mutate(df, label = dplyr::coalesce(.data$results_outcome, NA_character_))
     lab_df <- dplyr::filter(lab_df, .data$sig %in% TRUE, !is.na(.data$label))
+
     if (nrow(lab_df)) {
-      lab_df <- lab_df %>%
-        dplyr::arrange(dplyr::desc(abs(.data$z_ivw))) %>%
-        dplyr::slice_head(n = min(label_top_n, n()))
+      lab_df <- dplyr::arrange(lab_df, dplyr::desc(abs(.data$z_ivw)))
+      n_lab  <- min(label_top_n, nrow(lab_df))
+      lab_df <- dplyr::slice_head(lab_df, n = n_lab)  # n must be a constant integer
+
       p <- p + ggrepel::geom_text_repel(
         data = lab_df,
         ggplot2::aes(x = .data$z_ivw, y = .data$logp, label = .data$label),
@@ -201,6 +265,9 @@ volcano_plot <- function(results_df,
       )
     }
   }
+
+
+
 
   p
 }
