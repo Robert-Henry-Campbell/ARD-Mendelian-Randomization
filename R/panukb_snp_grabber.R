@@ -294,6 +294,17 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
       )
     }
 
+    # Sanity: p from -log10 vs beta/se agree?
+    p2s   <- 10^(-panukb_std$p_log10) * 2          # two-sided p from the raw -log10(p)
+    z_p   <- stats::qnorm(p2s/2, lower.tail = FALSE)
+    z_bse <- abs(panukb_fmt$beta.outcome / panukb_fmt$se.outcome)
+    bad   <- which(is.finite(z_p) & is.finite(z_bse) & abs(z_p - z_bse) > 3)
+
+    if (length(bad)) {
+      stop(sprintf("Outcome '%s': %d SNPs show beta/se vs p inconsistency (check units/columns).",
+                   outcome_label, length(bad)))
+    }
+
     # cache formatted result for this phenotype and close tabix
     try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
     .close_tf(tf)
