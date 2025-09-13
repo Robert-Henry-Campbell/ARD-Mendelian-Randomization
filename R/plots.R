@@ -63,7 +63,11 @@ manhattan_plot <- function(results_df,
 
   # Compute -log10(p)
   df <- dplyr::filter(df, !is.na(.data$results_p_ivw))
-  df$logp <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  df$logp <- dplyr::if_else(
+    !is.na(df$results_log10p_ivw),
+    -df$results_log10p_ivw,
+    -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  )
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no finite p-values)"))
 
   # =========== GROUPING & X POSITIONS (L1→L2) ===========
@@ -180,7 +184,11 @@ volcano_plot <- function(results_df,
 
   # computed axes
   df$z_ivw   <- df$results_beta_ivw / df$results_se_ivw
-  df$logp    <- -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  df$logp    <- dplyr::if_else(
+    !is.na(df$results_log10p_ivw),
+    -df$results_log10p_ivw,
+    -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  )
   if (!"results_qc_pass" %in% names(df)) df$results_qc_pass <- TRUE
   if (!"results_nsnp_after" %in% names(df)) df$results_nsnp_after <- NA_integer_
 
