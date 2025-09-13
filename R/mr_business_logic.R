@@ -46,7 +46,11 @@ mr_business_logic <- function(
     if (is.data.frame(x)) return(nrow(x) > 0)  # require at least one row
     length(x) > 0
   }
-  .as_num <- function(x) suppressWarnings(as.numeric(x))
+  .as_num <- function(x) {
+    if (is.null(x)) return(NA_real_)
+    if (is.factor(x)) x <- as.character(x)
+    suppressWarnings(as.numeric(x))
+  }
 
   .save_pub_plot <- function(plot, basepath, w_mm = 89, h_mm = 80, dpi = 500) {
     # High-res PNG for quick viewing
@@ -391,7 +395,8 @@ mr_business_logic <- function(
     b  <- as.numeric(ivw["b"])
     se <- as.numeric(ivw["se"])
     z  <- b / se
-    log10p <- stats::pnorm(abs(z), lower.tail = FALSE, log.p = TRUE) / log(10)
+    # two-sided log10(p); still NEGATIVE for small p
+    log10p <- (stats::pnorm(abs(z), lower.tail = FALSE, log.p = TRUE) + log(2)) / log(10)
     MR_df$results_beta_ivw[i]       <- b
     MR_df$results_se_ivw[i]         <- se
     MR_df$results_log10p_ivw[i]     <- log10p

@@ -61,7 +61,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
   }
 
   exp_lu <- tibble::as_tibble(exposure_snps) |>
-    dplyr::select(rsid, panukb_chrom, panukb_pos, effect_allele.exposure) |>
+    dplyr::select(rsid, panukb_chrom, panukb_pos) |>
     dplyr::distinct()
 
   # ---- enforce link columns in MR_df ----
@@ -250,7 +250,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     panukb_std <- dplyr::inner_join(
       panukb_std,
       exp_lu,
-      by = c("chr" = "panukb_chrom", "pos" = "panukb_pos", "effect_allele" = "effect_allele.exposure")
+      by = c("chr" = "panukb_chrom", "pos" = "panukb_pos")
     )
 
     if (!"rsid" %in% names(panukb_std)) {
@@ -264,7 +264,6 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     panukb_std <- dplyr::relocate(panukb_std, rsid, .before = 1)
     panukb_std <- dplyr::distinct(panukb_std, SNP, effect_allele, .keep_all = TRUE)
     names(panukb_std)[names(panukb_std) == "rsid"] <- "SNP"
-    panukb_std <- dplyr::distinct(panukb_std, SNP, effect_allele, .keep_all = TRUE)
     panukb_std$chrpos <- paste0(panukb_std$chr, ":", panukb_std$pos)
     panukb_std$Phenotype <- outcome_label
 

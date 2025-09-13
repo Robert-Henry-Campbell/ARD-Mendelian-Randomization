@@ -12,6 +12,7 @@ col_or_null <- function(df, nm) if (nm %in% names(df)) df[[nm]] else NULL
 
 manhattan_plot <- function(results_df,
                            Multiple_testing_correction = c("BH","bonferroni"),
+                           qc_pass_only = TRUE,
                            alpha = 0.05,
                            verbose = TRUE) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
@@ -44,16 +45,22 @@ manhattan_plot <- function(results_df,
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no ARD-selected rows)"))
   # -------------------------------------------------
 
-  # QC-pass
+  # ---- QC-pass (optional filter) ----
   if (!"results_qc_pass" %in% names(df)) {
     if (verbose) logger::log_info("Manhattan: 'results_qc_pass' not present; assuming all pass.")
     df$results_qc_pass <- TRUE
+  } else if (!is.logical(df$results_qc_pass)) {
+    df$results_qc_pass <- df$results_qc_pass %in% c(TRUE,"TRUE","True","true",1,"1","T")
   }
+
   n_before <- nrow(df)
-  df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
-  n_after  <- nrow(df)
-  if (verbose) logger::log_info("Manhattan: filtered to QC-pass => {n_after}/{n_before} rows remain.")
-  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no QC-pass ARD rows)"))
+  if (isTRUE(qc_pass_only)) {
+    df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+    if (verbose) logger::log_info("Manhattan: filtered to QC-pass => {nrow(df)}/{n_before} rows remain.")
+  } else {
+    if (verbose) logger::log_info("Manhattan: qc_pass_only=FALSE; keeping all {n_before} rows (non-QC will be shown).")
+  }
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no rows after QC filter)"))
 
   # Required p
   if (!"results_p_ivw" %in% names(df)) {
@@ -218,21 +225,30 @@ volcano_plot <- function(results_df,
     thr_y   <- -log10(alpha_b)
   }
 
-  p <- ggplot2::ggplot(
-    df,
-    ggplot2::aes(x = .data$z_ivw, y = .data$logp,
-                 fill = .data$group,
-                 alpha = .data$results_qc_pass,
-                 size = .data$results_nsnp_after)
-  ) +
-    ggplot2::geom_point(shape = 21, colour = NA) +
+  p <- ggplot2::ggplot() +
+    # Non-QC-pass points (grey)
+    ggplot2::geom_point(
+      data = dplyr::filter(df, .data$results_qc_pass %in% FALSE),
+      mapping = ggplot2::aes(x = .data$z_ivw, y = .data$logp, size = .data$results_nsnp_after),
+      inherit.aes = FALSE,
+      shape = 21, fill = "grey80", colour = NA, alpha = 0.6
+    ) +
+    # QC-pass points (coloured by group)
+    ggplot2::geom_point(
+      data = dplyr::filter(df, .data$results_qc_pass %in% TRUE),
+      mapping = ggplot2::aes(x = .data$z_ivw, y = .data$logp,
+                             fill = .data$group,
+                             size = .data$results_nsnp_after),
+      inherit.aes = FALSE,
+      shape = 21, colour = NA, alpha = 1
+    ) +
+    # Outline ring for flagged points (applies to both)
     ggplot2::geom_point(
       data = dplyr::filter(df, .data$flag_any %in% TRUE),
       ggplot2::aes(x = .data$z_ivw, y = .data$logp),
       inherit.aes = FALSE, shape = 21, fill = NA, colour = "black", stroke = 0.8
     ) +
     { if (!is.na(thr_y)) ggplot2::geom_hline(yintercept = thr_y, linetype = "dashed") } +
-    ggplot2::scale_alpha_manual(values = c(`TRUE` = 1, `FALSE` = 0.25), guide = "none") +
     ggplot2::scale_size_continuous(range = c(1.5, 4), guide = ggplot2::guide_legend(title = "NSNP")) +
     ggplot2::labs(
       x = expression(Z == beta[IVW] / SE[IVW]),
@@ -241,6 +257,7 @@ volcano_plot <- function(results_df,
       title = "Volcano of MR IVW results (ARD only)"
     ) +
     ggplot2::theme_minimal(base_size = 12)
+
 
   if (requireNamespace("ggrepel", quietly = TRUE)) {
     lab_df <- dplyr::mutate(df, label = dplyr::coalesce(.data$results_outcome, NA_character_))
