@@ -45,11 +45,31 @@ Outcome_setup <- function(sex, ancestry) {
     manifest <- get_pkg_obj("panukb_pheno_manifest")
     join_col <- "phenocode"
   } else {
-    file_man <- get_pkg_obj("neale_file_manifest")
-    sex_man <- if (sex == "male") get_pkg_obj("neale_male_manifest") else get_pkg_obj("neale_female_manifest")
-    manifest <- dplyr::left_join(sex_man, file_man, by = c("phenotype" = "Phenotype Code"))
+    sex_lower <- tolower(sex)
+
+    # 1) sex-specific phenotype list (already the right rows)
+    sex_man <- if (sex_lower == "male") get_pkg_obj("neale_male_manifest") else if (sex_lower == 'female') get_pkg_obj("neale_female_manifest")
+
+    # 2) file manifest filtered to the requested sex ONLY
+    file_man <- get_pkg_obj("neale_file_manifest") |>
+      dplyr::mutate(Sex = tolower(.data$Sex)) |>
+      dplyr::filter(.data$Sex == sex_lower)
+
+    # (optional: sanity — ensure one row per phenotype code post-filter)
+    dup <- file_man |>
+       dplyr::count(`Phenotype Code`) |>
+       dplyr::filter(n > 1)
+    if (nrow(dup)) logger::log_warn("neale_file_manifest still has duplicates after sex filter: {nrow(dup)}")
+
+    # 3) join only against sex-matched rows
+    manifest <- dplyr::left_join(
+      sex_man,
+      file_man,
+      by = c("phenotype" = "Phenotype Code")
+    )
     join_col <- "phenotype"
   }
+
 
   # ---- map ICD10 to manifest ----------------------------------------------
   MR_df <- dplyr::left_join(pheno_df, manifest, by = c("ICD10_explo" = join_col))
