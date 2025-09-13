@@ -114,6 +114,67 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
   }
   .close_tf <- function(tf) try(Rsamtools::close.TabixFile(tf), silent = TRUE)
 
+  # ---- header utilities ------------------------------------------------------
+  .get_sumstats_header <- function(tf, data_url, verbose = TRUE) {
+    # Try tabix header first
+    hdr_lines <- tryCatch(Rsamtools::headerTabix(tf), error = function(e) character())
+    hdr_lines <- unlist(hdr_lines, use.names = FALSE)
+
+    # Pick the last tab-delimited header-ish line; strip leading '#'s
+    hdr_line <- NA_character_
+    if (length(hdr_lines)) {
+      cand <- hdr_lines[grepl("\t", hdr_lines, fixed = TRUE)]
+      if (length(cand)) hdr_line <- utils::tail(cand, 1)
+    }
+    if (is.na(hdr_line) || !nzchar(hdr_line)) {
+      # Fallback: stream the first line from the bgzf if tabix header is empty
+      con <- NULL
+      hdr_line <- tryCatch({
+        con <- gzcon(url(data_url, open = "rb"))
+        on.exit(try(close(con), silent = TRUE), add = TRUE)
+        readLines(con, n = 1)
+      }, error = function(e) NA_character_)
+    }
+    if (!is.character(hdr_line) || !nzchar(hdr_line)) {
+      stop("Could not obtain a header line for ", data_url, call. = FALSE)
+    }
+    hdr_line <- sub("^#+", "", hdr_line)                       # remove leading '#'
+    fields   <- strsplit(hdr_line, "\t", fixed = TRUE)[[1]]
+    trimws(fields)
+  }
+
+  .relabel_by_header <- function(dt, header_fields, ancestry) {
+    suf <- paste0("_", ancestry)
+    needed <- c(
+      "chr", "pos", "ref", "alt",
+      paste0("af", suf),
+      paste0("beta", suf),
+      paste0("se", suf),
+      paste0("neglog10_pval", suf),
+      paste0("low_confidence", suf)
+    )
+    # Case-insensitive exact matches to header names
+    header_lc <- tolower(header_fields)
+    idx <- vapply(needed, function(nm) {
+      which(header_lc == tolower(nm))[1L]
+    }, integer(1))
+
+    if (anyNA(idx)) {
+      stop(
+        "Header missing required columns: ",
+        paste(needed[is.na(idx)], collapse = ", "),
+        call. = FALSE
+      )
+    }
+
+    # Reorder & rename
+    dt2 <- dt[, idx, with = FALSE]
+    data.table::setnames(dt2, needed)
+    dt2
+  }
+
+
+
   # ---- build GRanges once ----
   gr_numeric <- GenomicRanges::GRanges(
     seqnames = as.character(exp_lu$panukb_chrom),
@@ -206,24 +267,16 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
       next
     }
 
-    # ---- parse headerless and assign the expected names ----
+    # ---- read lines and map columns by the actual header for this GWAS ----
+    header_fields <- .get_sumstats_header(tf, url, verbose = verbose)
+
     panukb_tmp <- data.table::fread(
       text = paste(lines, collapse = "\n"),
       header = FALSE, fill = TRUE, showProgress = FALSE
     )
 
-    # Must have at least the columns we expect; if more, drop extras; if fewer, skip
-    if (ncol(panukb_tmp) < length(need)) {
-      if (verbose) logger::log_warn("Pan-UKB row {i}: expected >= {length(need)} columns, found {ncol(panukb_tmp)}; skipping")
-      MR_df$outcome_snps[[i]] <- tibble::tibble()
-      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
-      .close_tf(tf)
-      next
-    }
-    if (ncol(panukb_tmp) > length(need)) {
-      panukb_tmp <- panukb_tmp[, seq_len(length(need))]
-    }
-    data.table::setnames(panukb_tmp, need)
+    # Reorder/rename based on header (handles phenotype-specific column order)
+    panukb_tmp <- .relabel_by_header(panukb_tmp, header_fields, ancestry)
     panukb_tmp <- tibble::as_tibble(panukb_tmp)
 
     # ---- standardise for MR (EA=ALT; EAF=af_<ANC>; pval is -log10) ----
