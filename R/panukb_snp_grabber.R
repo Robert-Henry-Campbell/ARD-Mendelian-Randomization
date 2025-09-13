@@ -19,7 +19,7 @@
 #' @importFrom tibble as_tibble tibble
 #' @importFrom dplyr select distinct inner_join relocate rename all_of mutate transmute
 #' @importFrom rlang .data
-panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr_cache_dir(), verbose = TRUE) {
+panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr_cache_dir(), verbose = TRUE, force_refresh = FALSE) {
   stopifnot(is.data.frame(exposure_snps), is.data.frame(MR_df))
   ancestry <- match.arg(toupper(ancestry), c("AFR","AMR","CSA","EAS","EUR","MID"))
 
@@ -115,19 +115,17 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
   .close_tf <- function(tf) try(Rsamtools::close.TabixFile(tf), silent = TRUE)
 
   # ---- header utilities ------------------------------------------------------
+  # ---- header utilities (EXACT matching) --------------------------------------
   .get_sumstats_header <- function(tf, data_url, verbose = TRUE) {
-    # Try tabix header first
     hdr_lines <- tryCatch(Rsamtools::headerTabix(tf), error = function(e) character())
     hdr_lines <- unlist(hdr_lines, use.names = FALSE)
 
-    # Pick the last tab-delimited header-ish line; strip leading '#'s
     hdr_line <- NA_character_
     if (length(hdr_lines)) {
       cand <- hdr_lines[grepl("\t", hdr_lines, fixed = TRUE)]
       if (length(cand)) hdr_line <- utils::tail(cand, 1)
     }
     if (is.na(hdr_line) || !nzchar(hdr_line)) {
-      # Fallback: stream the first line from the bgzf if tabix header is empty
       con <- NULL
       hdr_line <- tryCatch({
         con <- gzcon(url(data_url, open = "rb"))
@@ -138,42 +136,54 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (!is.character(hdr_line) || !nzchar(hdr_line)) {
       stop("Could not obtain a header line for ", data_url, call. = FALSE)
     }
-    hdr_line <- sub("^#+", "", hdr_line)                       # remove leading '#'
-    fields   <- strsplit(hdr_line, "\t", fixed = TRUE)[[1]]
+    hdr_line <- sub("^#+", "", hdr_line)
+    fields <- strsplit(hdr_line, "\t", fixed = TRUE)[[1]]
     trimws(fields)
   }
 
-  .relabel_by_header <- function(dt, header_fields, ancestry) {
-    suf <- paste0("_", ancestry)
-    needed <- c(
-      "chr", "pos", "ref", "alt",
-      paste0("af", suf),
-      paste0("beta", suf),
-      paste0("se", suf),
-      paste0("neglog10_pval", suf),
-      paste0("low_confidence", suf)
-    )
-    # Case-insensitive exact matches to header names
-    header_lc <- tolower(header_fields)
-    idx <- vapply(needed, function(nm) {
-      which(header_lc == tolower(nm))[1L]
-    }, integer(1))
+  # Build an EXACT, case-sensitive mapping for the columns we require.
+  # We REQUIRE: chr, pos, ref, alt, and the ancestry-suffixed
+  # (Optionally low_confidence_<ANC> if present; if not, set NA.)
 
-    if (anyNA(idx)) {
+  # 1) Replace your current .build_header_mapping_exact() helper with this:
+  .build_header_mapping_eaf_controls_fallback <- function(header_fields, ancestry) {
+    anc <- toupper(ancestry)  # Pan-UKB uses upper-case suffixes
+
+    # required (exact)
+    req <- c("chr", "pos", "ref", "alt",
+             paste0("beta_", anc),
+             paste0("se_", anc),
+             paste0("neglog10_pval_", anc))
+    idx_req <- match(req, header_fields)
+    if (any(is.na(idx_req))) {
       stop(
         "Header missing required columns: ",
-        paste(needed[is.na(idx)], collapse = ", "),
+        paste(req[is.na(idx_req)], collapse = ", "),
+        "\nHeader was: ", paste(header_fields, collapse = " | "),
         call. = FALSE
       )
     }
 
-    # Reorder & rename
-    dt2 <- dt[, idx, with = FALSE]
-    data.table::setnames(dt2, needed)
-    dt2
+    # EAF sources (prefer af_<ANC>, else af_controls_<ANC>)
+    idx_af_primary  <- match(paste0("af_", anc), header_fields)
+    idx_af_controls <- match(paste0("af_controls_", anc), header_fields)
+    af_idx <- if (!is.na(idx_af_primary)) idx_af_primary else idx_af_controls
+    af_src <- if (!is.na(idx_af_primary)) "primary" else if (!is.na(idx_af_controls)) "controls" else "absent"
+
+    list(
+      chr      = match("chr", header_fields),
+      pos      = match("pos", header_fields),
+      ref      = match("ref", header_fields),
+      alt      = match("alt", header_fields),
+      af       = af_idx,                                # may be NA -> we'll handle below
+      beta     = match(paste0("beta_", anc), header_fields),
+      se       = match(paste0("se_", anc), header_fields),
+      p_log10  = match(paste0("neglog10_pval_", anc), header_fields),
+      low_conf = match(paste0("low_confidence_", anc), header_fields),  # may be NA
+      af_src   = af_src,
+      p_is_log10 = TRUE
+    )
   }
-
-
 
   # ---- build GRanges once ----
   gr_numeric <- GenomicRanges::GRanges(
@@ -201,8 +211,14 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     }
     cache_file <- file.path(cache_root, paste0(.slug(outcome_label), ".rds"))
 
+    # -- optional hard reset of cache for this phenotype
+    if (isTRUE(force_refresh) && file.exists(cache_file)) {
+      if (verbose) logger::log_info("Pan-UKB row {i}: force_refresh -> deleting cache {basename(cache_file)}")
+      try(unlink(cache_file), silent = TRUE)
+    }
+
     # resume from cache if available
-    if (file.exists(cache_file)) {
+    if (!isTRUE(force_refresh) && file.exists(cache_file)) {
       if (verbose) logger::log_info("Pan-UKB row {i}: using cached result {basename(cache_file)}")
       MR_df$outcome_snps[[i]] <- readRDS(cache_file)
       next
@@ -267,37 +283,62 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
       next
     }
 
-    # ---- read lines and map columns by the actual header for this GWAS ----
+    # ---- read lines and <- columns by the actual header for this GWAS ----
     header_fields <- .get_sumstats_header(tf, url, verbose = verbose)
+    if (verbose) logger::log_info("Pan-UKB row {i}: detected header fields: {paste(header_fields, collapse=' | ')}")
 
     panukb_tmp <- data.table::fread(
       text = paste(lines, collapse = "\n"),
       header = FALSE, fill = TRUE, showProgress = FALSE
     )
 
-    # Reorder/rename based on header (handles phenotype-specific column order)
-    panukb_tmp <- .relabel_by_header(panukb_tmp, header_fields, ancestry)
+    # Build mapping from header (EXACT names); apply to the fetched rows
+    map <- .build_header_mapping_eaf_controls_fallback(header_fields, ancestry)
+    if (verbose && identical(map$af_src, "controls")) {
+      logger::log_warn("Pan-UKB row {i}: using af_controls_{ancestry} for EAF.")
+    }
+    if (verbose && identical(map$af_src, "absent")) {
+      logger::log_warn("Pan-UKB row {i}: no af_{ancestry} or af_controls_{ancestry}; EAF will be NA (more palindromes may drop).")
+    }
+
+    # --- PART 3: tolerant subset/rename that skips NA af/low_conf and backfills if absent ---
+    keep_idx <- c(map$chr, map$pos, map$ref, map$alt,
+                  if (!is.na(map$af)) map$af else NULL,
+                  map$beta, map$se, map$p_log10,
+                  if (!is.na(map$low_conf)) map$low_conf else NULL)
+    panukb_tmp <- panukb_tmp[, keep_idx, with = FALSE]
+
+    newn <- c("chr","pos","ref","alt",
+              if (!is.na(map$af)) "af" else NULL,
+              "beta","se","p_log10",
+              if (!is.na(map$low_conf)) "low_conf" else NULL)
+    data.table::setnames(panukb_tmp, newn)
     panukb_tmp <- tibble::as_tibble(panukb_tmp)
 
-    # ---- standardise for MR (EA=ALT; EAF=af_<ANC>; pval is -log10) ----
-    pval_col <- paste0("neglog10_pval", suf)
-    beta_col <- paste0("beta", suf)
-    se_col   <- paste0("se", suf)
-    eaf_col  <- paste0("af", suf)
-    lowq_col <- paste0("low_confidence", suf)
+    # Backfill absent columns to keep schema stable for downstream code
+    if (!"af" %in% names(panukb_tmp))       panukb_tmp$af       <- NA_real_
+    if (!"low_conf" %in% names(panukb_tmp)) panukb_tmp$low_conf <- NA
 
+
+    # ---- standardise for MR (EA=ALT; EAF=af; pval as -log10) ----
     panukb_std <- panukb_tmp |>
       dplyr::transmute(
-        chr = as.integer(sub("^chr", "", as.character(.data$chr))),
-        pos = as.integer(.data$pos),
-        effect_allele = toupper(.data$alt),
-        other_allele  = toupper(.data$ref),
-        beta          = suppressWarnings(as.numeric(.data[[beta_col]])),
-        se            = suppressWarnings(as.numeric(.data[[se_col]])),
-        eaf           = suppressWarnings(as.numeric(.data[[eaf_col]])),
-        p_log10       = suppressWarnings(as.numeric(.data[[pval_col]])),
-        low_confidence = tolower(as.character(.data[[lowq_col]])) %in% c("true","t","1")
+        chr = suppressWarnings(as.integer(sub("^chr", "", as.character(.data$chr)))),
+        pos = suppressWarnings(as.integer(.data$pos)),
+        effect_allele = toupper(as.character(.data$alt)),
+        other_allele  = toupper(as.character(.data$ref)),
+        beta          = suppressWarnings(as.numeric(.data$beta)),
+        se            = suppressWarnings(as.numeric(.data$se)),
+        eaf           = suppressWarnings(as.numeric(.data$af)),
+        p_log10       = suppressWarnings(as.numeric(.data$p_log10)),  # already -log10(p)
+        low_confidence = dplyr::case_when(
+          is.null(.data$low_conf) ~ NA,                              # column absent
+          TRUE ~ tolower(as.character(.data$low_conf)) %in% c("true","t","1")
+        )
       )
+
+
+
 
     # ---- join RSIDs by chr:pos using your exposure mapping ----
     panukb_std <- dplyr::inner_join(
@@ -306,19 +347,16 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
       by = c("chr" = "panukb_chrom", "pos" = "panukb_pos")
     )
 
-    if (!"rsid" %in% names(panukb_std)) {
-      if (verbose) logger::log_warn("Pan-UKB row {i}: RSID join failed; skipping")
-      MR_df$outcome_snps[[i]] <- tibble::tibble()
-      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
-      .close_tf(tf)
-      next
-    }
+    # If multiple outcome rows map to the same rsID (multi-allelic etc.), keep the strongest line
+    panukb_std <- panukb_std |>
+      dplyr::arrange(.data$rsid, dplyr::desc(.data$p_log10)) |>
+      dplyr::distinct(.data$rsid, .keep_all = TRUE)
 
     panukb_std <- dplyr::relocate(panukb_std, rsid, .before = 1)
-    panukb_std <- dplyr::distinct(panukb_std, SNP, effect_allele, .keep_all = TRUE)
     names(panukb_std)[names(panukb_std) == "rsid"] <- "SNP"
-    panukb_std$chrpos <- paste0(panukb_std$chr, ":", panukb_std$pos)
+    panukb_std$chrpos    <- paste0(panukb_std$chr, ":", panukb_std$pos)
     panukb_std$Phenotype <- outcome_label
+
 
     # ---- TwoSampleMR formatting (log10 p-values) ----
     if (requireNamespace("TwoSampleMR", quietly = TRUE)) {
@@ -348,7 +386,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     }
 
     # Sanity: p from -log10 vs beta/se agree?
-    p2s   <- 10^(-panukb_std$p_log10) * 2          # two-sided p from the raw -log10(p)
+    p2s   <- 10^(-panukb_std$p_log10)          # two-sided p from the raw -log10(p)
     z_p   <- stats::qnorm(p2s/2, lower.tail = FALSE)
     z_bse <- abs(panukb_fmt$beta.outcome / panukb_fmt$se.outcome)
     bad   <- which(is.finite(z_p) & is.finite(z_bse) & abs(z_p - z_bse) > 3)
