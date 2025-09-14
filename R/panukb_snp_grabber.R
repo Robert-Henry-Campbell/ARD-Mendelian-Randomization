@@ -114,7 +114,7 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
   }
   .close_tf <- function(tf) try(Rsamtools::close.TabixFile(tf), silent = TRUE)
 
-  # ---- header utilities ------------------------------------------------------
+
   # ---- header utilities (EXACT matching) --------------------------------------
   .get_sumstats_header <- function(tf, data_url, verbose = TRUE) {
     hdr_lines <- tryCatch(Rsamtools::headerTabix(tf), error = function(e) character())

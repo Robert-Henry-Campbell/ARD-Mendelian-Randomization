@@ -153,31 +153,254 @@ neale_gwas_checker <- function(MR_df, neale_dir, verbose = TRUE,
   invisible(list(n_total = total, n_present = n_present, n_downloaded = n_downloaded,
                  n_failed = n_failed, aborted = FALSE))
 }
-
-
-#' Generate .tbi for all bgz files (no-op if present)
-#' @param neale_dir directory
-#' @param verbose logical
 #' @export
-neale_tbi_maker <- function(neale_dir, verbose = TRUE) {
-  # TODO: run tabix indexing if missing
-  n_files <- length(list.files(neale_dir, pattern = "\\.bgz$"))
-  logger::log_info("Neale tbi maker: {n_files} files examined")
-  invisible(TRUE)
-}
+neale_tbi_maker <- function(...) { ... } #unimplemented feature
 
-#' Fetch outcome SNP rows from Neale sumstats for each outcome
-#' @param exposure_snps mapped snps (must include neale_pos when implemented)
-#' @param MR_df tibble (neale rows)
-#' @param neale_dir directory with sumstats
-#' @param cache_dir path (default: [ardmr_cache_dir()])
-#' @param verbose logical
-#' @return MR_df with list-column `outcome_snps`
+#' Fetch outcome SNP rows from Neale sumstats for each outcome (no tabix; exact variant matches)
+#'
+#' @param exposure_snps MAPPED exposure SNPs. Must include:
+#'   - rsid
+#'   - neale_variant  (string "chr:pos:ref:alt")
+#'   - effect_allele.exposure (preferred) or effect_allele (for logs / future harmonization)
+#' @param MR_df Outcome plan (Neale rows). Must include:
+#'   - File         (bgz filename in neale_dir)
+#'   - description  (preferred phenotype label; else ICD10_explo)
+#' @param neale_dir Directory containing Neale .tsv.bgz files
+#' @param cache_dir Cache root (default: ardmr_cache_dir()); results cached per outcome
+#' @param verbose Logical
+#' @return MR_df with list-column `outcome_snps` (TwoSampleMR-formatted if available)
 #' @export
 neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr_cache_dir(), verbose = TRUE) {
-  # TODO: iterate MR_df[provider=="neale"], extract SNP rows; attach rsid; format for TwoSampleMR
+  stopifnot(is.data.frame(exposure_snps), is.data.frame(MR_df))
+
+  # ---- strict input checks ---------------------------------------------------
+  need_exp <- c("rsid","neale_variant")
+  miss_exp <- setdiff(need_exp, names(exposure_snps))
+  if (length(miss_exp)) {
+    stop("neale_snp_grabber(): exposure_snps missing required columns: ", paste(miss_exp, collapse=", "), call. = FALSE)
+  }
+  need_mr <- c("File")
+  miss_mr <- setdiff(need_mr, names(MR_df))
+  if (length(miss_mr)) {
+    stop("neale_snp_grabber(): MR_df missing required columns: ", paste(miss_mr, collapse=", "), call. = FALSE)
+  }
+
+  # ---- helpers ---------------------------------------------------------------
+  .slug <- function(x) {
+    x <- as.character(x); x[is.na(x) | !nzchar(x)] <- "NA"
+    x <- gsub("[^A-Za-z0-9._-]+", "_", x)
+    substr(x, 1, 120)
+  }
+  .parse_variant <- function(v) {
+    # Expect "chr:pos:ref:alt"; return tibble(chr, pos, ref, alt)
+    parts <- strsplit(v, ":", fixed = TRUE)
+    ok <- vapply(parts, length, integer(1)) == 4L
+    if (!all(ok)) {
+      bad <- paste(utils::head(v[!ok], 3), collapse = ", ")
+      stop("Variant parse error: expected 'chr:pos:ref:alt'. Examples of bad values: ", bad, call. = FALSE)
+    }
+    tibble::tibble(
+      chr = suppressWarnings(as.integer(vapply(parts, `[[`, "", 1))),
+      pos = suppressWarnings(as.integer(vapply(parts, `[[`, "", 2))),
+      ref = toupper(vapply(parts, `[[`, "", 3)),
+      alt = toupper(vapply(parts, `[[`, "", 4))
+    )
+  }
+  .to_bool <- function(x) {
+    tx <- tolower(as.character(x))
+    ifelse(tx %in% c("true","t","1"), TRUE,
+           ifelse(tx %in% c("false","f","0"), FALSE, NA))
+  }
+
+  # ---- cache per outcome -----------------------------------------------------
+  # If MR_df has Sex, we subfolder by it (male/female). Else "unknown".
+  sex_sub <- if ("Sex" %in% names(MR_df)) {
+    s <- unique(tolower(na.omit(MR_df$Sex)))
+    if (length(s) == 1 && nzchar(s)) s else "unknown"
+  } else "unknown"
+
+  cache_root <- file.path(cache_dir, "neale_outcome_snps", sex_sub)
+  dir.create(cache_root, recursive = TRUE, showWarnings = FALSE)
+
+  # ---- build variant lookup once (rsid <-> neale_variant) --------------------
+  exp <- tibble::as_tibble(exposure_snps) |>
+    dplyr::transmute(
+      rsid = .normalize_rsid(.data$rsid),
+      neale_variant = as.character(.data$neale_variant)
+    ) |>
+    dplyr::filter(!is.na(.data$rsid) & .data$rsid != "" &
+                    !is.na(.data$neale_variant) & .data$neale_variant != "") |>
+    dplyr::distinct(neale_variant, .keep_all = TRUE)
+
+  if (nrow(exp) == 0) {
+    logger::log_warn("Neale SNP grabber: no usable exposure SNPs with 'rsid' + 'neale_variant'. Returning empty results.")
+    MR_df$outcome_snps <- replicate(nrow(MR_df), tibble::tibble(), simplify = FALSE)
+    return(MR_df)
+  }
+
+  target_set <- exp$neale_variant
+  names(target_set) <- exp$rsid  # handy for quick reverse lookup if needed
+
+  # ---- iterate files/outcomes -----------------------------------------------
   MR_df$outcome_snps <- vector("list", nrow(MR_df))
-  n_snps <- sum(lengths(MR_df$outcome_snps))
-  logger::log_info("Neale SNP grabber: {nrow(MR_df)} outcomes; {n_snps} SNP rows")
+
+  pb <- utils::txtProgressBar(min = 0, max = nrow(MR_df), style = 3)
+  on.exit(try(close(pb), silent = TRUE), add = TRUE)
+
+  for (i in seq_len(nrow(MR_df))) {
+    utils::setTxtProgressBar(pb, i)
+
+    rec <- MR_df[i, , drop = FALSE]
+    fname <- as.character(rec$File[[1]])
+    if (!nzchar(fname) || is.na(fname)) {
+      logger::log_warn("Neale row {i}: empty 'File' field; skipping")
+      MR_df$outcome_snps[[i]] <- tibble::tibble()
+      next
+    }
+
+    fpath <- file.path(neale_dir, basename(fname))
+    label <- if ("description" %in% names(MR_df) && nzchar(rec$description[[1]])) {
+      as.character(rec$description[[1]])
+    } else if ("ICD10_explo" %in% names(MR_df) && nzchar(rec$ICD10_explo[[1]])) {
+      as.character(rec$ICD10_explo[[1]])
+    } else {
+      tools::file_path_sans_ext(basename(fname))
+    }
+
+    cache_file <- file.path(cache_root, paste0(.slug(label), ".rds"))
+
+    # reuse from cache if present
+    if (file.exists(cache_file)) {
+      if (verbose) logger::log_info("Neale row {i}: using cached result {basename(cache_file)}")
+      MR_df$outcome_snps[[i]] <- readRDS(cache_file)
+      next
+    }
+
+    if (!file.exists(fpath)) {
+      logger::log_warn("Neale row {i}: file missing => {basename(fpath)}; skipping")
+      MR_df$outcome_snps[[i]] <- tibble::tibble()
+      next
+    }
+
+    # ---- read header, enforce required columns ------------------------------
+    hdr <- tryCatch(data.table::fread(fpath, nrows = 0, showProgress = FALSE),
+                    error = function(e) e)
+    if (inherits(hdr, "error")) {
+      logger::log_warn("Neale row {i}: failed to read header for {basename(fpath)}: {conditionMessage(hdr)}; skipping")
+      MR_df$outcome_snps[[i]] <- tibble::tibble()
+      next
+    }
+    cols <- names(hdr)
+    req <- c("variant","minor_allele","minor_AF","beta","se","pval","low_confidence_variant")
+    missing <- setdiff(req, cols)
+    if (length(missing)) {
+      stop(sprintf("Neale row %d: required columns missing in %s: %s. Available: %s",
+                   i, basename(fpath), paste(missing, collapse=", "), paste(cols, collapse=", ")), call. = FALSE)
+    }
+
+    # ---- read only required columns; filter to target variants --------------
+    dt <- tryCatch(
+      data.table::fread(
+        fpath,
+        select = req,
+        showProgress = FALSE
+      ),
+      error = function(e) e
+    )
+    if (inherits(dt, "error")) {
+      logger::log_warn("Neale row {i}: fread failed for {basename(fpath)}: {conditionMessage(dt)}; skipping")
+      MR_df$outcome_snps[[i]] <- tibble::tibble()
+      next
+    }
+
+    # exact variant match
+    dt <- dt[variant %in% target_set]
+    if (nrow(dt) == 0) {
+      if (verbose) logger::log_info("Neale row {i}: 0 matches in {basename(fpath)} for {length(target_set)} requested variants")
+      MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+      next
+    }
+
+    # ---- parse variant; compute EAF for ALT (effect allele) -----------------
+    var_parsed <- .parse_variant(dt$variant)
+    # join rsid back via neale_variant
+    rs_lu <- tibble::tibble(variant = exp$neale_variant, rsid = exp$rsid)
+
+    neale_std <- tibble::as_tibble(dt) |>
+      dplyr::bind_cols(var_parsed) |>
+      dplyr::left_join(rs_lu, by = "variant") |>
+      dplyr::transmute(
+        SNP            = .data$rsid,
+        chr            = .data$chr,
+        pos            = .data$pos,
+        effect_allele  = toupper(.data$alt),               # beta is w.r.t ALT
+        other_allele   = toupper(.data$ref),
+        beta           = suppressWarnings(as.numeric(.data$beta)),
+        se             = suppressWarnings(as.numeric(.data$se)),
+        # effect allele frequency = ALT AF = minor_AF if ALT==minor_allele else 1 - minor_AF
+        eaf            = dplyr::case_when(
+          is.na(.data$minor_allele) | is.na(.data$minor_AF) ~ NA_real_,
+          toupper(.data$minor_allele) == toupper(.data$alt) ~ suppressWarnings(as.numeric(.data$minor_AF)),
+          TRUE ~ 1 - suppressWarnings(as.numeric(.data$minor_AF))
+        ),
+        pval           = suppressWarnings(as.numeric(.data$pval)),
+        low_confidence = .to_bool(.data$low_confidence_variant)
+      ) |>
+      dplyr::arrange(.data$SNP, .data$pval) |>
+      dplyr::distinct(.data$SNP, .keep_all = TRUE)  # rsid-level de-duplication, keep strongest
+
+    # add annotation fields
+    neale_std$chrpos    <- paste0(neale_std$chr, ":", neale_std$pos)
+    neale_std$Phenotype <- label
+
+    # ---- TwoSampleMR formatting (plain p-values) ----------------------------
+    if (requireNamespace("TwoSampleMR", quietly = TRUE)) {
+      neale_fmt <- TwoSampleMR::format_data(
+        dat               = neale_std,
+        type              = "outcome",
+        snp_col           = "SNP",
+        beta_col          = "beta",
+        se_col            = "se",
+        effect_allele_col = "effect_allele",
+        other_allele_col  = "other_allele",
+        eaf_col           = "eaf",
+        pval_col          = "pval",
+        chr_col           = "chr",
+        pos_col           = "pos",
+        log_pval          = FALSE,
+        phenotype_col     = "Phenotype"
+      )
+      # carry through helpers
+      neale_fmt$chrpos         <- neale_std$chrpos
+      neale_fmt$low_confidence <- neale_std$low_confidence
+      out_tbl <- tibble::as_tibble(neale_fmt)
+    } else {
+      out_tbl <- tibble::as_tibble(
+        dplyr::select(neale_std, SNP, chr, pos, effect_allele, other_allele, beta, se, eaf, pval, chrpos, low_confidence, Phenotype)
+      )
+    }
+
+    # ---- sanity: p vs beta/se consistency (warn, don't stop) ----------------
+    p2s <- suppressWarnings(as.numeric(out_tbl$pval))
+    z_p   <- stats::qnorm(p2s/2, lower.tail = FALSE)
+    z_bse <- abs(suppressWarnings(as.numeric(out_tbl$beta)) /
+                   suppressWarnings(as.numeric(out_tbl$se)))
+    bad <- which(is.finite(z_p) & is.finite(z_bse) & abs(z_p - z_bse) > 3)
+    if (length(bad)) {
+      logger::log_warn("Neale row {i} ('{label}'): {length(bad)} SNPs show beta/se vs p inconsistency; keeping but flagging.")
+      # Could mark a column if you want: out_tbl$inconsistency <- FALSE; out_tbl$inconsistency[bad] <- TRUE
+    }
+
+    MR_df$outcome_snps[[i]] <- out_tbl
+    try(saveRDS(out_tbl, cache_file), silent = TRUE)
+
+    if (verbose) {
+      logger::log_info("Neale row {i}: {nrow(out_tbl)} SNP rows for '{label}' from {basename(fpath)}")
+    }
+  }
+
+  total_rows <- sum(vapply(MR_df$outcome_snps, nrow, integer(1)))
+  logger::log_info("Neale SNP grabber: {nrow(MR_df)} outcomes processed; {total_rows} SNP rows harvested")
   MR_df
 }
