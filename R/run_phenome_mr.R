@@ -62,9 +62,13 @@ run_phenome_mr <- function(
     "neale"
   }
 
+  # ensure logs/ exists inside cache_dir
+  log_dir <- file.path(cache_dir, "logs")
+  if (!dir.exists(log_dir)) dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
+
 
   logfile <- if (is.null(logfile) || !nzchar(logfile)) {
-    file.path(cache_dir, sprintf("ardmr_%s.log", format(Sys.time(), "%Y%m%d_%H%M%S")))
+    file.path(log_dir,sprintf("ardmr_%s.log", format(Sys.time(), "%Y%m%d_%H%M%S")))
   } else {
     logfile
   }

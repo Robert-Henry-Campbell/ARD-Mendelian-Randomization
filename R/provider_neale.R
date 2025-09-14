@@ -22,7 +22,7 @@ neale_gwas_checker <- function(MR_df, neale_dir, verbose = TRUE,
 
   # ---- change timeout to longer than 60 seconds
   old_to <- getOption("timeout")
-  options(timeout = max(2000, old_to))   # e.g. about 40 mins
+  options(timeout = max(3600, old_to))   # e.g. 60 mins
   on.exit(options(timeout = old_to), add = TRUE)
 
   .clean <- function(x) {
