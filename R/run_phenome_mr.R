@@ -148,14 +148,139 @@ run_phenome_mr <- function(
 
 
   logger::log_info("5) Build summary plots…")
-  manhattan <- manhattan_plot(results_df, Multiple_testing_correction = cfg$mtc, exposure=exposure_snps$id.exposure)
-  volcano   <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
 
-  if (nzchar(cfg$plot_dir)) {
-    ggplot2::ggsave(file.path(cfg$plot_dir, "manhattan.png"), manhattan, width = 6.5, height = 6.5, dpi = 300)
-    ggplot2::ggsave(file.path(cfg$plot_dir, "volcano.png"),   volcano,   width = 6.5, height = 6.5, dpi = 300)
+  # ---- 5A. MANHATTAN: BH vs Bonf × (all vs ARD-only) ----
+  # Helper: ARD-only slice (logical column)
+  results_ard_only <- if ("ARD_selected" %in% names(results_df)) {
+    results_df[!is.na(results_df$ARD_selected) & results_df$ARD_selected, , drop = FALSE]
+  } else {
+    results_df[FALSE, , drop = FALSE]
   }
 
+  manhattan_BH_all  <- manhattan_plot(results_df, Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure)
+  manhattan_BH_ARD  <- manhattan_plot(results_ard_only, Multiple_testing_correction = "BH",   exposure = exposure_snps$id.exposure)
+  manhattan_Bonf_all<- manhattan_plot(results_df, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure)
+  manhattan_Bonf_ARD<- manhattan_plot(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure)
+
+  # ---- 5B. VOLCANO: (placeholder/default for now) ----
+  volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
+
+  # ---- 6) Enrichment analyses ----
+  logger::log_info("6) Enrichment analyses…")
+  enrich <- run_enrichment(
+    results_df,
+    exposure = exposure_snps$id.exposure,
+    levels = c("cause_level_1","cause_level_2","cause_level_3"),
+    modes  = c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere"),
+    use_qc_pass = TRUE,
+    min_nsnp    = 2,
+    weight_scheme = "inv_se2",
+    exact_max_combn = 1e5,
+    mc_B = 100000,
+    seed = 1
+  )
+
+  # ---- 6A. ENRICHMENT PLOTS ----
+  # Uses plotting helpers defined in R/plots.R:
+  #   plot_enrichment_global()
+  #   plot_enrichment_directional_forest()
+  enrichment_global_plot <- plot_enrichment_global(enrich$global_tbl)
+
+  # Per-level × mode forest plots
+  cause_levels <- c("cause_level_1","cause_level_2","cause_level_3")
+  compare_modes <- c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere")
+
+  enrichment_cause_plots <- lapply(cause_levels, function(lv) {
+    lv_list <- lapply(compare_modes, function(md) {
+      plot_enrichment_directional_forest(
+        by_cause_tbl = enrich$by_cause_tbl,
+        level = lv,
+        compare_mode = md
+      )
+    })
+    names(lv_list) <- compare_modes
+    lv_list
+  })
+  names(enrichment_cause_plots) <- cause_levels
+
+  # ---- 7) Assemble hierarchical summary_plots list ----
+  summary_plots <- list(
+    manhattan = list(
+      BH = list(
+        all      = manhattan_BH_all,
+        ARD_only = manhattan_BH_ARD
+      ),
+      bonferroni = list(
+        all      = manhattan_Bonf_all,
+        ARD_only = manhattan_Bonf_ARD
+      )
+    ),
+    volcano = list(
+      default = volcano_default
+    ),
+    enrichment = list(
+      global = list(ARD_vs_nonARD = enrichment_global_plot),
+      cause_level_1 = enrichment_cause_plots[["cause_level_1"]],
+      cause_level_2 = enrichment_cause_plots[["cause_level_2"]],
+      cause_level_3 = enrichment_cause_plots[["cause_level_3"]]
+    )
+  )
+
+  # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
+  save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
+    # path_parts: vector of folder names reflecting position in list
+    if (inherits(x, "ggplot")) {
+      # choose sizes
+      subpath <- paste(path_parts, collapse = "/")
+      # Defaults
+      width <- 6.5; height <- 6.5
+      # Manhattan size
+      if (grepl("^manhattan", subpath)) {
+        width <- 6.5; height <- 6.5
+      }
+      # Global enrichment (single-row) ~ Nature single-column
+      if (grepl("^enrichment/global", subpath)) {
+        width <- 3.54; height <- 2.4
+      }
+      # Cause-level enrichment ~ Nature double-column
+      if (grepl("^enrichment/cause_level_", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
+      # Volcano default to Nature double-column for now
+      if (grepl("^volcano", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
+
+      dir_path <- file.path(base_dir, dirname(subpath))
+      if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+      file_name <- paste0(basename(subpath), ".png")
+      file_path <- file.path(dir_path, file_name)
+      ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+      return(invisible(NULL))
+    }
+
+    if (is.list(x)) {
+      # Recurse into lists
+      nms <- names(x)
+      for (i in seq_along(x)) {
+        nm <- if (!is.null(nms) && nzchar(nms[i])) nms[i] else paste0("item", i)
+        save_plot_hierarchy(x[[i]], base_dir, c(path_parts, nm))
+      }
+      return(invisible(NULL))
+    }
+
+    # Not a plot or list: ignore
+    invisible(NULL)
+  }
+
+  # Save everything
+  save_plot_hierarchy(summary_plots, cfg$plot_dir)
+
+  # ---- 9) Keep the originals around too (optional) ----
+  manhattan <- manhattan_BH_all
+  volcano   <- volcano_default
+
+  # ---- 10) Summary counts (unchanged) ----
   summary_tbl <- tibble::tibble(
     stage = c(
       "outcomes","outcomes_ARD","outcomes_nonARD",
@@ -166,16 +291,15 @@ run_phenome_mr <- function(
       metrics$exposure_in, metrics$exposure_mapped, metrics$outcome_snps, metrics$results
     )
   )
-  logger::log_info(
-    "Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}"
-  )
+  logger::log_info("Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}")
 
   invisible(list(
     MR_df = MR_df,
     results_df = results_df,
-    manhattan = manhattan,
-    volcano = volcano
+    summary_plots = summary_plots,
+    enrich = enrich
   ))
+
 }
 
 
