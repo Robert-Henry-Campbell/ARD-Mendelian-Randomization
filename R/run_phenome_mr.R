@@ -19,7 +19,11 @@
 #' @param logfile Optional path to log file. Defaults to a timestamped file in
 #'   `cache_dir` if not supplied.
 #' @param verbose Logical; if `FALSE`, only warnings/errors are logged.
-#'
+#' @param confirm Character; whether to prompt before downloading required
+#'   resources when using Neale data. One of "ask", "yes", or "no".
+#' @param force_refresh Logical; if `TRUE`, re-download remote resources even if
+#'   they are already cached.
+#' 
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
 run_phenome_mr <- function(
@@ -118,7 +122,14 @@ run_phenome_mr <- function(
 
   if (cfg$sex == "both") {
     logger::log_info("3) Pull Pan-UKB outcome SNP rows…")
-    MR_df <- panukb_snp_grabber(exposure_snps2, MR_df, ancestry = cfg$ancestry, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
+    MR_df <- panukb_snp_grabber(
+      exposure_snps2,
+      MR_df,
+      ancestry = cfg$ancestry,
+      cache_dir = cfg$cache_dir,
+      verbose = cfg$verbose,
+      force_refresh = cfg$force_refresh
+    )
   } else {
     logger::log_info("3a) Ensure Neale GWAS files + tbi present…")
     neale_gwas_checker(MR_df, neale_dir = cfg$neale_dir, verbose = cfg$verbose, confirm = cfg$confirm)
