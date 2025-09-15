@@ -251,3 +251,142 @@ manhattan_plot <- function(results_df,
 # helper for coalescing with NULLs (base R compatible)
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
+
+#' Directional enrichment forest (protective vs risk)
+#'
+#' Draws a diverging "forest/dumbbell" plot from the output of
+#' `enrichment_by_cause_directional()` or a filtered slice of
+#' `run_enrichment(...)$by_cause_tbl`.
+#'
+#' @param by_cause_tbl Tibble with columns: level, cause, compare_mode,
+#'        SES_prot, SES_risk, q_prot, q_risk, n_pos, n_neg, n_total, exposure.
+#' @param level One of "cause_level_1","cause_level_2","cause_level_3".
+#' @param compare_mode One of "ARD_vs_nonARD_within_cause",
+#'        "cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere".
+#' @param title Optional plot title; if NULL a default is constructed.
+#' @param subtitle Optional subtitle; if NULL a default is constructed.
+#' @param y_lab Y axis label (default "Cause").
+#' @param ring_q FDR threshold for red ring highlight (default 0.05).
+#' @return A ggplot object.
+#' @export
+plot_enrichment_directional_forest <- function(
+    by_cause_tbl,
+    level,
+    compare_mode,
+    title = NULL,
+    subtitle = NULL,
+    y_lab = "Cause",
+    ring_q = 0.05
+) {
+  stopifnot(all(c("level","cause","compare_mode","SES_prot","SES_risk","q_prot","q_risk") %in% names(by_cause_tbl)))
+  df <- subset(by_cause_tbl, level == !!level & compare_mode == !!compare_mode)
+
+  if (nrow(df) == 0) {
+    warning("No rows to plot for level=", level, " & compare_mode=", compare_mode)
+    return(ggplot2::ggplot() + ggplot2::theme_void())
+  }
+
+  # order by max |SES|
+  df$._ord <- pmax(abs(df$SES_prot), abs(df$SES_risk), na.rm = TRUE)
+  df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
+  df$cause_f <- factor(df$cause, levels = df$cause)
+
+  seg <- data.frame(cause_f = df$cause_f,
+                    xmin = df$SES_prot,
+                    xmax = df$SES_risk)
+
+  exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NULL
+  if (is.null(title)) {
+    title <- sprintf("Directional enrichment: %s", level)
+  }
+  if (is.null(subtitle)) {
+    subtitle <- paste0(
+      compare_mode,
+      if (!is.null(exp_label) && nzchar(exp_label)) sprintf("  •  exposure: %s", exp_label) else ""
+    )
+  }
+
+  ggplot2::ggplot() +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::geom_segment(data = seg,
+                          ggplot2::aes(x = xmin, xend = xmax, y = cause_f, yend = cause_f),
+                          linewidth = 0.6, alpha = 0.5) +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(x = SES_prot, y = cause_f),
+      shape = 21, stroke = 1.05,
+      fill = "grey70",
+      colour = ifelse(is.finite(df$q_prot) & df$q_prot < ring_q, "red", "transparent"),
+      size = pmax(2.5, scales::rescale(if ("n_pos" %in% names(df)) df$n_pos else 5, to = c(3,6), from = range(df$n_pos, na.rm=TRUE)))
+    ) +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(x = SES_risk, y = cause_f),
+      shape = 21, stroke = 1.05,
+      fill = "black",
+      colour = ifelse(is.finite(df$q_risk) & df$q_risk < ring_q, "red", "transparent"),
+      size = pmax(2.5, scales::rescale(if ("n_pos" %in% names(df)) df$n_pos else 5, to = c(3,6), from = range(df$n_pos, na.rm=TRUE)))
+    ) +
+    ggplot2::scale_x_continuous("SES (− protective  ←  0  →  risk +)",
+                                expand = ggplot2::expansion(mult = c(0.05,0.1))) +
+    ggplot2::ylab(y_lab) +
+    ggplot2::labs(title = title, subtitle = subtitle) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.title.y = ggplot2::element_text(margin = ggplot2::margin(r = 8)),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6))
+    )
+}
+
+#' Global ARD vs non-ARD directional summary (protective vs risk)
+#'
+#' One-row dumbbell-like plot for the global enrichment.
+#'
+#' @param global_tbl Output of `enrichment_global_directional()`.
+#' @param title Optional title.
+#' @param ring_q FDR threshold for red ring.
+#' @return ggplot.
+#' @export
+plot_enrichment_global <- function(global_tbl, title = NULL, ring_q = 0.05) {
+  stopifnot(all(c("SES_prot","SES_risk","q_prot","q_risk") %in% names(global_tbl)))
+  df <- global_tbl[1, , drop = FALSE]
+  df$y <- factor("ARD vs non-ARD", levels = "ARD vs non-ARD")
+  seg <- data.frame(y = df$y, xmin = df$SES_prot, xmax = df$SES_risk)
+
+  if (is.null(title)) {
+    title <- sprintf("Global directional enrichment%s",
+                     if ("exposure" %in% names(df) && nzchar(df$exposure)) paste0(" • exposure: ", df$exposure) else "")
+  }
+
+  ggplot2::ggplot() +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::geom_segment(data = seg,
+                          ggplot2::aes(x = xmin, xend = xmax, y = y, yend = y),
+                          linewidth = 0.6, alpha = 0.5) +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(x = SES_prot, y = y),
+      shape = 21, stroke = 1.05,
+      fill = "grey70",
+      colour = ifelse(is.finite(df$q_prot) & df$q_prot < ring_q, "red", "transparent"),
+      size = 5
+    ) +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(x = SES_risk, y = y),
+      shape = 21, stroke = 1.05,
+      fill = "black",
+      colour = ifelse(is.finite(df$q_risk) & df$q_risk < ring_q, "red", "transparent"),
+      size = 5
+    ) +
+    ggplot2::scale_x_continuous("SES (− protective  ←  0  →  risk +)",
+                                expand = ggplot2::expansion(mult = c(0.05,0.1))) +
+    ggplot2::labs(title = title, y = NULL) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      axis.text.y = ggplot2::element_text(size = 10),
+      panel.grid.major.y = ggplot2::element_blank()
+    )
+}
+
