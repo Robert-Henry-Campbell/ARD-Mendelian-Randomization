@@ -22,7 +22,8 @@ manhattan_plot <- function(results_df,
                            verbose = TRUE,
                            left_nuge = 1,
                            tree_down = -0.08,
-                           label_down = -0.02) {
+                           label_down = -0.02,
+                           exposure = exposure_snps2$id.exposure){
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
 
   if (is.null(results_df) || !nrow(results_df)) {
@@ -144,6 +145,13 @@ manhattan_plot <- function(results_df,
     "Effect direction:"
   }
 
+  # --- title uses the explicit `exposure` argument ---
+  exposure_lab <- tryCatch(as.character(exposure)[1], error = function(e) NA_character_)
+  if (is.null(exposure_lab) || is.na(exposure_lab) || !nzchar(exposure_lab)) exposure_lab <- "exposure"
+  plot_title <- sprintf("ARD-wide MR IVW of %s by GBD Cause", exposure_lab)
+
+  # --- END: dynamic title ---
+
   # ========== BASE PLOT (effect direction legend) ==========
   p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$idx, y = .data$logp)) +
     ggplot2::geom_point(ggplot2::aes(colour = .data$effect_dir), alpha = 0.9, size = 1.6) +
@@ -151,8 +159,7 @@ manhattan_plot <- function(results_df,
       name   = legend_title,
       values = c("Protective (β<0)" = "grey60", "Risk (β≥0)" = "black")
     ) +
-    ggplot2::labs(x = NULL, y = expression(-log[10](p[IVW])),
-                  title = "ARD MR IVW Results Grouped by GBD Cause") +
+    ggplot2::labs(x = NULL, y = expression(-log[10](p[IVW])), title = plot_title) +
     ggplot2::theme_minimal(base_size = 12) +
     ggplot2::theme(
       panel.grid.major.x = ggplot2::element_blank(),

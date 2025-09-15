@@ -148,7 +148,7 @@ run_phenome_mr <- function(
 
 
   logger::log_info("5) Build summary plots…")
-  manhattan <- manhattan_plot(results_df, Multiple_testing_correction = cfg$mtc)
+  manhattan <- manhattan_plot(results_df, Multiple_testing_correction = cfg$mtc, exposure=exposure_snps$id.exposure)
   volcano   <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
 
   if (nzchar(cfg$plot_dir)) {

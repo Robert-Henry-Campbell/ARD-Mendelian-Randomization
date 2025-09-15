@@ -428,7 +428,7 @@ mr_business_logic <- function(
   # derive results_df from MR_df's results_* columns (+ carry group/meta)
   results_cols <- grep("^results_", names(MR_df), value = TRUE)
   group_meta <- intersect(
-    c("Cause Name", "Cause Hierarchy Level", "ICD10",
+    c("Cause Name", "Cause Hierarchy Level", "ICD10","pheno_sex",
       "cause_level_1", "cause_level_2", "cause_level_3", "cause_level_4",
       "icd10_explo", "pheno_sex", "description", "plots","ARD_selected"),
     names(MR_df)
