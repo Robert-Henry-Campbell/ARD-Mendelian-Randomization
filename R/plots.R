@@ -1,21 +1,19 @@
 #' Manhattan plot over outcomes (IVW p-values on QC-pass outcomes)
 #' L2-only brackets; right-tip anchored labels; x-axis numbers hidden
 #' Colors: grey = protective (β<0), black = risk (β≥0)
-#' Adds: `left_nuge` (x data units), `tree_down` (y data units), `label_down` (labels only),
-#' BH-only thick red ring; Bonferroni no ring; label all significant points.
+#' Legends:
+#'   - Always: Effect direction (grey/black)
+#'   - BH:     Significance (red ring = BH significant) and colour legend title becomes "FDR < 0.05 significant results:"
+#'   - Bonf.:  Significance (dashed line = Bonferroni threshold)
 #'
 #' @param results_df tidy results (must contain results_p_ivw; ideally results_qc_pass)
 #' @param Multiple_testing_correction "BH" or "bonferroni"
 #' @param qc_pass_only logical; if TRUE, plot only QC-pass rows
 #' @param alpha significance level for corrections (default 0.05)
 #' @param verbose if TRUE, emit step-by-step logs via {logger}
-#' @param left_nuge numeric; horizontal leftward nudge of L2 labels in **x data units**.
-#'   Positive values move labels left. Default 1.
-#' @param tree_down numeric; vertical nudge (down if negative) for the whole L2
-#'   bracket + labels in **y data units** (i.e., on the -log10(p) scale).
-#'   Default -0.08 (≈ small visual drop).
-#' @param label_down numeric; extra vertical nudge (down if negative) applied
-#'   to the **labels only** (not the bracket) in **y data units**. Default -0.02.
+#' @param left_nuge numeric; horizontal leftward nudge of L2 labels in x data units (default 1)
+#' @param tree_down numeric; vertical nudge (down if negative) for L2 bracket + labels (default -0.08)
+#' @param label_down numeric; extra vertical nudge (down if negative) for labels only (default -0.02)
 #' @export
 manhattan_plot <- function(results_df,
                            Multiple_testing_correction = c("BH","bonferroni"),
@@ -139,15 +137,20 @@ manhattan_plot <- function(results_df,
     label = dplyr::coalesce(cause_level_2, "NA")
   )
 
-  # ========== PLOT ==========
+  # -------- legend title: BH gets custom text ----------
+  legend_title <- if (Multiple_testing_correction == "BH") {
+    "FDR < 0.05 significant results:"
+  } else {
+    "Effect direction:"
+  }
+
+  # ========== BASE PLOT (effect direction legend) ==========
   p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$idx, y = .data$logp)) +
-    # base points coloured by effect direction
     ggplot2::geom_point(ggplot2::aes(colour = .data$effect_dir), alpha = 0.9, size = 1.6) +
     ggplot2::scale_colour_manual(
-      name   = "Effect direction:",
+      name   = legend_title,
       values = c("Protective (β<0)" = "grey60", "Risk (β≥0)" = "black")
     ) +
-    { if (!is.na(thr_y)) ggplot2::geom_hline(yintercept = thr_y, linetype = "dashed") } +
     ggplot2::labs(x = NULL, y = expression(-log[10](p[IVW])),
                   title = "ARD MR IVW Results Grouped by GBD Cause") +
     ggplot2::theme_minimal(base_size = 12) +
@@ -160,19 +163,42 @@ manhattan_plot <- function(results_df,
       legend.position    = "top",
       legend.title       = ggplot2::element_text(size = 9),
       legend.text        = ggplot2::element_text(size = 9)
-    )
+    ) +
+    ggplot2::guides(colour = ggplot2::guide_legend(order = 1))
 
-  # --- BH-only: thicker red ring around significant points ---
+  # --- Significance legend (BH: red ring) ---
   if (Multiple_testing_correction == "BH") {
     p <- p + ggplot2::geom_point(
       data = dplyr::filter(df, .data$sig %in% TRUE),
-      mapping = ggplot2::aes(x = .data$idx, y = .data$logp),
+      mapping = ggplot2::aes(x = .data$idx, y = .data$logp, shape = "BH significant"),
       inherit.aes = FALSE,
       shape = 21, fill = NA, colour = "firebrick",
-      stroke = 1.4, size = 2.8
-    )
+      stroke = 1.4, size = 2.8, show.legend = TRUE
+    ) +
+      ggplot2::scale_shape_manual(
+        name   = "Significance:",
+        values = c("BH significant" = 21),
+        guide  = ggplot2::guide_legend(
+          order = 2,
+          override.aes = list(colour = "firebrick", fill = NA, size = 3.2, stroke = 1.6)
+        )
+      )
+  } else {
+    # --- Significance legend (Bonferroni: dashed line) ---
+    if (!is.na(thr_y)) {
+      p <- p +
+        ggplot2::geom_hline(
+          data = data.frame(yint = thr_y),
+          ggplot2::aes(yintercept = yint, linetype = "Bonferroni threshold"),
+          linewidth = 0.4
+        ) +
+        ggplot2::scale_linetype_manual(
+          name   = "Significance:",
+          values = c("Bonferroni threshold" = "dashed"),
+          guide  = ggplot2::guide_legend(order = 2)
+        )
+    }
   }
-  # (Bonferroni: no ring — the dashed line serves as the visual cue)
 
   # --- label ALL significant points with phenotype name ---
   if (!"results_outcome" %in% names(df)) {
@@ -215,6 +241,6 @@ manhattan_plot <- function(results_df,
   p
 }
 
-
 # helper for coalescing with NULLs (base R compatible)
 `%||%` <- function(a, b) if (!is.null(a)) a else b
+
