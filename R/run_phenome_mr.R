@@ -40,7 +40,8 @@ run_phenome_mr <- function(
     cache_dir = ardmr_cache_dir(),
     logfile = NULL,
     verbose = TRUE,
-    confirm = 'ask'
+    confirm = 'ask',
+    force_refresh = FALSE
 ) {
   # ---- validate args ----
   sex <- match.arg(sex)
@@ -91,7 +92,8 @@ run_phenome_mr <- function(
     cache_dir = cache_dir,
     neale_dir = Neale_GWAS_dir,
     verbose = verbose,
-    confirm = confirm
+    confirm = confirm,
+    force_refresh = force_refresh
   )
 
   metrics <- list()
@@ -150,8 +152,8 @@ run_phenome_mr <- function(
   volcano   <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
 
   if (nzchar(cfg$plot_dir)) {
-    ggplot2::ggsave(file.path(cfg$plot_dir, "manhattan.png"), manhattan, width = 10, height = 6, dpi = 150)
-    ggplot2::ggsave(file.path(cfg$plot_dir, "volcano.png"),   volcano,   width = 10, height = 6, dpi = 150)
+    ggplot2::ggsave(file.path(cfg$plot_dir, "manhattan.png"), manhattan, width = 6.5, height = 6.5, dpi = 300)
+    ggplot2::ggsave(file.path(cfg$plot_dir, "volcano.png"),   volcano,   width = 6.5, height = 6.5, dpi = 300)
   }
 
   summary_tbl <- tibble::tibble(

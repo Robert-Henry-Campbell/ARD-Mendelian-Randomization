@@ -166,11 +166,18 @@ neale_tbi_maker <- function(...) { ... } #unimplemented feature
 #'   - File         (bgz filename in neale_dir)
 #'   - description  (preferred phenotype label; else ICD10_explo)
 #' @param neale_dir Directory containing Neale .tsv.bgz files
-#' @param cache_dir Cache root (default: ardmr_cache_dir()); results cached per outcome
+#' @param cache_dir Cache root (default: [ardmr_cache_dir()]); results cached per outcome
 #' @param verbose Logical
+#' @param force_refresh Logical; if TRUE, delete per-outcome cached RDS before reading
+#'   (default inherits cfg$force_refresh if available, else FALSE).
 #' @return MR_df with list-column `outcome_snps` (TwoSampleMR-formatted if available)
 #' @export
-neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr_cache_dir(), verbose = TRUE) {
+neale_snp_grabber <- function(
+    exposure_snps, MR_df, neale_dir,
+    cache_dir = ardmr_cache_dir(),
+    verbose = TRUE,
+    force_refresh = get0("cfg", inherits = TRUE, ifnotfound = list(force_refresh = FALSE))$force_refresh
+) {
   stopifnot(is.data.frame(exposure_snps), is.data.frame(MR_df))
 
   # ---- strict input checks ---------------------------------------------------
@@ -213,7 +220,6 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
   }
 
   # ---- cache per outcome -----------------------------------------------------
-  # If MR_df has Sex, we subfolder by it (male/female). Else "unknown".
   sex_sub <- if ("Sex" %in% names(MR_df)) {
     s <- unique(tolower(na.omit(MR_df$Sex)))
     if (length(s) == 1 && nzchar(s)) s else "unknown"
@@ -222,11 +228,16 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
   cache_root <- file.path(cache_dir, "neale_outcome_snps", sex_sub)
   dir.create(cache_root, recursive = TRUE, showWarnings = FALSE)
 
+  # (optional) log once if forcing refresh
+  if (isTRUE(force_refresh)) {
+    logger::log_info("Neale SNP grabber: force_refresh = TRUE (rebuilding cached per-outcome SNP tables).")
+  }
+
   # ---- build variant lookup once (rsid <-> neale_variant) --------------------
   exp <- tibble::as_tibble(exposure_snps) |>
     dplyr::transmute(
       rsid = .normalize_rsid(.data$rsid),
-      neale_variant = as.character(.data$neale_variant)
+      neale_variant = trimws(as.character(.data$neale_variant))
     ) |>
     dplyr::filter(!is.na(.data$rsid) & .data$rsid != "" &
                     !is.na(.data$neale_variant) & .data$neale_variant != "") |>
@@ -238,8 +249,9 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
     return(MR_df)
   }
 
-  target_set <- exp$neale_variant
-  names(target_set) <- exp$rsid  # handy for quick reverse lookup if needed
+  # normalized, de-duplicated targets (and keep mapping to rsid)
+  target_set <- unique(trimws(as.character(exp$neale_variant)))
+  names(target_set) <- exp$rsid
 
   # ---- iterate files/outcomes -----------------------------------------------
   MR_df$outcome_snps <- vector("list", nrow(MR_df))
@@ -259,9 +271,9 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
     }
 
     fpath <- file.path(neale_dir, basename(fname))
-    label <- if ("description" %in% names(MR_df) && nzchar(rec$description[[1]])) {
+    label <- if ("description" %in% names(MR_df) && isTRUE(nzchar(rec$description[[1]]))) {
       as.character(rec$description[[1]])
-    } else if ("ICD10_explo" %in% names(MR_df) && nzchar(rec$ICD10_explo[[1]])) {
+    } else if ("ICD10_explo" %in% names(MR_df) && isTRUE(nzchar(rec$ICD10_explo[[1]]))) {
       as.character(rec$ICD10_explo[[1]])
     } else {
       tools::file_path_sans_ext(basename(fname))
@@ -269,8 +281,14 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
 
     cache_file <- file.path(cache_root, paste0(.slug(label), ".rds"))
 
-    # reuse from cache if present
-    if (file.exists(cache_file)) {
+    # optional hard reset for this phenotype
+    if (isTRUE(force_refresh) && file.exists(cache_file)) {
+      if (verbose) logger::log_info("Neale row {i}: force_refresh -> deleting cache {basename(cache_file)}")
+      try(unlink(cache_file), silent = TRUE)
+    }
+
+    # reuse from cache if present (only when NOT forcing refresh)
+    if (!isTRUE(force_refresh) && file.exists(cache_file)) {
       if (verbose) logger::log_info("Neale row {i}: using cached result {basename(cache_file)}")
       MR_df$outcome_snps[[i]] <- readRDS(cache_file)
       next
@@ -302,7 +320,8 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
     dt <- tryCatch(
       data.table::fread(
         fpath,
-        select = req,
+        select     = req,
+        colClasses = c(variant = "character", minor_allele = "character"),
         showProgress = FALSE
       ),
       error = function(e) e
@@ -313,8 +332,16 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
       next
     }
 
-    # exact variant match
-    dt <- dt[variant %in% target_set]
+    # --- make sure the key columns exist and are clean ---
+    if (!"variant" %in% names(dt)) {
+      stop("Internal: 'variant' column missing after fread for ", basename(fpath), call. = FALSE)
+    }
+    dt[["variant"]]      <- trimws(gsub("\r$", "", as.character(dt[["variant"]])))
+    dt[["minor_allele"]] <- toupper(trimws(as.character(dt[["minor_allele"]])))
+
+    # base-safe subsetting (works for data.table or data.frame)
+    dt <- dt[dt[["variant"]] %in% target_set, , drop = FALSE]
+
     if (nrow(dt) == 0) {
       if (verbose) logger::log_info("Neale row {i}: 0 matches in {basename(fpath)} for {length(target_set)} requested variants")
       MR_df$outcome_snps[[i]] <- tibble::tibble()
@@ -324,8 +351,9 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
 
     # ---- parse variant; compute EAF for ALT (effect allele) -----------------
     var_parsed <- .parse_variant(dt$variant)
-    # join rsid back via neale_variant
-    rs_lu <- tibble::tibble(variant = exp$neale_variant, rsid = exp$rsid)
+
+    # join rsid back via sanitized neale_variant
+    rs_lu <- tibble::tibble(variant = target_set, rsid = names(target_set))
 
     neale_std <- tibble::as_tibble(dt) |>
       dplyr::bind_cols(var_parsed) |>
@@ -348,7 +376,7 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
         low_confidence = .to_bool(.data$low_confidence_variant)
       ) |>
       dplyr::arrange(.data$SNP, .data$pval) |>
-      dplyr::distinct(.data$SNP, .keep_all = TRUE)  # rsid-level de-duplication, keep strongest
+      dplyr::distinct(.data$SNP, .keep_all = TRUE)
 
     # add annotation fields
     neale_std$chrpos    <- paste0(neale_std$chr, ":", neale_std$pos)
@@ -371,7 +399,6 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
         log_pval          = FALSE,
         phenotype_col     = "Phenotype"
       )
-      # carry through helpers
       neale_fmt$chrpos         <- neale_std$chrpos
       neale_fmt$low_confidence <- neale_std$low_confidence
       out_tbl <- tibble::as_tibble(neale_fmt)
@@ -382,14 +409,13 @@ neale_snp_grabber <- function(exposure_snps, MR_df, neale_dir, cache_dir = ardmr
     }
 
     # ---- sanity: p vs beta/se consistency (warn, don't stop) ----------------
-    p2s <- suppressWarnings(as.numeric(out_tbl$pval))
+    p2s   <- suppressWarnings(as.numeric(out_tbl$pval))
     z_p   <- stats::qnorm(p2s/2, lower.tail = FALSE)
     z_bse <- abs(suppressWarnings(as.numeric(out_tbl$beta)) /
                    suppressWarnings(as.numeric(out_tbl$se)))
     bad <- which(is.finite(z_p) & is.finite(z_bse) & abs(z_p - z_bse) > 3)
     if (length(bad)) {
       logger::log_warn("Neale row {i} ('{label}'): {length(bad)} SNPs show beta/se vs p inconsistency; keeping but flagging.")
-      # Could mark a column if you want: out_tbl$inconsistency <- FALSE; out_tbl$inconsistency[bad] <- TRUE
     }
 
     MR_df$outcome_snps[[i]] <- out_tbl
