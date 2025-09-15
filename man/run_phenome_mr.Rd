@@ -15,11 +15,11 @@ run_phenome_mr(
   scatterplot = TRUE,
   snpforestplot = TRUE,
   leaveoneoutplot = TRUE,
-  plot_output_dir = "",
-  Neale_GWAS_dir = NULL,
   cache_dir = ardmr_cache_dir(),
   logfile = NULL,
-  verbose = TRUE
+  verbose = TRUE,
+  confirm = "ask",
+  force_refresh = FALSE
 )
 }
 \arguments{
@@ -48,6 +48,12 @@ run_phenome_mr(
 \code{cache_dir} if not supplied.}
 
 \item{verbose}{Logical; if \code{FALSE}, only warnings/errors are logged.}
+
+\item{confirm}{Character; whether to prompt before downloading required
+resources when using Neale data. One of "ask", "yes", or "no".}
+
+\item{force_refresh}{Logical; if \code{TRUE}, re-download remote resources even if
+they are already cached.}
 }
 \value{
 A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
