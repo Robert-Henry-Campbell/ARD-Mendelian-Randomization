@@ -279,7 +279,9 @@ plot_enrichment_directional_forest <- function(
     ring_q = 0.05
 ) {
   stopifnot(all(c("level","cause","compare_mode","SES_prot","SES_risk","q_prot","q_risk") %in% names(by_cause_tbl)))
-  df <- subset(by_cause_tbl, level == !!level & compare_mode == !!compare_mode)
+
+  # SAFE FILTER (no tidy-eval):
+  df <- by_cause_tbl[by_cause_tbl$level == level & by_cause_tbl$compare_mode == compare_mode, , drop = FALSE]
 
   if (nrow(df) == 0) {
     warning("No rows to plot for level=", level, " & compare_mode=", compare_mode)
@@ -306,6 +308,19 @@ plot_enrichment_directional_forest <- function(
     )
   }
 
+  # robust point size scaling even if n_pos is all NA/constant
+  if ("n_pos" %in% names(df) && any(is.finite(df$n_pos))) {
+    rng <- range(df$n_pos, na.rm = TRUE)
+    if (is.finite(rng[1]) && is.finite(rng[2]) && diff(rng) > 0) {
+      pts <- scales::rescale(df$n_pos, to = c(3,6), from = rng)
+    } else {
+      pts <- rep(4.5, nrow(df))
+    }
+  } else {
+    pts <- rep(4.5, nrow(df))
+  }
+  pts <- pmax(2.5, pts)
+
   ggplot2::ggplot() +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
     ggplot2::geom_segment(data = seg,
@@ -317,7 +332,7 @@ plot_enrichment_directional_forest <- function(
       shape = 21, stroke = 1.05,
       fill = "grey70",
       colour = ifelse(is.finite(df$q_prot) & df$q_prot < ring_q, "red", "transparent"),
-      size = pmax(2.5, scales::rescale(if ("n_pos" %in% names(df)) df$n_pos else 5, to = c(3,6), from = range(df$n_pos, na.rm=TRUE)))
+      size = pts
     ) +
     ggplot2::geom_point(
       data = df,
@@ -325,7 +340,7 @@ plot_enrichment_directional_forest <- function(
       shape = 21, stroke = 1.05,
       fill = "black",
       colour = ifelse(is.finite(df$q_risk) & df$q_risk < ring_q, "red", "transparent"),
-      size = pmax(2.5, scales::rescale(if ("n_pos" %in% names(df)) df$n_pos else 5, to = c(3,6), from = range(df$n_pos, na.rm=TRUE)))
+      size = pts
     ) +
     ggplot2::scale_x_continuous("SES (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
@@ -338,6 +353,7 @@ plot_enrichment_directional_forest <- function(
       axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6))
     )
 }
+
 
 #' Global ARD vs non-ARD directional summary (protective vs risk)
 #'

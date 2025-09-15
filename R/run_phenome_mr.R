@@ -225,6 +225,11 @@ run_phenome_mr <- function(
       cause_level_3 = enrichment_cause_plots[["cause_level_3"]]
     )
   )
+  # Assert we made 9 cause-level plots (3 levels × 3 modes)
+  n_cause_plots <- sum(vapply(summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
+                              function(l) length(l), integer(1)))
+  logger::log_info("Enrichment cause-level plots generated: {n_cause_plots} (expected 9)")
+
 
   # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
   save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
