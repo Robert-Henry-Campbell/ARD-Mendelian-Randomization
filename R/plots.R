@@ -555,3 +555,170 @@ plot_enrichment_global_signed <- function(global_tbl, title = NULL, ring_q = 0.0
       legend.position = "top"
     )
 }
+
+#' Volcano plot (IVW): effect size vs significance
+#'
+#' Colours: grey = protective (β<0), black = risk (β≥0).
+#' Significance legend:
+#'   - BH: red ring on significant points (q < alpha).
+#'   - Bonferroni: dashed horizontal line at alpha/m.
+#'
+#' Uses results_log10p_ivw if available (expected to be log10(p), i.e. negative),
+#' otherwise falls back to -log10(results_p_ivw) with underflow protection.
+#'
+#' @param results_df Tidy MR results (needs results_beta_ivw and results_p_ivw or results_log10p_ivw).
+#' @param Multiple_testing_correction "BH" or "bonferroni".
+#' @param qc_pass_only If TRUE (default), drop non-QC rows if results_qc_pass exists.
+#' @param alpha Significance level (default 0.05).
+#' @param exposure Optional exposure label for the title.
+#' @param label_top_n How many most-significant points to label (default 25). Use Inf to label all significant.
+#' @param verbose If TRUE, log a few steps via {logger} if available.
+#' @export
+volcano_plot <- function(results_df,
+                         Multiple_testing_correction = c("BH","bonferroni"),
+                         qc_pass_only = TRUE,
+                         alpha = 0.05,
+                         exposure = NULL,
+                         label_top_n = 25,
+                         verbose = TRUE) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+
+  if (is.null(results_df) || !nrow(results_df)) {
+    if (verbose && requireNamespace("logger", quietly = TRUE)) logger::log_warn("Volcano: no rows.")
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (no results)"))
+  }
+
+  df <- tibble::as_tibble(results_df)
+
+  # Optional QC filter
+  if ("results_qc_pass" %in% names(df) && isTRUE(qc_pass_only)) {
+    if (!is.logical(df$results_qc_pass)) {
+      df$results_qc_pass <- df$results_qc_pass %in% c(TRUE,"TRUE","True","true",1,"1","T")
+    }
+    df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+  }
+
+  # Required columns
+  if (!all(c("results_beta_ivw","results_p_ivw") %in% names(df)) &&
+      !"results_log10p_ivw" %in% names(df)) {
+    stop("volcano_plot(): need 'results_beta_ivw' and either 'results_p_ivw' or 'results_log10p_ivw'.", call. = FALSE)
+  }
+
+  # y = -log10(p) using your negative log10(p) column if present
+  df <- dplyr::mutate(
+    df,
+    logp = dplyr::if_else(
+      !is.na(.data$results_log10p_ivw),
+      -.data$results_log10p_ivw,                                # results_log10p_ivw is log10(p) (negative) -> negate
+      -log10(pmax(.data$results_p_ivw, .Machine$double.xmin))   # fallback
+    )
+  )
+
+  # Keep finite x/y
+  df <- dplyr::filter(df, is.finite(.data$results_beta_ivw), is.finite(.data$logp))
+  if (!nrow(df)) {
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (no finite rows)"))
+  }
+
+  # Multiple testing
+  if (Multiple_testing_correction == "BH") {
+    df$q_bh <- stats::p.adjust(df$results_p_ivw, method = "BH")
+    df$sig  <- df$q_bh < alpha
+    thr_y   <- NA_real_
+  } else {
+    m       <- nrow(df)
+    alpha_b <- alpha / max(1L, m)
+    df$sig  <- df$results_p_ivw < alpha_b
+    thr_y   <- -log10(alpha_b)
+  }
+
+  # Effect direction
+  df$effect_dir <- ifelse(df$results_beta_ivw < 0, "Protective (β<0)", "Risk (β≥0)")
+  df$effect_dir <- factor(df$effect_dir, levels = c("Protective (β<0)","Risk (β≥0)"))
+
+  # Title
+  exposure_lab <- tryCatch(as.character(exposure)[1], error = function(e) NA_character_)
+  if (is.null(exposure_lab) || is.na(exposure_lab) || !nzchar(exposure_lab)) exposure_lab <- "exposure"
+  plot_title <- sprintf("Phenome-wide MR IVW of %s — volcano", exposure_lab)
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp)) +
+    ggplot2::geom_point(ggplot2::aes(colour = .data$effect_dir), alpha = 0.9, size = 1.7) +
+    ggplot2::scale_colour_manual(
+      name   = "Effect direction:",
+      values = c("Protective (β<0)" = "grey60", "Risk (β≥0)" = "black")
+    ) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::labs(
+      x = expression(beta[IVW]),
+      y = expression(-log[10](p[IVW])),
+      title = plot_title
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      legend.position = "top",
+      legend.title    = ggplot2::element_text(size = 9),
+      legend.text     = ggplot2::element_text(size = 9)
+    )
+
+  # Significance layer / legend
+  if (Multiple_testing_correction == "BH") {
+    p <- p +
+      ggplot2::geom_point(
+        data = dplyr::filter(df, .data$sig %in% TRUE),
+        mapping = ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp, shape = "BH significant"),
+        inherit.aes = FALSE,
+        shape = 21, fill = NA, colour = "firebrick",
+        stroke = 1.2, size = 2.8, show.legend = TRUE
+      ) +
+      ggplot2::scale_shape_manual(
+        name   = "Significance:",
+        values = c("BH significant" = 21),
+        guide  = ggplot2::guide_legend(
+          order = 2,
+          override.aes = list(colour = "firebrick", fill = NA, size = 3.2, stroke = 1.6)
+        )
+      )
+  } else {
+    if (!is.na(thr_y)) {
+      p <- p +
+        ggplot2::geom_hline(
+          yintercept = thr_y,
+          ggplot2::aes(linetype = "Bonferroni threshold"),
+          linewidth = 0.4
+        ) +
+        ggplot2::scale_linetype_manual(
+          name   = "Significance:",
+          values = c("Bonferroni threshold" = "dashed"),
+          guide  = ggplot2::guide_legend(order = 2)
+        )
+    }
+  }
+
+  # Labels for most significant points (if results_outcome exists)
+  if ("results_outcome" %in% names(df)) {
+    lab_df <- dplyr::filter(df, .data$sig %in% TRUE & !is.na(.data$results_outcome))
+    if (nrow(lab_df)) {
+      # rank by significance (higher -log10 p first)
+      lab_df <- lab_df[order(lab_df$logp, decreasing = TRUE), , drop = FALSE]
+      if (is.finite(label_top_n)) lab_df <- utils::head(lab_df, label_top_n)
+
+      if (requireNamespace("ggrepel", quietly = TRUE)) {
+        p <- p + ggrepel::geom_text_repel(
+          data = lab_df,
+          ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp, label = .data$results_outcome),
+          max.overlaps = Inf, box.padding = 0.25, point.padding = 0.15,
+          min.segment.length = 0, size = 2.7, seed = 123, segment.size = 0.2
+        )
+      } else {
+        p <- p + ggplot2::geom_text(
+          data = lab_df,
+          ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp, label = .data$results_outcome),
+          size = 2.7, vjust = -0.25, check_overlap = TRUE
+        )
+      }
+    }
+  }
+
+  p
+}
+

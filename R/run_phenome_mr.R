@@ -195,7 +195,7 @@ run_phenome_mr <- function(
   enrichment_global_plot_dir <- plot_enrichment_global(enrich$global_tbl)
 
   # TODO: once we define it in plots.R
-  # enrichment_global_plot_signed <- plot_enrichment_global_signed(enrich$global_tbl)
+  enrichment_global_plot_signed <- plot_enrichment_global_signed(enrich$global_tbl)
 
   cause_levels  <- c("cause_level_1","cause_level_2","cause_level_3")
   compare_modes <- c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere")
@@ -215,18 +215,18 @@ run_phenome_mr <- function(
   names(enrichment_cause_plots_dir) <- cause_levels
 
   # TODO: once we define it in plots.R (single-dot, signed)
-  # enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
-  #   lv_list <- lapply(compare_modes, function(md) {
-  #     plot_enrichment_signed_forest(
-  #       by_cause_tbl = enrich$by_cause_tbl,
-  #       level = lv,
-  #       compare_mode = md
-  #     )
-  #   })
-  #   names(lv_list) <- compare_modes
-  #   lv_list
-  #})
-  #names(enrichment_cause_plots_signed) <- cause_levels
+   enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
+     lv_list <- lapply(compare_modes, function(md) {
+       plot_enrichment_signed_forest(
+         by_cause_tbl = enrich$by_cause_tbl,
+         level = lv,
+         compare_mode = md
+       )
+     })
+     names(lv_list) <- compare_modes
+     lv_list
+  })
+  names(enrichment_cause_plots_signed) <- cause_levels
 
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- list(
@@ -238,11 +238,11 @@ run_phenome_mr <- function(
     enrichment = list(
       global = list(
         directional = list(ARD_vs_nonARD = enrichment_global_plot_dir)
-        # , signed = list(ARD_vs_nonARD = enrichment_global_plot_signed)  # TODO
+         , signed = list(ARD_vs_nonARD = enrichment_global_plot_signed)  # TODO
       ),
       cause_level_1 = list(
         directional = enrichment_cause_plots_dir[["cause_level_1"]]
-        # , signed = enrichment_cause_plots_signed[["cause_level_1"]]     # TODO
+         , signed = enrichment_cause_plots_signed[["cause_level_1"]]     # TODO
       ),
       cause_level_2 = list(
         directional = enrichment_cause_plots_dir[["cause_level_2"]]
@@ -250,16 +250,21 @@ run_phenome_mr <- function(
       ),
       cause_level_3 = list(
         directional = enrichment_cause_plots_dir[["cause_level_3"]]
-        # , signed = enrichment_cause_plots_signed[["cause_level_3"]]     # TODO
+         , signed = enrichment_cause_plots_signed[["cause_level_3"]]     # TODO
       )
     )
   )
 
 
   # Assert we made so many cause-level plots (3 levels × 3 modes)
-  n_cause_plots <- sum(vapply(summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
-                              function(l) length(l), integer(1)))
-  logger::log_info("Enrichment cause-level plots generated: {n_cause_plots} (expected 9)")
+  n_cause_plots <- sum(vapply(
+    summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
+    function(l) {
+      if (!is.null(l$directional)) length(l$directional) else 0L
+    },
+    integer(1)
+  ))
+  logger::log_info("Enrichment cause-level plots generated: {n_cause_plots}")
 
 
   # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
