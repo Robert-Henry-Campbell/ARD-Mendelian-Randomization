@@ -23,7 +23,7 @@ manhattan_plot <- function(results_df,
                            left_nuge = 1,
                            tree_down = -0.08,
                            label_down = -0.02,
-                           exposure = exposure_snps2$id.exposure){
+                           exposure = NULL){
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
 
   if (is.null(results_df) || !nrow(results_df)) {
@@ -354,6 +354,102 @@ plot_enrichment_directional_forest <- function(
     )
 }
 
+#' Cause-level signed enrichment forest (single-dot)
+#'
+#' Draws a one-axis forest using the signed SES from enrichment.
+#' Negative values = protective; positive = risk.
+#'
+#' Expects by_cause_tbl to contain at least:
+#'   level, cause, compare_mode, SES_signed, q_signed
+#' If you used different names (e.g., SES_comb/q_comb), rename below.
+#'
+#' @param by_cause_tbl Tibble with signed enrichment columns.
+#' @param level One of "cause_level_1","cause_level_2","cause_level_3".
+#' @param compare_mode One of "ARD_vs_nonARD_within_cause",
+#'        "cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere".
+#' @param title,subtitle Optional strings.
+#' @param y_lab Y axis label.
+#' @param ring_q FDR cutoff; red ring when q_signed < ring_q.
+#' @export
+plot_enrichment_signed_forest <- function(
+    by_cause_tbl,
+    level,
+    compare_mode,
+    title = NULL,
+    subtitle = NULL,
+    y_lab = "Cause",
+    ring_q = 0.05
+) {
+  need <- c("level","cause","compare_mode","SES_signed","q_signed")
+  stopifnot(all(need %in% names(by_cause_tbl)))
+
+  # SAFE FILTER (no tidy-eval)
+  df <- by_cause_tbl[by_cause_tbl$level == level & by_cause_tbl$compare_mode == compare_mode, , drop = FALSE]
+  if (nrow(df) == 0) {
+    warning("No rows to plot for level=", level, " & compare_mode=", compare_mode)
+    return(ggplot2::ggplot() + ggplot2::theme_void())
+  }
+
+  # order by |SES_signed|
+  df$._ord <- abs(df$SES_signed)
+  df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
+  df$cause_f <- factor(df$cause, levels = df$cause)
+
+  # aesthetics
+  df$dir <- ifelse(df$SES_signed < 0, "Protective (negative)", "Risk (positive)")
+  df$stroke_col <- ifelse(is.finite(df$q_signed) & df$q_signed < ring_q, "red", "transparent")
+
+  # lollipop segment from 0 to SES_signed
+  seg <- data.frame(cause_f = df$cause_f, xmin = 0, xmax = df$SES_signed)
+
+  # robust point size scaling by n_pos if present
+  if ("n_pos" %in% names(df) && any(is.finite(df$n_pos))) {
+    rng <- range(df$n_pos, na.rm = TRUE)
+    pts <- if (is.finite(rng[1]) && is.finite(rng[2]) && diff(rng) > 0) {
+      scales::rescale(df$n_pos, to = c(3,6), from = rng)
+    } else rep(4.5, nrow(df))
+  } else {
+    pts <- rep(4.5, nrow(df))
+  }
+  pts <- pmax(2.5, pts)
+
+  # titles
+  exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NULL
+  if (is.null(title))    title    <- sprintf("Signed directional enrichment: %s", level)
+  if (is.null(subtitle)) subtitle <- paste0(
+    compare_mode,
+    if (!is.null(exp_label) && nzchar(exp_label)) sprintf("  •  exposure: %s", exp_label) else ""
+  )
+
+  ggplot2::ggplot() +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::geom_segment(data = seg,
+                          ggplot2::aes(x = xmin, xend = xmax, y = cause_f, yend = cause_f),
+                          linewidth = 0.6, alpha = 0.5) +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(x = SES_signed, y = cause_f, fill = dir),
+      shape = 21, stroke = 1.05,
+      colour = df$stroke_col,
+      size = pts
+    ) +
+    ggplot2::scale_fill_manual(
+      name   = "Direction:",
+      values = c("Protective (negative)" = "grey70", "Risk (positive)" = "black")
+    ) +
+    ggplot2::scale_x_continuous("Signed SES (− protective  ←  0  →  risk +)",
+                                expand = ggplot2::expansion(mult = c(0.05,0.1))) +
+    ggplot2::ylab(y_lab) +
+    ggplot2::labs(title = title, subtitle = subtitle) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.title.y = ggplot2::element_text(margin = ggplot2::margin(r = 8)),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6)),
+      legend.position = "top"
+    )
+}
+
 
 #' Global ARD vs non-ARD directional summary (protective vs risk)
 #'
@@ -406,3 +502,56 @@ plot_enrichment_global <- function(global_tbl, title = NULL, ring_q = 0.05) {
     )
 }
 
+#' Global ARD vs non-ARD signed summary (single-dot)
+#'
+#' One-row forest for the global signed SES.
+#'
+#' Expects global_tbl to contain at least: SES_signed, q_signed.
+#' If you used different names (e.g., SES_comb/q_comb), rename below.
+#'
+#' @param global_tbl Output of enrichment_global_* with signed columns.
+#' @param title Optional title.
+#' @param ring_q FDR threshold for red ring.
+#' @export
+plot_enrichment_global_signed <- function(global_tbl, title = NULL, ring_q = 0.05) {
+  need <- c("SES_signed","q_signed")
+  stopifnot(all(need %in% names(global_tbl)))
+
+  df <- global_tbl[1, , drop = FALSE]
+  df$y  <- factor("ARD vs non-ARD", levels = "ARD vs non-ARD")
+  df$dir <- ifelse(df$SES_signed < 0, "Protective (negative)", "Risk (positive)")
+  df$stroke_col <- ifelse(is.finite(df$q_signed) & df$q_signed < ring_q, "red", "transparent")
+
+  seg <- data.frame(y = df$y, xmin = 0, xmax = df$SES_signed)
+
+  if (is.null(title)) {
+    title <- sprintf("Global signed enrichment%s",
+                     if ("exposure" %in% names(df) && nzchar(df$exposure)) paste0(" • exposure: ", df$exposure) else "")
+  }
+
+  ggplot2::ggplot() +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::geom_segment(data = seg,
+                          ggplot2::aes(x = xmin, xend = xmax, y = y, yend = y),
+                          linewidth = 0.6, alpha = 0.5) +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(x = SES_signed, y = y, fill = dir),
+      shape = 21, stroke = 1.05,
+      colour = df$stroke_col,
+      size = 5
+    ) +
+    ggplot2::scale_fill_manual(
+      name   = "Direction:",
+      values = c("Protective (negative)" = "grey70", "Risk (positive)" = "black")
+    ) +
+    ggplot2::scale_x_continuous("Signed SES (− protective  ←  0  →  risk +)",
+                                expand = ggplot2::expansion(mult = c(0.05,0.1))) +
+    ggplot2::labs(title = title, y = NULL) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      axis.text.y = ggplot2::element_text(size = 10),
+      panel.grid.major.y = ggplot2::element_blank(),
+      legend.position = "top"
+    )
+}

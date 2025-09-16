@@ -192,16 +192,16 @@ run_phenome_mr <- function(
   )
 
   # ---- 6A. ENRICHMENT PLOTS ----
-  # Uses plotting helpers defined in R/plots.R:
-  #   plot_enrichment_global()
-  #   plot_enrichment_directional_forest()
-  enrichment_global_plot <- plot_enrichment_global(enrich$global_tbl)
+  enrichment_global_plot_dir <- plot_enrichment_global(enrich$global_tbl)
 
-  # Per-level × mode forest plots
-  cause_levels <- c("cause_level_1","cause_level_2","cause_level_3")
+  # TODO: once we define it in plots.R
+  # enrichment_global_plot_signed <- plot_enrichment_global_signed(enrich$global_tbl)
+
+  cause_levels  <- c("cause_level_1","cause_level_2","cause_level_3")
   compare_modes <- c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere")
 
-  enrichment_cause_plots <- lapply(cause_levels, function(lv) {
+  # directional (two-dot) plots you already have
+  enrichment_cause_plots_dir <- lapply(cause_levels, function(lv) {
     lv_list <- lapply(compare_modes, function(md) {
       plot_enrichment_directional_forest(
         by_cause_tbl = enrich$by_cause_tbl,
@@ -212,45 +212,81 @@ run_phenome_mr <- function(
     names(lv_list) <- compare_modes
     lv_list
   })
-  names(enrichment_cause_plots) <- cause_levels
+  names(enrichment_cause_plots_dir) <- cause_levels
+
+  # TODO: once we define it in plots.R (single-dot, signed)
+  # enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
+  #   lv_list <- lapply(compare_modes, function(md) {
+  #     plot_enrichment_signed_forest(
+  #       by_cause_tbl = enrich$by_cause_tbl,
+  #       level = lv,
+  #       compare_mode = md
+  #     )
+  #   })
+  #   names(lv_list) <- compare_modes
+  #   lv_list
+  #})
+  #names(enrichment_cause_plots_signed) <- cause_levels
 
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- list(
     manhattan = list(
-      BH = list(
-        all      = manhattan_BH_all,
-        ARD_only = manhattan_BH_ARD
-      ),
-      bonferroni = list(
-        all      = manhattan_Bonf_all,
-        ARD_only = manhattan_Bonf_ARD
-      )
+      BH = list(all = manhattan_BH_all, ARD_only = manhattan_BH_ARD),
+      bonferroni = list(all = manhattan_Bonf_all, ARD_only = manhattan_Bonf_ARD)
     ),
-    volcano = list(
-      default = volcano_default
-    ),
+    volcano = list(default = volcano_default),
     enrichment = list(
-      global = list(ARD_vs_nonARD = enrichment_global_plot),
-      cause_level_1 = enrichment_cause_plots[["cause_level_1"]],
-      cause_level_2 = enrichment_cause_plots[["cause_level_2"]],
-      cause_level_3 = enrichment_cause_plots[["cause_level_3"]]
+      global = list(
+        directional = list(ARD_vs_nonARD = enrichment_global_plot_dir)
+        # , signed = list(ARD_vs_nonARD = enrichment_global_plot_signed)  # TODO
+      ),
+      cause_level_1 = list(
+        directional = enrichment_cause_plots_dir[["cause_level_1"]]
+        # , signed = enrichment_cause_plots_signed[["cause_level_1"]]     # TODO
+      ),
+      cause_level_2 = list(
+        directional = enrichment_cause_plots_dir[["cause_level_2"]]
+        # , signed = enrichment_cause_plots_signed[["cause_level_2"]]     # TODO
+      ),
+      cause_level_3 = list(
+        directional = enrichment_cause_plots_dir[["cause_level_3"]]
+        # , signed = enrichment_cause_plots_signed[["cause_level_3"]]     # TODO
+      )
     )
   )
-  # Assert we made 9 cause-level plots (3 levels × 3 modes)
+
+
+  # Assert we made so many cause-level plots (3 levels × 3 modes)
   n_cause_plots <- sum(vapply(summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
                               function(l) length(l), integer(1)))
   logger::log_info("Enrichment cause-level plots generated: {n_cause_plots} (expected 9)")
 
 
   # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
+  # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
+  # DROP-IN replacement: saves all plots in `summary_plots` into a folder hierarchy
+  # under cfg$plot_dir, and also writes enrichment tables as CSV.
+
   save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
-    # path_parts: vector of folder names reflecting position in list
+    # helper: sanitize path components for portability
+    safe_name <- function(s) {
+      s <- as.character(s)
+      s <- gsub("[/\\?%*:|\"<>]", "_", s)   # illegal file chars
+      s <- gsub("\\s+", "_", s)            # spaces -> underscores
+      s <- gsub("_+", "_", s)              # collapse multiple underscores
+      s <- sub("^_+", "", s)               # trim leading underscores
+      s <- sub("_+$", "", s)               # trim trailing underscores
+      if (!nzchar(s)) "plot" else s
+    }
+
     if (inherits(x, "ggplot")) {
-      # choose sizes
-      subpath <- paste(path_parts, collapse = "/")
-      # Defaults
+      # Build relative subpath reflecting the list nesting
+      subpath <- paste(vapply(path_parts, safe_name, character(1)), collapse = "/")
+
+      # Default size (Manhattan default explicitly 6.5x6.5 in your spec)
       width <- 6.5; height <- 6.5
-      # Manhattan size
+
+      # Manhattan size stays 6.5 x 6.5
       if (grepl("^manhattan", subpath)) {
         width <- 6.5; height <- 6.5
       }
@@ -267,11 +303,13 @@ run_phenome_mr <- function(
         width <- 7.2; height <- 5.0
       }
 
-      dir_path <- file.path(base_dir, dirname(subpath))
+      # Create folders & save PNG (300 dpi)
+      dir_path  <- file.path(base_dir, dirname(subpath))
       if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
-      file_name <- paste0(basename(subpath), ".png")
+      file_name <- paste0(safe_name(basename(subpath)), ".png")
       file_path <- file.path(dir_path, file_name)
       ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+
       return(invisible(NULL))
     }
 
@@ -289,8 +327,31 @@ run_phenome_mr <- function(
     invisible(NULL)
   }
 
-  # Save everything
+  # Save all plots in the hierarchical structure
   save_plot_hierarchy(summary_plots, cfg$plot_dir)
+
+  # ---- 8b) Export enrichment tables (CSV) for SI/reproducibility ----
+  write_enrichment_tables <- function(enrich, base_dir) {
+    out_dir <- file.path(base_dir, "enrichment", "tables")
+    if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+    global_csv   <- file.path(out_dir, "global.csv")
+    by_cause_csv <- file.path(out_dir, "by_cause.csv")
+
+    # Use readr if available, otherwise utils::write.csv
+    if (requireNamespace("readr", quietly = TRUE)) {
+      readr::write_csv(enrich$global_tbl,   global_csv)
+      readr::write_csv(enrich$by_cause_tbl, by_cause_csv)
+    } else {
+      utils::write.csv(enrich$global_tbl,   global_csv,   row.names = FALSE)
+      utils::write.csv(enrich$by_cause_tbl, by_cause_csv, row.names = FALSE)
+    }
+
+    logger::log_info("Enrichment tables written to {out_dir}")
+  }
+
+  write_enrichment_tables(enrich, cfg$plot_dir)
+
 
   # ---- 9) Keep the originals around too (optional) ----
   manhattan <- manhattan_BH_all

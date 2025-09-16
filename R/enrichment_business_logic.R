@@ -1,24 +1,31 @@
 # R/enrichment_business_logic.R
 
-#' Threshold-free directional permutation enrichment (business logic)
+#' Threshold-free directional enrichment via label permutations (business logic)
 #'
-#' Computes threshold-free, **directional** enrichment using **label permutations**
+#' Computes threshold-free, directional enrichment using **label permutations**
 #' on a signed evidence score \code{s = sign(beta_ivw) * (-log10 p_ivw)}.
 #'
 #' Provides:
 #' \itemize{
-#'   \item \strong{Global}: ARD vs non-ARD across the full phenome (protective & risk tails).
+#'   \item \strong{Global}: ARD vs non-ARD across the full phenome
+#'         (returns protective/risk tails \emph{and} a single signed test).
 #'   \item \strong{Cause-level (L1/L2/L3)}: three comparison modes, each per cause:
 #'         \enumerate{
-#'           \item \code{"ARD_vs_nonARD_within_cause"} (primary; label-permute within cause).
-#'           \item \code{"cause_vs_rest_all"} (this cause vs the rest of phenome; global label-permute).
-#'           \item \code{"ARD_in_cause_vs_ARD_elsewhere"} (among ARDs only; label-permute among ARDs).
+#'           \item \code{"ARD_vs_nonARD_within_cause"}: permute within the cause.
+#'           \item \code{"cause_vs_rest_all"}: permute globally (cause vs rest).
+#'           \item \code{"ARD_in_cause_vs_ARD_elsewhere"}: permute among ARDs only.
 #'         }
+#'         Each returns protective/risk tails \emph{and} a single signed test.
 #' }
 #'
-#' For each test/tail we return one-sided permutation \code{p}, BH \code{q}, and
-#' \strong{SES} = \eqn{(T_obs - mean_perm)/sd_perm} for diverging forest plots
-#' (negative SES = protective enrichment; positive SES = risk enrichment).
+#' For each test we report:
+#' \itemize{
+#'   \item Tail-specific one-sided p-values \code{p_prot}, \code{p_risk}, BH \code{q_*}, and
+#'         standardized enrichment scores \code{SES_prot}, \code{SES_risk}.
+#'   \item A \strong{single signed} statistic with two-sided p-value:
+#'         \code{stat_signed}, \code{p_signed}, \code{q_signed}, \code{SES_signed}
+#'         (negative = protective enrichment; positive = risk enrichment).
+#' }
 #'
 #' @section Expected `results_df` columns:
 #' Required: \code{results_outcome} (chr), \code{results_beta_ivw} (dbl),
@@ -31,11 +38,12 @@
 #'
 #' @section Inference:
 #' Non-parametric; no normality assumed. Null = exchangeability of labels under the
-#' null within the permutation scope. BH is applied per tested family (per tail).
+#' permutation scope (global / within-cause / among-ARD-only). BH is applied per
+#' tested family (per tail and for the signed test).
 #'
 #' @name enrichment_business_logic
 #' @keywords enrichment MR permutation ARD
-#' @importFrom dplyr filter mutate transmute group_by group_modify ungroup arrange bind_rows summarise across n distinct
+#' @importFrom dplyr filter mutate transmute group_by ungroup arrange bind_rows summarise across n distinct
 #' @importFrom tibble tibble
 #' @importFrom rlang .data
 #' @importFrom stats sd p.adjust
@@ -82,7 +90,7 @@ signed_ivw_score <- function(beta, p) {
   contrib
 }
 
-#' Core permutation engine (exact when feasible, else Monte Carlo)
+#' Core permutation engine for non-negative tail sums (one-sided p)
 #' @keywords internal
 .perm_test_sum <- function(contrib, y, exact_max_combn = 1e5, mc_B = 100000, seed = NULL) {
   y <- .as_int01(y); n <- length(y); a <- sum(y)
@@ -99,7 +107,6 @@ signed_ivw_score <- function(beta, p) {
   if (do_exact) {
     idx <- utils::combn(n, a)
     m <- ncol(idx); aint <- a
-    # chunked to avoid memory spikes
     chunk <- 5000L; acc <- numeric(m); j <- 1L
     while (j <= m) {
       k <- min(m, j + chunk - 1L)
@@ -122,6 +129,45 @@ signed_ivw_score <- function(beta, p) {
   list(stat_obs=stat_obs, p=p, mean_perm=mu, sd_perm=sdv, ses=ses, n_perm=n_perm, exact=do_exact)
 }
 
+#' Core permutation engine for signed sums (two-sided p)
+#' @keywords internal
+.perm_test_signed <- function(contrib_signed, y, exact_max_combn = 1e5, mc_B = 100000, seed = NULL) {
+  # contrib_signed can be negative or positive (w * s)
+  y <- .as_int01(y); n <- length(y); a <- sum(y)
+  if (n == 0L || a == 0L || a == n) {
+    return(list(stat_obs=0, p=1, mean_perm=0, sd_perm=0, ses=0, n_perm=0L, exact=FALSE))
+  }
+  stat_obs <- sum(contrib_signed[y == 1L])
+
+  total_combn <- suppressWarnings(choose(n, a))
+  do_exact <- is.finite(total_combn) && (total_combn <= exact_max_combn) && (n <= 30)
+
+  if (do_exact) {
+    idx <- utils::combn(n, a)
+    m <- ncol(idx); aint <- a
+    chunk <- 5000L; acc <- numeric(m); j <- 1L
+    while (j <= m) {
+      k <- min(m, j + chunk - 1L)
+      sel <- idx[, j:k, drop = FALSE]
+      acc[j:k] <- colSums(matrix(contrib_signed[sel], nrow = aint))
+      j <- k + 1L
+    }
+    stat_perm <- acc
+  } else {
+    if (!is.null(seed)) set.seed(seed)
+    aint <- as.integer(a)
+    idx <- replicate(mc_B, sample.int(n, size = aint, replace = FALSE))
+    stat_perm <- colSums(matrix(contrib_signed[idx], nrow = aint))
+  }
+
+  n_perm <- length(stat_perm)
+  mu <- mean(stat_perm); sdv <- stats::sd(stat_perm)
+  # two-sided permutation p using absolute deviation from mean
+  p <- (1 + sum(abs(stat_perm - mu) >= abs(stat_obs - mu))) / (1 + n_perm)
+  ses <- if (sdv > 0) (stat_obs - mu) / sdv else 0
+  list(stat_obs=stat_obs, p=p, mean_perm=mu, sd_perm=sdv, ses=ses, n_perm=n_perm, exact=do_exact)
+}
+
 # Try to capture a default exposure label (from exposure_snps$id.exposure if present in caller)
 #' @keywords internal
 .default_exposure <- function() {
@@ -138,8 +184,8 @@ signed_ivw_score <- function(beta, p) {
 #'
 #' Orchestrates:
 #' \itemize{
-#'   \item Global ARD vs non-ARD (protective & risk tails).
-#'   \item Cause-level L1/L2/L3 with the three comparison modes.
+#'   \item Global ARD vs non-ARD (tails + single signed).
+#'   \item Cause-level L1/L2/L3 with the three comparison modes (tails + signed).
 #' }
 #'
 #' @param results_df Tidy MR results for the exposure.
@@ -204,10 +250,10 @@ run_enrichment <- function(
   list(global_tbl = global_tbl, by_cause_tbl = by_cause_tbl)
 }
 
-#' Global ARD vs non-ARD directional enrichment (threshold-free)
+#' Global ARD vs non-ARD directional enrichment (tails + signed)
 #'
 #' @inheritParams run_enrichment
-#' @return One-row tibble with counts, SES_prot/risk, p, q, and permutation meta.
+#' @return One-row tibble with counts; tail stats (prot/risk) and a single signed stat.
 #' @export
 enrichment_global_directional <- function(
     results_df,
@@ -230,35 +276,49 @@ enrichment_global_directional <- function(
   w <- if ("results_se_ivw" %in% names(df)) .choose_weights(df$results_se_ivw, weight_scheme) else .choose_weights(rep(NA_real_, nrow(df)), "none")
   y <- .as_int01(df$ARD_selected)
 
+  # tails (one-sided)
   c_prot <- .tail_contrib(s, w, "protective"); tp <- .perm_test_sum(c_prot, y, exact_max_combn, mc_B, seed)
   c_risk <- .tail_contrib(s, w, "risk");       tr <- .perm_test_sum(c_risk, y, exact_max_combn, mc_B, if (is.null(seed)) NULL else seed + 1L)
 
+  # signed (two-sided)
+  c_signed <- w * s
+  ts <- .perm_test_signed(c_signed, y, exact_max_combn, mc_B, if (is.null(seed)) NULL else seed + 2L)
+
   sex_summary <- if ("pheno_sex" %in% names(df)) paste0(sort(unique(na.omit(as.character(df$pheno_sex)))), collapse = ";") else NA_character_
 
-  tibble::tibble(
+  out <- tibble::tibble(
     scope   = "GLOBAL",
     exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
     pheno_sex = sex_summary,
     n_total = length(y),
     n_ard   = sum(y),
     n_non   = length(y) - sum(y),
+    # tails
     stat_prot = tp$stat_obs, p_prot = tp$p, SES_prot = tp$ses,
     stat_risk = tr$stat_obs, p_risk = tr$p, SES_risk = tr$ses,
     n_perm_prot = tp$n_perm, exact_prot = tp$exact,
-    n_perm_risk = tr$n_perm, exact_risk = tr$exact
-  ) |>
-    dplyr::mutate(q_prot = p.adjust(p_prot, method = "BH"),
-                  q_risk = p.adjust(p_risk, method = "BH"))
+    n_perm_risk = tr$n_perm, exact_risk = tr$exact,
+    # signed
+    stat_signed = ts$stat_obs, p_signed = ts$p, SES_signed = ts$ses,
+    n_perm_signed = ts$n_perm, exact_signed = ts$exact
+  )
+
+  out |>
+    dplyr::mutate(
+      q_prot   = p.adjust(p_prot,   method = "BH"),
+      q_risk   = p.adjust(p_risk,   method = "BH"),
+      q_signed = p.adjust(p_signed, method = "BH")
+    )
 }
 
-#' Cause-level directional enrichment (one level × one mode)
+#' Cause-level directional enrichment (tails + signed) for one level × one mode
 #'
 #' @param level One of \code{"cause_level_1"}, \code{"cause_level_2"}, \code{"cause_level_3"}.
 #' @param compare_mode One of:
 #'   \code{"ARD_vs_nonARD_within_cause"}, \code{"cause_vs_rest_all"},
 #'   \code{"ARD_in_cause_vs_ARD_elsewhere"}.
 #' @inheritParams run_enrichment
-#' @return Tibble: one row per cause with SES_prot/risk, p/q, counts, and meta.
+#' @return Tibble: one row per cause with tail stats and a single signed stat.
 #' @export
 enrichment_by_cause_directional <- function(
     results_df,
@@ -280,9 +340,11 @@ enrichment_by_cause_directional <- function(
   df0 <- dplyr::filter(df0, !is.na(.data[[level]]))
 
   stopifnot(all(c("results_beta_ivw","results_p_ivw") %in% names(df0)))
-  df0 <- dplyr::mutate(df0,
-                       signed_score = signed_ivw_score(results_beta_ivw, results_p_ivw),
-                       w = if ("results_se_ivw" %in% names(df0)) .choose_weights(results_se_ivw, weight_scheme) else 1)
+  df0 <- dplyr::mutate(
+    df0,
+    signed_score = signed_ivw_score(results_beta_ivw, results_p_ivw),
+    w = if ("results_se_ivw" %in% names(df0)) .choose_weights(results_se_ivw, weight_scheme) else 1
+  )
 
   run_one <- function(df_all, cause_label, mode) {
     if (mode == "ARD_vs_nonARD_within_cause") {
@@ -313,35 +375,52 @@ enrichment_by_cause_directional <- function(
         exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
         pheno_sex = if ("pheno_sex" %in% names(g)) paste0(sort(unique(na.omit(as.character(g$pheno_sex)))), collapse = ";") else NA_character_,
         n_total = scope_counts["n_total"], n_pos = scope_counts["n_pos"], n_neg = scope_counts["n_neg"],
+        # tails
         stat_prot = NA_real_, p_prot = NA_real_, SES_prot = NA_real_,
         stat_risk = NA_real_, p_risk = NA_real_, SES_risk = NA_real_,
         n_perm_prot = NA_integer_, exact_prot = NA, n_perm_risk = NA_integer_, exact_risk = NA,
+        # signed
+        stat_signed = NA_real_, p_signed = NA_real_, SES_signed = NA_real_,
+        n_perm_signed = NA_integer_, exact_signed = NA,
         perm_scope = perm_scope
       ))
     }
 
+    # tails (one-sided)
     c_prot <- .tail_contrib(s, w, "protective")
     c_risk <- .tail_contrib(s, w, "risk")
-
     tp <- .perm_test_sum(c_prot, y, exact_max_combn, mc_B, seed)
     tr <- .perm_test_sum(c_risk, y, exact_max_combn, mc_B, if (is.null(seed)) NULL else seed + 1L)
+
+    # signed (two-sided)
+    c_signed <- w * s
+    ts <- .perm_test_signed(c_signed, y, exact_max_combn, mc_B, if (is.null(seed)) NULL else seed + 2L)
 
     tibble::tibble(
       level = level, cause = cause_label, compare_mode = mode,
       exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
       pheno_sex = if ("pheno_sex" %in% names(g)) paste0(sort(unique(na.omit(as.character(g$pheno_sex)))), collapse = ";") else NA_character_,
       n_total = scope_counts["n_total"], n_pos = scope_counts["n_pos"], n_neg = scope_counts["n_neg"],
+      # tails
       stat_prot = tp$stat_obs, p_prot = tp$p, SES_prot = tp$ses,
       stat_risk = tr$stat_obs, p_risk = tr$p, SES_risk = tr$ses,
       n_perm_prot = tp$n_perm, exact_prot = tp$exact,
       n_perm_risk = tr$n_perm, exact_risk = tr$exact,
+      # signed
+      stat_signed = ts$stat_obs, p_signed = ts$p, SES_signed = ts$ses,
+      n_perm_signed = ts$n_perm, exact_signed = ts$exact,
       perm_scope = perm_scope
     )
   }
 
   causes <- sort(unique(df0[[level]]))
-  out <- dplyr::bind_rows(lapply(causes, function(cz) run_one(df0, cz, compare_mode))) |>
-    dplyr::mutate(q_prot = p.adjust(p_prot, method = "BH"),
-                  q_risk = p.adjust(p_risk, method = "BH"))
-  out
+  out <- dplyr::bind_rows(lapply(causes, function(cz) run_one(df0, cz, compare_mode)))
+
+  # BH within this family for all three tests
+  out |>
+    dplyr::mutate(
+      q_prot   = p.adjust(p_prot,   method = "BH"),
+      q_risk   = p.adjust(p_risk,   method = "BH"),
+      q_signed = p.adjust(p_signed, method = "BH")
+    )
 }
