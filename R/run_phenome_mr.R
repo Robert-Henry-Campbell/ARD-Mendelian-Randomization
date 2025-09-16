@@ -23,7 +23,7 @@
 #'   resources when using Neale data. One of "ask", "yes", or "no".
 #' @param force_refresh Logical; if `TRUE`, re-download remote resources even if
 #'   they are already cached.
-#' 
+#'
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
 run_phenome_mr <- function(
@@ -168,10 +168,10 @@ run_phenome_mr <- function(
     results_df[FALSE, , drop = FALSE]
   }
 
-  manhattan_BH_all  <- manhattan_plot(results_df, Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure)
-  manhattan_BH_ARD  <- manhattan_plot(results_ard_only, Multiple_testing_correction = "BH",   exposure = exposure_snps$id.exposure)
-  manhattan_Bonf_all<- manhattan_plot(results_df, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure)
-  manhattan_Bonf_ARD<- manhattan_plot(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure)
+  manhattan_BH_all  <- manhattan_plot(results_df, Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure[1])
+  manhattan_BH_ARD  <- manhattan_plot(results_ard_only, Multiple_testing_correction = "BH",   exposure = exposure_snps$id.exposure[1])
+  manhattan_Bonf_all<- manhattan_plot(results_df, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
+  manhattan_Bonf_ARD<- manhattan_plot(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
 
   # ---- 5B. VOLCANO: (placeholder/default for now) ----
   volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
@@ -180,7 +180,7 @@ run_phenome_mr <- function(
   logger::log_info("6) Enrichment analyses…")
   enrich <- run_enrichment(
     results_df,
-    exposure = exposure_snps$id.exposure,
+    exposure = exposure_snps$id.exposure[1],
     levels = c("cause_level_1","cause_level_2","cause_level_3"),
     modes  = c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere"),
     use_qc_pass = TRUE,
