@@ -246,7 +246,7 @@ run_phenome_mr <- function(
       ),
       cause_level_2 = list(
         directional = enrichment_cause_plots_dir[["cause_level_2"]]
-        # , signed = enrichment_cause_plots_signed[["cause_level_2"]]     # TODO
+         , signed = enrichment_cause_plots_signed[["cause_level_2"]]     # TODO
       ),
       cause_level_3 = list(
         directional = enrichment_cause_plots_dir[["cause_level_3"]]
