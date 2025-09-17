@@ -365,9 +365,11 @@ run_phenome_mr <- function(
 
       dir_path  <- file.path(base_dir, dirname(subpath))
       if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
-      file_name <- paste0(safe_name(basename(subpath)), ".png")
+      file_stem <- safe_name(basename(subpath))
+      file_name <- paste0(file_stem, ".png")
       file_path <- file.path(dir_path, file_name)
       ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+      .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
       return(invisible(NULL))
     }
 

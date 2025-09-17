@@ -53,6 +53,10 @@ mr_business_logic <- function(
   }
 
   .save_pub_plot <- function(plot, basepath, w_mm = 89, h_mm = 80, dpi = 500) {
+    dir_path <- dirname(basepath)
+    if (!dir.exists(dir_path)) {
+      dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+    }
     # High-res PNG for quick viewing
     ggplot2::ggsave(paste0(basepath, ".png"), plot,
                     width = w_mm, height = h_mm, units = "mm",
@@ -61,6 +65,7 @@ mr_business_logic <- function(
     ggplot2::ggsave(paste0(basepath, ".pdf"), plot,
                     width = w_mm, height = h_mm, units = "mm",
                     device = cairo_pdf)
+    .ardmr_write_plot_data(plot, dir_path = dir_path, base_name = basename(basepath))
   }
 
 

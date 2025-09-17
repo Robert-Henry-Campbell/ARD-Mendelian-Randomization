@@ -271,6 +271,15 @@ manhattan_plot <- function(results_df,
     ggplot2::coord_cartesian(ylim = c(-0.1, y_max * 1.05), clip = "off")
 
   if (verbose) logger::log_info("Manhattan: plot object constructed; returning ggplot.")
+  p <- .ardmr_attach_plot_data(
+    p,
+    main = df,
+    significant = sig_df,
+    l2_map = l2_map,
+    segments = seg_l2,
+    teeth = teeth_l2,
+    labels = lab_l2
+  )
   p
 }
 
@@ -361,7 +370,7 @@ plot_enrichment_directional_forest <- function(
       )
   }
 
-  p +
+  p <- p +
     ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
     ggplot2::ylab(y_lab) +
@@ -375,6 +384,8 @@ plot_enrichment_directional_forest <- function(
       legend.title = ggplot2::element_text(size = 11),
       legend.text  = ggplot2::element_text(size = 11)
     )
+  p <- .ardmr_attach_plot_data(p, main = df, segments = seg)
+  p
 }
 
 
@@ -462,7 +473,7 @@ plot_enrichment_signed_forest <- function(
       )
   }
 
-  p +
+  p <- p +
     ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
     ggplot2::ylab(y_lab) +
@@ -476,6 +487,8 @@ plot_enrichment_signed_forest <- function(
       legend.title = ggplot2::element_text(size = 11),
       legend.text  = ggplot2::element_text(size = 11)
     )
+  p <- .ardmr_attach_plot_data(p, main = df, segments = seg)
+  p
 }
 
 
@@ -544,7 +557,7 @@ plot_enrichment_global_signed <- function(
       )
   }
 
-  p +
+  p <- p +
     ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
     ggplot2::labs(title = title, y = NULL) +
@@ -556,6 +569,8 @@ plot_enrichment_global_signed <- function(
       legend.title = ggplot2::element_text(size = 11),
       legend.text  = ggplot2::element_text(size = 11)
     )
+  p <- .ardmr_attach_plot_data(p, main = df, segment = seg)
+  p
 }
 
 
@@ -699,6 +714,7 @@ volcano_plot <- function(results_df,
   }
 
   # Labels for most significant points (if results_outcome exists)
+  lab_df <- tibble::tibble()
   if ("results_outcome" %in% names(df)) {
     lab_df <- dplyr::filter(df, .data$sig %in% TRUE & !is.na(.data$results_outcome))
     if (nrow(lab_df)) {
@@ -723,6 +739,7 @@ volcano_plot <- function(results_df,
     }
   }
 
+  p <- .ardmr_attach_plot_data(p, main = df, labelled = lab_df)
   p
 }
 
@@ -789,7 +806,7 @@ plot_enrichment_global <- function(
       )
   }
 
-  p +
+  p <- p +
     ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
     ggplot2::labs(title = title, y = NULL) +
@@ -801,6 +818,8 @@ plot_enrichment_global <- function(
       legend.title = ggplot2::element_text(size = 11),
       legend.text  = ggplot2::element_text(size = 11)
     )
+  p <- .ardmr_attach_plot_data(p, main = df, segments = seg)
+  p
 }
 
 # ---------- forest for Δβ (inside vs outside) ----------
@@ -885,7 +904,8 @@ plot_beta_contrast_forest <- function(
       ) +
       ggplot2::theme(axis.text.y = ggplot2::element_text(colour = lab_col))
   }
-  
+
+  p <- .ardmr_attach_plot_data(p, main = df)
   p
 }
 
