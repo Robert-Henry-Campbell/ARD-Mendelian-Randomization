@@ -562,6 +562,7 @@ beta_contrast_global_ARD <- function(
                           n_in=sum(ard), n_out=sum(!ard),
                           beta_in=NA_real_, beta_out=NA_real_,
                           delta_beta=NA_real_, se_delta=NA_real_,
+                          ci_low=NA_real_, ci_high=NA_real_,
                           z=NA_real_, p=NA_real_, q=NA_real_, sig=NA))
   }
 
@@ -570,6 +571,8 @@ beta_contrast_global_ARD <- function(
   var_in   <- 1/sum(w[ard]); var_out <- 1/sum(w[!ard])
   se_delta <- sqrt(var_in + var_out)
   delta    <- beta_in - beta_out
+  ci_low   <- delta - 1.96 * se_delta
+  ci_high  <- delta + 1.96 * se_delta
   z        <- delta/se_delta
   p        <- 2*stats::pnorm(-abs(z))
   q        <- if (Multiple_testing_correction=="BH") p else p # single test => same
@@ -577,6 +580,7 @@ beta_contrast_global_ARD <- function(
                  n_in=sum(ard), n_out=sum(!ard),
                  beta_in=beta_in, beta_out=beta_out,
                  delta_beta=delta, se_delta=se_delta,
+                 ci_low=ci_low, ci_high=ci_high,
                  z=z, p=p, q=q, sig=(p < alpha))
 }
 
