@@ -457,11 +457,11 @@ run_phenome_mr <- function(
   )
   logger::log_info("Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}")
 
-  invisible(list(
+  output <- list(
     MR_df = MR_df,
     results_df    = results_df,
     summary_plots = summary_plots,
     enrich        = enrich,
     beta_contrast = beta_contrast_tables
-  ))
+  )
 }
