@@ -1,3 +1,27 @@
+#----------helpers---------
+# human-friendly labels for the compare modes
+.pretty_compare <- function(x) {
+  rec <- c(
+    "cause_vs_rest_all"              = "Within-cause effect size vs all-cause effect size",
+    "ARD_vs_nonARD_within_cause"     = "ARD vs non-ARD (within cause)",
+    "ARD_in_cause_vs_ARD_elsewhere"  = "ARD in cause vs ARD elsewhere"
+  )
+  out <- rec[as.character(x)]
+  ifelse(is.na(out), as.character(x), out)
+}
+
+# cause_level_*  -> integer level number
+.level_number <- function(level) {
+  as.integer(gsub("\\D", "", as.character(level)))
+}
+
+# Bonferroni two-sided z threshold for m tested causes at alpha
+.z_thr_bonf <- function(m, alpha = 0.05) {
+  if (!is.finite(m) || m < 1) return(Inf)
+  stats::qnorm(1 - alpha/(2*m))
+}
+#--------
+
 #' Manhattan plot over outcomes (IVW p-values on QC-pass outcomes)
 #' L2-only brackets; right-tip anchored labels; x-axis numbers hidden
 #' Colors: grey = protective (β<0), black = risk (β≥0)
@@ -54,29 +78,6 @@ manhattan_plot <- function(results_df,
   #if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (no ARD-selected rows)"))
   # -------------------------------------------------
 
-  #----------helpers---------
-  # human-friendly labels for the compare modes
-  .pretty_compare <- function(x) {
-    rec <- c(
-      "cause_vs_rest_all"              = "Within-cause effect size vs all-cause effect size",
-      "ARD_vs_nonARD_within_cause"     = "ARD vs non-ARD (within cause)",
-      "ARD_in_cause_vs_ARD_elsewhere"  = "ARD in cause vs ARD elsewhere"
-    )
-    out <- rec[as.character(x)]
-    ifelse(is.na(out), as.character(x), out)
-  }
-
-  # cause_level_*  -> integer level number
-  .level_number <- function(level) {
-    as.integer(gsub("\\D", "", as.character(level)))
-  }
-
-  # Bonferroni two-sided z threshold for m tested causes at alpha
-  .z_thr_bonf <- function(m, alpha = 0.05) {
-    if (!is.finite(m) || m < 1) return(Inf)
-    stats::qnorm(1 - alpha/(2*m))
-  }
-  #--------
 
 
   # ---- QC-pass (optional filter) ----
@@ -294,82 +295,73 @@ manhattan_plot <- function(results_df,
 #' @param ring_q FDR threshold for red ring highlight (default 0.05).
 #' @return A ggplot object.
 #' @export
+# ========== Directional (two-dot) forest ==========
 plot_enrichment_directional_forest <- function(
-    by_cause_tbl,
-    level,
-    compare_mode,
-    title = NULL,
-    subtitle = NULL,
-    y_lab = "Cause",
-    ring_q = 0.05
+    by_cause_tbl, level, compare_mode,
+    title = NULL, subtitle = NULL, y_lab = "Cause",
+    Multiple_testing_correction = c("bonferroni","BH"),
+    alpha = 0.05
 ) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
   stopifnot(all(c("level","cause","compare_mode","SES_prot","SES_risk","q_prot","q_risk") %in% names(by_cause_tbl)))
 
   df <- by_cause_tbl[by_cause_tbl$level == level & by_cause_tbl$compare_mode == compare_mode, , drop = FALSE]
-  if (nrow(df) == 0) {
-    warning("No rows to plot for level=", level, " & compare_mode=", compare_mode)
-    return(ggplot2::ggplot() + ggplot2::theme_void())
-  }
+  if (nrow(df) == 0) return(ggplot2::ggplot() + ggplot2::theme_void())
 
-  # order by max |SES|
+  # order & factors
   df$._ord <- pmax(abs(df$SES_prot), abs(df$SES_risk), na.rm = TRUE)
-  df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
+  df       <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
   df$cause_f <- factor(df$cause, levels = df$cause)
 
-  seg <- data.frame(cause_f = df$cause_f, xmin = df$SES_prot, xmax = df$SES_risk)
-
-  # ===== titles / subtitles =====
+  # titles
   exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NULL
   if (is.null(title)) {
     title <- sprintf("Cause Level %d Enrichment Analysis for %s",
                      .level_number(level),
                      ifelse(is.null(exp_label) || !nzchar(exp_label), "exposure", exp_label))
   }
-  if (is.null(subtitle)) {
-    subtitle <- .pretty_compare(unique(as.character(df$compare_mode)))
-  }
+  if (is.null(subtitle)) subtitle <- .pretty_compare(unique(as.character(df$compare_mode)))
 
-  # ===== bubble sizes (+2 pt), no black ring =====
-  if ("n_pos" %in% names(df) && any(is.finite(df$n_pos))) {
-    rng <- range(df$n_pos, na.rm = TRUE)
-    pts <- if (is.finite(rng[1]) && is.finite(rng[2]) && diff(rng) > 0) {
-      scales::rescale(df$n_pos, to = c(3,6), from = rng)
-    } else rep(4.5, nrow(df))
-  } else {
-    pts <- rep(4.5, nrow(df))
-  }
-  pts <- pmax(2.5, pts + 2)  # +2 points everywhere
+  seg <- data.frame(cause_f = df$cause_f, xmin = df$SES_prot, xmax = df$SES_risk)
+  m   <- nrow(df)
 
-  # ===== Bonferroni ±z* lines (two-sided) computed per-plot =====
-  m      <- nrow(df)
-  z_thr  <- .z_thr_bonf(m, alpha = 0.05)
-
-  ggplot2::ggplot() +
-    # significance guide: ±z* (Bonferroni)
-    ggplot2::geom_vline(xintercept = c(-z_thr, z_thr),
-                        ggplot2::aes(linetype = "Bonferroni (α=0.05, 2-sided)"),
-                        linewidth = 0.5, alpha = 0.8) +
-    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
-    ggplot2::scale_linetype_manual(
-      name   = "Significance:",
-      values = c("Bonferroni (α=0.05, 2-sided)" = "dashed"),
-      guide  = ggplot2::guide_legend(order = 2)
-    ) +
+  p <- ggplot2::ggplot() +
     ggplot2::geom_segment(data = seg,
                           ggplot2::aes(x = xmin, xend = xmax, y = cause_f, yend = cause_f),
                           linewidth = 0.6, alpha = 0.5) +
-    # protective dots (no ring)
-    ggplot2::geom_point(
-      data = df,
-      ggplot2::aes(x = SES_prot, y = cause_f),
-      shape = 16, size = pts, colour = "grey60"
-    ) +
-    # risk dots (no ring)
-    ggplot2::geom_point(
-      data = df,
-      ggplot2::aes(x = SES_risk, y = cause_f),
-      shape = 16, size = pts, colour = "black"
-    ) +
+    # base points (fixed size, no stroke)
+    ggplot2::geom_point(data = df, ggplot2::aes(x = SES_prot, y = cause_f),
+                        shape = 16, size = 4, colour = "grey60") +
+    ggplot2::geom_point(data = df, ggplot2::aes(x = SES_risk,  y = cause_f),
+                        shape = 16, size = 4, colour = "black") +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
+
+  if (Multiple_testing_correction == "bonferroni") {
+    zthr <- .z_thr_bonf(m, alpha = alpha)
+    p <- p +
+      ggplot2::geom_vline(xintercept = c(-zthr, zthr),
+                          ggplot2::aes(linetype = sprintf("Bonferroni (α=%.2f, 2-sided)", alpha)),
+                          linewidth = 0.5, alpha = 0.85) +
+      ggplot2::scale_linetype_manual(
+        name = "Significance:", values = setNames("dashed", sprintf("Bonferroni (α=%.2f, 2-sided)", alpha))
+      )
+  } else {
+    # BH: draw firebrick rings around significant points
+    ring_df_prot <- df[is.finite(df$q_prot) & df$q_prot < alpha, , drop = FALSE]
+    ring_df_risk <- df[is.finite(df$q_risk) & df$q_risk < alpha, , drop = FALSE]
+    p <- p +
+      ggplot2::geom_point(data = ring_df_prot,
+                          ggplot2::aes(x = SES_prot, y = cause_f, shape = "BH significant (q<α)"),
+                          size = 5, stroke = 1.2, colour = "firebrick", fill = NA) +
+      ggplot2::geom_point(data = ring_df_risk,
+                          ggplot2::aes(x = SES_risk,  y = cause_f, shape = "BH significant (q<α)"),
+                          size = 5, stroke = 1.2, colour = "firebrick", fill = NA) +
+      ggplot2::scale_shape_manual(
+        name = "Significance:", values = c("BH significant (q<α)" = 21)
+      )
+  }
+
+  p +
     ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
     ggplot2::ylab(y_lab) +
@@ -384,6 +376,8 @@ plot_enrichment_directional_forest <- function(
       legend.text  = ggplot2::element_text(size = 11)
     )
 }
+
+
 
 #' Cause-level signed enrichment forest (single-dot)
 #'
@@ -402,82 +396,73 @@ plot_enrichment_directional_forest <- function(
 #' @param y_lab Y axis label.
 #' @param ring_q FDR cutoff; red ring when q_signed < ring_q.
 #' @export
+# ========== Signed (single-dot) forest ==========
+# ========== Signed (single-dot) forest ==========
 plot_enrichment_signed_forest <- function(
-    by_cause_tbl,
-    level,
-    compare_mode,
-    title = NULL,
-    subtitle = NULL,
-    y_lab = "Cause",
-    ring_q = 0.05
+    by_cause_tbl, level, compare_mode,
+    title = NULL, subtitle = NULL, y_lab = "Cause",
+    Multiple_testing_correction = c("bonferroni","BH"),
+    alpha = 0.05
 ) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
   need <- c("level","cause","compare_mode","SES_signed","q_signed")
   stopifnot(all(need %in% names(by_cause_tbl)))
 
   df <- by_cause_tbl[by_cause_tbl$level == level & by_cause_tbl$compare_mode == compare_mode, , drop = FALSE]
-  if (nrow(df) == 0) {
-    warning("No rows to plot for level=", level, " & compare_mode=", compare_mode)
-    return(ggplot2::ggplot() + ggplot2::theme_void())
-  }
+  if (nrow(df) == 0) return(ggplot2::ggplot() + ggplot2::theme_void())
 
-  # order by |SES_signed|
-  df$._ord <- abs(df$SES_signed)
-  df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
+  df$._ord  <- abs(df$SES_signed)
+  df        <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
   df$cause_f <- factor(df$cause, levels = df$cause)
+  df$dir     <- ifelse(df$SES_signed < 0, "Protective", "Risk")
 
-  # titles
   exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NULL
   if (is.null(title)) {
     title <- sprintf("Cause Level %d Enrichment Analysis for %s",
                      .level_number(level),
                      ifelse(is.null(exp_label) || !nzchar(exp_label), "exposure", exp_label))
   }
-  if (is.null(subtitle)) {
-    subtitle <- .pretty_compare(unique(as.character(df$compare_mode)))
-  }
-
-  # sizes (+2), no ring
-  if ("n_pos" %in% names(df) && any(is.finite(df$n_pos))) {
-    rng <- range(df$n_pos, na.rm = TRUE)
-    pts <- if (is.finite(rng[1]) && is.finite(rng[2]) && diff(rng) > 0) {
-      scales::rescale(df$n_pos, to = c(3,6), from = rng)
-    } else rep(4.5, nrow(df))
-  } else {
-    pts <- rep(4.5, nrow(df))
-  }
-  pts <- pmax(2.5, pts + 2)
-
-  # direction fill (kept for legend), but no stroke ring
-  df$dir <- ifelse(df$SES_signed < 0, "Protective", "Risk")
-
-  # per-plot Bonferroni ±z*
-  m     <- nrow(df)
-  z_thr <- .z_thr_bonf(m, alpha = 0.05)
+  if (is.null(subtitle)) subtitle <- .pretty_compare(unique(as.character(df$compare_mode)))
 
   seg <- data.frame(cause_f = df$cause_f, xmin = 0, xmax = df$SES_signed)
+  m   <- nrow(df)
 
-  ggplot2::ggplot() +
-    ggplot2::geom_vline(xintercept = c(-z_thr, z_thr),
-                        ggplot2::aes(linetype = "Bonferroni (α=0.05, 2-sided)"),
-                        linewidth = 0.5, alpha = 0.8) +
-    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
-    ggplot2::scale_linetype_manual(
-      name   = "Significance:",
-      values = c("Bonferroni (α=0.05, 2-sided)" = "dashed"),
-      guide  = ggplot2::guide_legend(order = 2)
-    ) +
+  p <- ggplot2::ggplot() +
     ggplot2::geom_segment(data = seg,
                           ggplot2::aes(x = xmin, xend = xmax, y = cause_f, yend = cause_f),
                           linewidth = 0.6, alpha = 0.5) +
     ggplot2::geom_point(
-      data = df,
-      ggplot2::aes(x = SES_signed, y = cause_f, colour = dir),
-      shape = 16, size = pts
+      data = df, ggplot2::aes(x = SES_signed, y = cause_f, colour = dir),
+      shape = 16, size = 4
     ) +
     ggplot2::scale_colour_manual(
-      name   = "Direction:",
-      values = c("Protective" = "grey60", "Risk" = "black")
+      name = "Direction:", values = c("Protective" = "grey60", "Risk" = "black")
     ) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
+
+  if (Multiple_testing_correction == "bonferroni") {
+    zthr <- .z_thr_bonf(m, alpha = alpha)
+    p <- p +
+      ggplot2::geom_vline(xintercept = c(-zthr, zthr),
+                          ggplot2::aes(linetype = sprintf("Bonferroni (α=%.2f, 2-sided)", alpha)),
+                          linewidth = 0.5, alpha = 0.85) +
+      ggplot2::scale_linetype_manual(
+        name = "Significance:", values = setNames("dashed", sprintf("Bonferroni (α=%.2f, 2-sided)", alpha))
+      )
+  } else {
+    ring_df <- df[is.finite(df$q_signed) & df$q_signed < alpha, , drop = FALSE]
+    p <- p +
+      ggplot2::geom_point(
+        data = ring_df,
+        ggplot2::aes(x = SES_signed, y = cause_f, shape = "BH significant (q<α)"),
+        size = 5, stroke = 1.2, colour = "firebrick", fill = NA
+      ) +
+      ggplot2::scale_shape_manual(
+        name = "Significance:", values = c("BH significant (q<α)" = 21)
+      )
+  }
+
+  p +
     ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
     ggplot2::ylab(y_lab) +
@@ -494,56 +479,6 @@ plot_enrichment_signed_forest <- function(
 }
 
 
-#' Global ARD vs non-ARD directional summary (protective vs risk)
-#'
-#' One-row dumbbell-like plot for the global enrichment.
-#'
-#' @param global_tbl Output of `enrichment_global_directional()`.
-#' @param title Optional title.
-#' @param ring_q FDR threshold for red ring.
-#' @return ggplot.
-#' @export
-plot_enrichment_global <- function(global_tbl, title = NULL, ring_q = 0.05) {
-  stopifnot(all(c("SES_prot","SES_risk","q_prot","q_risk") %in% names(global_tbl)))
-  df <- global_tbl[1, , drop = FALSE]
-  df$y <- factor("ARD vs non-ARD", levels = "ARD vs non-ARD")
-  seg <- data.frame(y = df$y, xmin = df$SES_prot, xmax = df$SES_risk)
-
-  exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NULL
-  if (is.null(title)) title <- sprintf("Global Enrichment Analysis for %s",
-                                       ifelse(is.null(exp_label) || !nzchar(exp_label), "exposure", exp_label))
-
-  z_thr <- .z_thr_bonf(m = 1, alpha = 0.05)
-
-  ggplot2::ggplot() +
-    ggplot2::geom_vline(xintercept = c(-z_thr, z_thr),
-                        ggplot2::aes(linetype = "Bonferroni (α=0.05, 2-sided)"),
-                        linewidth = 0.5, alpha = 0.8) +
-    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
-    ggplot2::scale_linetype_manual(
-      name   = "Significance:",
-      values = c("Bonferroni (α=0.05, 2-sided)" = "dashed"),
-      guide  = ggplot2::guide_legend(order = 2)
-    ) +
-    ggplot2::geom_segment(data = seg,
-                          ggplot2::aes(x = xmin, xend = xmax, y = y, yend = y),
-                          linewidth = 0.6, alpha = 0.5) +
-    ggplot2::geom_point(data = df, ggplot2::aes(x = SES_prot, y = y),
-                        shape = 16, size = 7, colour = "grey60") +
-    ggplot2::geom_point(data = df, ggplot2::aes(x = SES_risk, y = y),
-                        shape = 16, size = 7, colour = "black") +
-    ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
-                                expand = ggplot2::expansion(mult = c(0.05,0.1))) +
-    ggplot2::labs(title = title, y = NULL) +
-    ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(
-      axis.text.y = ggplot2::element_text(size = 10),
-      panel.grid.major.y = ggplot2::element_blank(),
-      legend.position = "top",
-      legend.title = ggplot2::element_text(size = 11),
-      legend.text  = ggplot2::element_text(size = 11)
-    )
-}
 
 #' Global ARD vs non-ARD signed summary (single-dot)
 #'
@@ -556,31 +491,27 @@ plot_enrichment_global <- function(global_tbl, title = NULL, ring_q = 0.05) {
 #' @param title Optional title.
 #' @param ring_q FDR threshold for red ring.
 #' @export
-plot_enrichment_global_signed <- function(global_tbl, title = NULL, ring_q = 0.05) {
+# ========== Global (signed) one-dot summary ==========
+# ========== Global (signed) one-dot summary ==========
+plot_enrichment_global_signed <- function(
+    global_tbl, title = NULL,
+    Multiple_testing_correction = c("bonferroni","BH"),
+    alpha = 0.05
+) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
   need <- c("SES_signed","q_signed")
   stopifnot(all(need %in% names(global_tbl)))
 
   df <- global_tbl[1, , drop = FALSE]
-  df$y <- factor("ARD vs non-ARD", levels = "ARD vs non-ARD")
+  df$y   <- factor("ARD vs non-ARD", levels = "ARD vs non-ARD")
   df$dir <- ifelse(df$SES_signed < 0, "Protective", "Risk")
-  seg <- data.frame(y = df$y, xmin = 0, xmax = df$SES_signed)
+  seg    <- data.frame(y = df$y, xmin = 0, xmax = df$SES_signed)
 
-  exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NULL
+  exp_label <- if ("exposure" %in% names(df)) df$exposure[1] else NULL
   if (is.null(title)) title <- sprintf("Global Enrichment Analysis for %s",
                                        ifelse(is.null(exp_label) || !nzchar(exp_label), "exposure", exp_label))
 
-  z_thr <- .z_thr_bonf(m = 1, alpha = 0.05)
-
-  ggplot2::ggplot() +
-    ggplot2::geom_vline(xintercept = c(-z_thr, z_thr),
-                        ggplot2::aes(linetype = "Bonferroni (α=0.05, 2-sided)"),
-                        linewidth = 0.5, alpha = 0.8) +
-    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
-    ggplot2::scale_linetype_manual(
-      name   = "Significance:",
-      values = c("Bonferroni (α=0.05, 2-sided)" = "dashed"),
-      guide  = ggplot2::guide_legend(order = 2)
-    ) +
+  p <- ggplot2::ggplot() +
     ggplot2::geom_segment(data = seg,
                           ggplot2::aes(x = xmin, xend = xmax, y = y, yend = y),
                           linewidth = 0.6, alpha = 0.5) +
@@ -588,10 +519,32 @@ plot_enrichment_global_signed <- function(global_tbl, title = NULL, ring_q = 0.0
       data = df, ggplot2::aes(x = SES_signed, y = y, colour = dir),
       shape = 16, size = 7
     ) +
-    ggplot2::scale_colour_manual(
-      name   = "Direction:",
-      values = c("Protective" = "grey60", "Risk" = "black")
-    ) +
+    ggplot2::scale_colour_manual(name = "Direction:", values = c("Protective" = "grey60", "Risk" = "black")) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
+
+  if (Multiple_testing_correction == "bonferroni") {
+    zthr <- .z_thr_bonf(1, alpha = alpha)
+    p <- p +
+      ggplot2::geom_vline(xintercept = c(-zthr, zthr),
+                          ggplot2::aes(linetype = sprintf("Bonferroni (α=%.2f, 2-sided)", alpha)),
+                          linewidth = 0.5, alpha = 0.85) +
+      ggplot2::scale_linetype_manual(
+        name = "Significance:", values = setNames("dashed", sprintf("Bonferroni (α=%.2f, 2-sided)", alpha))
+      )
+  } else {
+    ring_df <- df[is.finite(df$q_signed) & df$q_signed < alpha, , drop = FALSE]
+    p <- p +
+      ggplot2::geom_point(
+        data = ring_df,
+        ggplot2::aes(x = SES_signed, y = y, shape = "BH significant (q<α)"),
+        size = 8, stroke = 1.3, colour = "firebrick", fill = NA
+      ) +
+      ggplot2::scale_shape_manual(
+        name = "Significance:", values = c("BH significant (q<α)" = 21)
+      )
+  }
+
+  p +
     ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
                                 expand = ggplot2::expansion(mult = c(0.05,0.1))) +
     ggplot2::labs(title = title, y = NULL) +
@@ -604,6 +557,8 @@ plot_enrichment_global_signed <- function(global_tbl, title = NULL, ring_q = 0.0
       legend.text  = ggplot2::element_text(size = 11)
     )
 }
+
+
 
 #' Volcano plot (IVW): effect size vs significance
 #'
@@ -768,6 +723,169 @@ volcano_plot <- function(results_df,
     }
   }
 
+  p
+}
+
+
+#' Global ARD vs non-ARD summary (two-dot)
+#'
+#' One-row forest for the global signed SES.
+#'
+#' Expects global_tbl to contain at least: SES_signed, q_signed.
+#' If you used different names (e.g., SES_comb/q_comb), rename below.
+#'
+#' @param global_tbl Output of enrichment_global_* with signed columns.
+#' @param title Optional title.
+#' @param ring_q FDR threshold for red ring.
+#' @export
+# ========== Global (directional) one-row summary ==========
+# ========== Global (directional) one-row summary ==========
+plot_enrichment_global <- function(
+    global_tbl, title = NULL,
+    Multiple_testing_correction = c("bonferroni","BH"),
+    alpha = 0.05
+) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  stopifnot(all(c("SES_prot","SES_risk","q_prot","q_risk") %in% names(global_tbl)))
+  df <- global_tbl[1, , drop = FALSE]
+  df$y <- factor("ARD vs non-ARD", levels = "ARD vs non-ARD")
+  seg  <- data.frame(y = df$y, xmin = df$SES_prot, xmax = df$SES_risk)
+
+  exp_label <- if ("exposure" %in% names(df)) df$exposure[1] else NULL
+  if (is.null(title)) title <- sprintf("Global Enrichment Analysis for %s",
+                                       ifelse(is.null(exp_label) || !nzchar(exp_label), "exposure", exp_label))
+
+  p <- ggplot2::ggplot() +
+    ggplot2::geom_segment(data = seg,
+                          ggplot2::aes(x = xmin, xend = xmax, y = y, yend = y),
+                          linewidth = 0.6, alpha = 0.5) +
+    ggplot2::geom_point(data = df, ggplot2::aes(x = SES_prot, y = y),
+                        shape = 16, size = 7, colour = "grey60") +
+    ggplot2::geom_point(data = df, ggplot2::aes(x = SES_risk, y = y),
+                        shape = 16, size = 7, colour = "black") +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7)
+
+  if (Multiple_testing_correction == "bonferroni") {
+    zthr <- .z_thr_bonf(1, alpha = alpha)
+    p <- p +
+      ggplot2::geom_vline(xintercept = c(-zthr, zthr),
+                          ggplot2::aes(linetype = sprintf("Bonferroni (α=%.2f, 2-sided)", alpha)),
+                          linewidth = 0.5, alpha = 0.85) +
+      ggplot2::scale_linetype_manual(
+        name = "Significance:", values = setNames("dashed", sprintf("Bonferroni (α=%.2f, 2-sided)", alpha))
+      )
+  } else {
+    ring_df_prot <- df[is.finite(df$q_prot) & df$q_prot < alpha, , drop = FALSE]
+    ring_df_risk <- df[is.finite(df$q_risk) & df$q_risk < alpha, , drop = FALSE]
+    p <- p +
+      ggplot2::geom_point(data = ring_df_prot,
+                          ggplot2::aes(x = SES_prot, y = y, shape = "BH significant (q<α)"),
+                          size = 8, stroke = 1.3, colour = "firebrick", fill = NA) +
+      ggplot2::geom_point(data = ring_df_risk,
+                          ggplot2::aes(x = SES_risk,  y = y, shape = "BH significant (q<α)"),
+                          size = 8, stroke = 1.3, colour = "firebrick", fill = NA) +
+      ggplot2::scale_shape_manual(
+        name = "Significance:", values = c("BH significant (q<α)" = 21)
+      )
+  }
+
+  p +
+    ggplot2::scale_x_continuous("SES z-score (− protective  ←  0  →  risk +)",
+                                expand = ggplot2::expansion(mult = c(0.05,0.1))) +
+    ggplot2::labs(title = title, y = NULL) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      axis.text.y = ggplot2::element_text(size = 10),
+      panel.grid.major.y = ggplot2::element_blank(),
+      legend.position = "top",
+      legend.title = ggplot2::element_text(size = 11),
+      legend.text  = ggplot2::element_text(size = 11)
+    )
+}
+
+# ---------- forest for Δβ (inside vs outside) ----------
+#' Forest of Δβ (inside - outside) by cause with multiplicity marks
+#'
+#' X-axis = Δβ on the original MR beta scale (e.g., log-OR per 1 SD exposure).
+#' Points = Δβ; whiskers = 95% CI; vertical line at 0.
+#' BH: red rings around q<alpha; Bonferroni: dashed legend line & bold labels optional.
+#'
+#' @param beta_tbl Output of beta_contrast_by_cause().
+#' @param title,subtitle Optional strings.
+#' @param Multiple_testing_correction "BH" or "bonferroni" (must match the table).
+#' @param alpha Significance level used for the table.
+#' @return ggplot
+#' @export
+plot_beta_contrast_forest <- function(
+    beta_tbl,
+    title = NULL,
+    subtitle = "Within-cause mean β vs outside all other causes",
+    Multiple_testing_correction = c("BH","bonferroni"),
+    alpha = 0.05
+) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  df <- tibble::as_tibble(beta_tbl)
+  stopifnot(all(c("cause","delta_beta","se_delta","ci_low","ci_high","p","q","sig") %in% names(df)))
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
+  
+  # order by |Δβ|
+  df$._ord <- abs(df$delta_beta)
+  df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
+  df$cause_f <- factor(df$cause, levels = df$cause)
+  
+  # default title from exposure if present
+  if (is.null(title)) {
+    exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NA_character_
+    title <- sprintf("Cause-level contrast of mean MR β for %s",
+                     ifelse(is.na(exp_label) || !nzchar(exp_label), "exposure", exp_label))
+  }
+  
+  p <- ggplot2::ggplot(df, ggplot2::aes(y = cause_f)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::geom_errorbarh(
+      ggplot2::aes(xmin = ci_low, xmax = ci_high),
+      height = 0.2, linewidth = 0.6, alpha = 0.7
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(x = delta_beta),
+      shape = 16, size = 2.8, colour = "black"
+    ) +
+    ggplot2::labs(
+      x = expression(Delta*beta ~ "(inside − outside, log-OR per 1 SD exposure)"),
+      y = "Cause",
+      title = title, subtitle = subtitle
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.title.y = ggplot2::element_text(margin = ggplot2::margin(r = 8)),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6)),
+      legend.position = "top",
+      legend.title = ggplot2::element_text(size = 11),
+      legend.text  = ggplot2::element_text(size = 11)
+    )
+  
+  if (Multiple_testing_correction == "BH") {
+    p <- p +
+      ggplot2::geom_point(
+        data = df[df$sig %in% TRUE, , drop = FALSE],
+        ggplot2::aes(x = delta_beta, y = cause_f, shape = "BH significant (q<α)"),
+        size = 4.2, stroke = 1.1, colour = "firebrick", fill = NA
+      ) +
+      ggplot2::scale_shape_manual(
+        name = "Significance:",
+        values = c("BH significant (q<α)" = 21)
+      )
+  } else {
+    # Bonferroni: show legend item + (optional) bold significant labels
+    lab_col <- ifelse(df$sig, "black", "grey30")
+    p <- p +
+      ggplot2::scale_linetype_manual(
+        name = "Significance:", values = c("Bonferroni threshold" = "dashed")
+      ) +
+      ggplot2::theme(axis.text.y = ggplot2::element_text(colour = lab_col))
+  }
+  
   p
 }
 

@@ -424,3 +424,231 @@ enrichment_by_cause_directional <- function(
       q_signed = p.adjust(p_signed, method = "BH")
     )
 }
+
+# ---------- beta-contrast (inside vs outside) ----------
+#' Inside-vs-outside contrast of mean MR betas by cause
+#'
+#' For each cause (at a chosen level), compute inverse-variance weighted means
+#' of beta_IVW inside the cause and outside the cause, then the difference
+#' Δβ = β̄_in - β̄_out, its SE, z, p, and BH/Bonferroni q across causes.
+#'
+#' Assumes all betas are on a common scale (e.g., log-OR per 1 SD exposure).
+#'
+#' @param results_df Tidy MR results with columns: results_beta_ivw, results_se_ivw,
+#'        results_qc_pass (optional), cause_level_* (chosen via `level`).
+#' @param level "cause_level_1","cause_level_2","cause_level_3".
+#' @param use_qc_pass If TRUE, keep results_qc_pass==TRUE when present.
+#' @param min_nsnp Optional integer filter on results_nsnp_after.
+#' @param exposure Optional label for reporting.
+#' @param Multiple_testing_correction "BH" or "bonferroni" for q-values.
+#' @param alpha Significance level (default 0.05).
+#' @return Tibble with one row per cause: n_in, n_out, beta_in, beta_out,
+#'         delta_beta, se_delta, z, p, q, ci_low, ci_high.
+#' @export
+beta_contrast_by_cause <- function(
+    results_df,
+    level = c("cause_level_1","cause_level_2","cause_level_3"),
+    use_qc_pass = TRUE,
+    min_nsnp = 2,
+    exposure = NULL,
+    Multiple_testing_correction = c("BH","bonferroni"),
+    alpha = 0.05
+) {
+  level <- match.arg(level)
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+
+  df <- tibble::as_tibble(results_df)
+  stopifnot(all(c("results_beta_ivw","results_se_ivw", level) %in% names(df)))
+
+  if (use_qc_pass && "results_qc_pass" %in% names(df)) {
+    df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+  }
+  if (!is.null(min_nsnp) && "results_nsnp_after" %in% names(df)) {
+    df <- dplyr::filter(df, .data$results_nsnp_after >= !!min_nsnp)
+  }
+  df <- dplyr::filter(df, !is.na(.data[[level]]),
+                      is.finite(.data$results_beta_ivw),
+                      is.finite(.data$results_se_ivw),
+                      .data$results_se_ivw > 0)
+
+  if (!nrow(df)) {
+    return(tibble::tibble(
+      level = character(), cause = character(), exposure = character(),
+      n_in = integer(), n_out = integer(),
+      beta_in = double(), beta_out = double(),
+      delta_beta = double(), se_delta = double(),
+      z = double(), p = double(), q = double(),
+      ci_low = double(), ci_high = double()
+    ))
+  }
+
+  causes <- sort(unique(df[[level]]))
+
+  one <- function(cz) {
+    g <- df
+    in_i  <- which(g[[level]] == cz)
+    out_i <- which(g[[level]] != cz)
+    if (!length(in_i) || !length(out_i)) {
+      return(NULL)
+    }
+    b_in  <- g$results_beta_ivw[in_i]
+    s_in  <- g$results_se_ivw[in_i]
+    w_in  <- 1/(s_in^2)
+
+    b_out <- g$results_beta_ivw[out_i]
+    s_out <- g$results_se_ivw[out_i]
+    w_out <- 1/(s_out^2)
+
+    beta_in  <- sum(w_in * b_in)  / sum(w_in)
+    beta_out <- sum(w_out * b_out)/ sum(w_out)
+
+    var_in   <- 1 / sum(w_in)
+    var_out  <- 1 / sum(w_out)
+    se_delta <- sqrt(var_in + var_out)
+
+    delta <- beta_in - beta_out
+    z     <- if (se_delta > 0) delta / se_delta else NA_real_
+    p     <- if (is.finite(z)) 2*stats::pnorm(-abs(z)) else NA_real_
+
+    ci_low  <- delta - 1.96*se_delta
+    ci_high <- delta + 1.96*se_delta
+
+    tibble::tibble(
+      level = level, cause = cz,
+      exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
+      n_in = length(in_i), n_out = length(out_i),
+      beta_in = beta_in, beta_out = beta_out,
+      delta_beta = delta, se_delta = se_delta,
+      z = z, p = p, ci_low = ci_low, ci_high = ci_high
+    )
+  }
+
+  out <- dplyr::bind_rows(lapply(causes, one))
+  if (!nrow(out)) return(out)
+
+  out$q <- if (Multiple_testing_correction == "BH") {
+    stats::p.adjust(out$p, method = "BH")
+  } else {
+    # Bonferroni family-wise across causes
+    pmin(1, out$p * nrow(out))
+  }
+
+  dplyr::mutate(
+    out,
+    sig = if (Multiple_testing_correction == "BH") q < alpha else p < alpha / nrow(out)
+  )
+}
+
+# One-row: global ARD vs non-ARD contrast of mean β (IVW)
+beta_contrast_global_ARD <- function(
+    results_df,
+    use_qc_pass = TRUE, min_nsnp = 2,
+    exposure = NULL,
+    Multiple_testing_correction = c("BH","bonferroni"),
+    alpha = 0.05
+) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  df <- tibble::as_tibble(results_df)
+  stopifnot(all(c("results_beta_ivw","results_se_ivw","ARD_selected") %in% names(df)))
+
+  if (use_qc_pass && "results_qc_pass" %in% names(df)) df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+  if (!is.null(min_nsnp) && "results_nsnp_after" %in% names(df)) df <- dplyr::filter(df, .data$results_nsnp_after >= !!min_nsnp)
+  df <- dplyr::filter(df, is.finite(.data$results_beta_ivw), is.finite(.data$results_se_ivw), .data$results_se_ivw > 0)
+
+  w <- 1/(df$results_se_ivw^2)
+  ard <- df$ARD_selected %in% TRUE
+  if (!any(ard) || all(ard)) {
+    return(tibble::tibble(level="GLOBAL", cause="ARD vs non-ARD", exposure=exposure,
+                          n_in=sum(ard), n_out=sum(!ard),
+                          beta_in=NA_real_, beta_out=NA_real_,
+                          delta_beta=NA_real_, se_delta=NA_real_,
+                          z=NA_real_, p=NA_real_, q=NA_real_, sig=NA))
+  }
+
+  beta_in  <- sum(w[ard]*df$results_beta_ivw[ard])  / sum(w[ard])
+  beta_out <- sum(w[!ard]*df$results_beta_ivw[!ard])/ sum(w[!ard])
+  var_in   <- 1/sum(w[ard]); var_out <- 1/sum(w[!ard])
+  se_delta <- sqrt(var_in + var_out)
+  delta    <- beta_in - beta_out
+  z        <- delta/se_delta
+  p        <- 2*stats::pnorm(-abs(z))
+  q        <- if (Multiple_testing_correction=="BH") p else p # single test => same
+  tibble::tibble(level="GLOBAL", cause="ARD vs non-ARD", exposure=exposure,
+                 n_in=sum(ard), n_out=sum(!ard),
+                 beta_in=beta_in, beta_out=beta_out,
+                 delta_beta=delta, se_delta=se_delta,
+                 z=z, p=p, q=q, sig=(p < alpha))
+}
+
+# Generalized β-contrast by cause & compare_mode (mirrors enrichment modes)
+beta_contrast_by_cause_mode <- function(
+    results_df,
+    level = c("cause_level_1","cause_level_2","cause_level_3"),
+    compare_mode = c("cause_vs_rest_all","ARD_vs_nonARD_within_cause","ARD_in_cause_vs_ARD_elsewhere"),
+    use_qc_pass = TRUE, min_nsnp = 2,
+    exposure = NULL,
+    Multiple_testing_correction = c("BH","bonferroni"),
+    alpha = 0.05
+) {
+  level <- match.arg(level); compare_mode <- match.arg(compare_mode)
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  df <- tibble::as_tibble(results_df)
+
+  stopifnot(all(c("results_beta_ivw","results_se_ivw", level) %in% names(df)))
+  if (use_qc_pass && "results_qc_pass" %in% names(df)) df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+  if (!is.null(min_nsnp) && "results_nsnp_after" %in% names(df)) df <- dplyr::filter(df, .data$results_nsnp_after >= !!min_nsnp)
+  df <- dplyr::filter(df, !is.na(.data[[level]]), is.finite(.data$results_beta_ivw),
+                      is.finite(.data$results_se_ivw), .data$results_se_ivw > 0)
+
+  causes <- sort(unique(df[[level]]))
+  ivw_delta <- function(b, se, g) {
+    w <- 1/(se^2)
+    beta_in  <- sum(w[g]*b[g]) / sum(w[g])
+    beta_out <- sum(w[!g]*b[!g]) / sum(w[!g])
+    var_in <- 1/sum(w[g]); var_out <- 1/sum(w[!g])
+    se_delta <- sqrt(var_in + var_out)
+    delta <- beta_in - beta_out
+    z <- delta/se_delta; p <- 2*stats::pnorm(-abs(z))
+    list(beta_in=beta_in, beta_out=beta_out, delta=delta, se_delta=se_delta, z=z, p=p)
+  }
+
+  rows <- lapply(causes, function(cz) {
+    gdf <- df
+    if (compare_mode == "ARD_vs_nonARD_within_cause") {
+      if (!"ARD_selected" %in% names(gdf)) return(NULL)
+      gdf <- dplyr::filter(gdf, .data[[level]] == cz)
+      grp <- gdf$ARD_selected %in% TRUE
+    } else if (compare_mode == "ARD_in_cause_vs_ARD_elsewhere") {
+      if (!"ARD_selected" %in% names(gdf)) return(NULL)
+      gdf <- dplyr::filter(gdf, .data$ARD_selected %in% TRUE)
+      grp <- gdf[[level]] == cz
+    } else { # cause_vs_rest_all
+      grp <- gdf[[level]] == cz
+    }
+    if (!length(grp) || all(grp) || !any(grp)) return(NULL)
+    res <- ivw_delta(gdf$results_beta_ivw, gdf$results_se_ivw, grp)
+    tibble::tibble(
+      level = level, cause = cz, compare_mode = compare_mode,
+      exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
+      n_in = sum(grp), n_out = sum(!grp),
+      beta_in = res$beta_in, beta_out = res$beta_out,
+      delta_beta = res$delta, se_delta = res$se_delta,
+      z = res$z, p = res$p
+    )
+  })
+  out <- dplyr::bind_rows(rows)
+  if (!nrow(out)) return(out)
+
+  out$q <- if (Multiple_testing_correction == "BH") {
+    stats::p.adjust(out$p, method = "BH")
+  } else {
+    pmin(1, out$p * nrow(out))
+  }
+  out$sig <- if (Multiple_testing_correction == "BH") out$q < alpha else out$p < alpha / nrow(out)
+  out$ci_low  <- out$delta_beta - 1.96*out$se_delta
+  out$ci_high <- out$delta_beta + 1.96*out$se_delta
+  out
+}
+
+
+
