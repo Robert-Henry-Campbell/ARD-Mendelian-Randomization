@@ -161,22 +161,21 @@ run_phenome_mr <- function(
   logger::log_info("5) Build summary plots…")
 
   # ---- 5A. MANHATTAN: BH vs Bonf × (all vs ARD-only) ----
-  # Helper: ARD-only slice (logical column)
   results_ard_only <- if ("ARD_selected" %in% names(results_df)) {
     results_df[!is.na(results_df$ARD_selected) & results_df$ARD_selected, , drop = FALSE]
   } else {
     results_df[FALSE, , drop = FALSE]
   }
 
-  manhattan_BH_all  <- manhattan_plot(results_df, Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure[1])
-  manhattan_BH_ARD  <- manhattan_plot(results_ard_only, Multiple_testing_correction = "BH",   exposure = exposure_snps$id.exposure[1])
-  manhattan_Bonf_all<- manhattan_plot(results_df, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
-  manhattan_Bonf_ARD<- manhattan_plot(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
+  manhattan_BH_all   <- manhattan_plot(results_df,        Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure[1])
+  manhattan_BH_ARD   <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure[1])
+  manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
+  manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
 
-  # ---- 5B. VOLCANO: (placeholder/default for now) ----
+  # ---- 5B. VOLCANO ----
   volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
 
-  # ---- 6) Enrichment analyses ----
+  # ---- 6) SES enrichment analyses ----
   logger::log_info("6) Enrichment analyses…")
   enrich <- run_enrichment(
     results_df,
@@ -191,16 +190,13 @@ run_phenome_mr <- function(
     seed = 1
   )
 
-  # ---- 6A. ENRICHMENT PLOTS ----
-  enrichment_global_plot_dir <- plot_enrichment_global(enrich$global_tbl)
-
-  # TODO: once we define it in plots.R
+  # ---- 6A. SES enrichment plots ----
+  enrichment_global_plot_dir    <- plot_enrichment_global(enrich$global_tbl)
   enrichment_global_plot_signed <- plot_enrichment_global_signed(enrich$global_tbl)
 
   cause_levels  <- c("cause_level_1","cause_level_2","cause_level_3")
   compare_modes <- c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere")
 
-  # directional (two-dot) plots you already have
   enrichment_cause_plots_dir <- lapply(cause_levels, function(lv) {
     lv_list <- lapply(compare_modes, function(md) {
       plot_enrichment_directional_forest(
@@ -214,19 +210,79 @@ run_phenome_mr <- function(
   })
   names(enrichment_cause_plots_dir) <- cause_levels
 
-  # TODO: once we define it in plots.R (single-dot, signed)
-   enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
-     lv_list <- lapply(compare_modes, function(md) {
-       plot_enrichment_signed_forest(
-         by_cause_tbl = enrich$by_cause_tbl,
-         level = lv,
-         compare_mode = md
-       )
-     })
-     names(lv_list) <- compare_modes
-     lv_list
+  enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
+    lv_list <- lapply(compare_modes, function(md) {
+      plot_enrichment_signed_forest(
+        by_cause_tbl = enrich$by_cause_tbl,
+        level = lv,
+        compare_mode = md
+      )
+    })
+    names(lv_list) <- compare_modes
+    lv_list
   })
   names(enrichment_cause_plots_signed) <- cause_levels
+
+  # ---- 6C) β-scale contrasts (Δβ) analyses + plots ----
+  logger::log_info("6C) Beta-scale contrasts (Δβ)…")
+
+  # Containers for tables & plots
+  beta_contrast_tables <- list()
+  beta_contrast_plots  <- list()
+
+  # Global ARD vs non-ARD
+  tbl_global_bc <- beta_contrast_global_ARD(
+    results_df,
+    use_qc_pass = TRUE, min_nsnp = 2,
+    exposure = exposure_snps$id.exposure[1],
+    Multiple_testing_correction = cfg$mtc, alpha = 0.05
+  )
+  beta_contrast_tables$global <- list(ARD_vs_nonARD = tbl_global_bc)
+  beta_contrast_plots$global  <- list(
+    ARD_vs_nonARD = plot_beta_contrast_forest(
+      tbl_global_bc,
+      title = sprintf("Global Δβ: ARD vs non-ARD (%s)", exposure_snps$id.exposure[1]),
+      Multiple_testing_correction = cfg$mtc, alpha = 0.05
+    )
+  )
+
+  # Cause-levels × modes: cause_vs_rest_all + ARD-based modes
+  for (lv in cause_levels) {
+    beta_contrast_tables[[lv]] <- list()
+    beta_contrast_plots[[lv]]  <- list()
+
+    for (md in compare_modes) {
+      tbl <- if (md == "cause_vs_rest_all") {
+        # all phenotypes: inside cause vs outside
+        beta_contrast_by_cause(
+          results_df,
+          level = lv,
+          use_qc_pass = TRUE, min_nsnp = 2,
+          exposure = exposure_snps$id.exposure[1],
+          Multiple_testing_correction = cfg$mtc, alpha = 0.05
+        )
+      } else {
+        # ARD-based scopes mirroring SES contexts
+        beta_contrast_by_cause_mode(
+          results_df,
+          level = lv, compare_mode = md,
+          use_qc_pass = TRUE, min_nsnp = 2,
+          exposure = exposure_snps$id.exposure[1],
+          Multiple_testing_correction = cfg$mtc, alpha = 0.05
+        )
+      }
+
+      beta_contrast_tables[[lv]][[md]] <- tbl
+      beta_contrast_plots[[lv]][[md]]  <- plot_beta_contrast_forest(
+        tbl,
+        title = sprintf("Δβ by %s — %s (%s)",
+                        gsub("_"," ", lv),
+                        .pretty_compare(md),
+                        exposure_snps$id.exposure[1]),
+        Multiple_testing_correction = cfg$mtc, alpha = 0.05
+      )
+    }
+  }
 
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- list(
@@ -237,89 +293,85 @@ run_phenome_mr <- function(
     volcano = list(default = volcano_default),
     enrichment = list(
       global = list(
-        directional = list(ARD_vs_nonARD = enrichment_global_plot_dir)
-         , signed = list(ARD_vs_nonARD = enrichment_global_plot_signed)  # TODO
+        directional = list(ARD_vs_nonARD = enrichment_global_plot_dir),
+        signed      = list(ARD_vs_nonARD = enrichment_global_plot_signed)
       ),
       cause_level_1 = list(
-        directional = enrichment_cause_plots_dir[["cause_level_1"]]
-         , signed = enrichment_cause_plots_signed[["cause_level_1"]]     # TODO
+        directional = enrichment_cause_plots_dir[["cause_level_1"]],
+        signed      = enrichment_cause_plots_signed[["cause_level_1"]]
       ),
       cause_level_2 = list(
-        directional = enrichment_cause_plots_dir[["cause_level_2"]]
-         , signed = enrichment_cause_plots_signed[["cause_level_2"]]     # TODO
+        directional = enrichment_cause_plots_dir[["cause_level_2"]],
+        signed      = enrichment_cause_plots_signed[["cause_level_2"]]
       ),
       cause_level_3 = list(
-        directional = enrichment_cause_plots_dir[["cause_level_3"]]
-         , signed = enrichment_cause_plots_signed[["cause_level_3"]]     # TODO
+        directional = enrichment_cause_plots_dir[["cause_level_3"]],
+        signed      = enrichment_cause_plots_signed[["cause_level_3"]]
       )
-    )
+    ),
+    beta_contrast = beta_contrast_plots
   )
 
-
-  # Assert we made so many cause-level plots (3 levels × 3 modes)
-  n_cause_plots <- sum(vapply(
+  # Assert counts
+  n_enrich_cause_plots <- sum(vapply(
     summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
-    function(l) {
-      if (!is.null(l$directional)) length(l$directional) else 0L
-    },
+    function(l) if (!is.null(l$directional)) length(l$directional) else 0L,
     integer(1)
   ))
-  logger::log_info("Enrichment cause-level plots generated: {n_cause_plots}")
+  logger::log_info("Enrichment cause-level plots generated: {n_enrich_cause_plots}")
 
+  n_beta_cause_plots <- sum(vapply(
+    summary_plots$beta_contrast[cause_levels],
+    length,
+    integer(1)
+  ))
+  logger::log_info("β-contrast cause-level plots generated: {n_beta_cause_plots}")
 
   # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
-  # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
-  # DROP-IN replacement: saves all plots in `summary_plots` into a folder hierarchy
-  # under cfg$plot_dir, and also writes enrichment tables as CSV.
-
   save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
-    # helper: sanitize path components for portability
     safe_name <- function(s) {
       s <- as.character(s)
-      s <- gsub("[/\\?%*:|\"<>]", "_", s)   # illegal file chars
-      s <- gsub("\\s+", "_", s)            # spaces -> underscores
-      s <- gsub("_+", "_", s)              # collapse multiple underscores
-      s <- sub("^_+", "", s)               # trim leading underscores
-      s <- sub("_+$", "", s)               # trim trailing underscores
+      s <- gsub("[/\\?%*:|\"<>]", "_", s)
+      s <- gsub("\\s+", "_", s)
+      s <- gsub("_+", "_", s)
+      s <- sub("^_+", "", s)
+      s <- sub("_+$", "", s)
       if (!nzchar(s)) "plot" else s
     }
 
     if (inherits(x, "ggplot")) {
-      # Build relative subpath reflecting the list nesting
       subpath <- paste(vapply(path_parts, safe_name, character(1)), collapse = "/")
-
-      # Default size (Manhattan default explicitly 6.5x6.5 in your spec)
       width <- 6.5; height <- 6.5
 
-      # Manhattan size stays 6.5 x 6.5
       if (grepl("^manhattan", subpath)) {
         width <- 6.5; height <- 6.5
       }
-      # Global enrichment (single-row) ~ Nature single-column
       if (grepl("^enrichment/global", subpath)) {
         width <- 3.54; height <- 2.4
       }
-      # Cause-level enrichment ~ Nature double-column
       if (grepl("^enrichment/cause_level_", subpath)) {
         width <- 7.2; height <- 5.0
       }
-      # Volcano default to Nature double-column for now
       if (grepl("^volcano", subpath)) {
         width <- 7.2; height <- 5.0
       }
+      # NEW: sizes for beta_contrast
+      if (grepl("^beta_contrast/global", subpath)) {
+        width <- 3.54; height <- 2.4
+      }
+      if (grepl("^beta_contrast/cause_level_", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
 
-      # Create folders & save PNG (300 dpi)
       dir_path  <- file.path(base_dir, dirname(subpath))
       if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
       file_name <- paste0(safe_name(basename(subpath)), ".png")
       file_path <- file.path(dir_path, file_name)
       ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
-
       return(invisible(NULL))
     }
 
     if (is.list(x)) {
-      # Recurse into lists
       nms <- names(x)
       for (i in seq_along(x)) {
         nm <- if (!is.null(nms) && nzchar(nms[i])) nms[i] else paste0("item", i)
@@ -328,22 +380,18 @@ run_phenome_mr <- function(
       return(invisible(NULL))
     }
 
-    # Not a plot or list: ignore
     invisible(NULL)
   }
 
-  # Save all plots in the hierarchical structure
+  # Save all plots
   save_plot_hierarchy(summary_plots, cfg$plot_dir)
 
-  # ---- 8b) Export enrichment tables (CSV) for SI/reproducibility ----
+  # ---- 8b) Export enrichment tables (CSV) + beta-contrast tables ----
   write_enrichment_tables <- function(enrich, base_dir) {
     out_dir <- file.path(base_dir, "enrichment", "tables")
     if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
     global_csv   <- file.path(out_dir, "global.csv")
     by_cause_csv <- file.path(out_dir, "by_cause.csv")
-
-    # Use readr if available, otherwise utils::write.csv
     if (requireNamespace("readr", quietly = TRUE)) {
       readr::write_csv(enrich$global_tbl,   global_csv)
       readr::write_csv(enrich$by_cause_tbl, by_cause_csv)
@@ -351,18 +399,52 @@ run_phenome_mr <- function(
       utils::write.csv(enrich$global_tbl,   global_csv,   row.names = FALSE)
       utils::write.csv(enrich$by_cause_tbl, by_cause_csv, row.names = FALSE)
     }
-
     logger::log_info("Enrichment tables written to {out_dir}")
   }
 
-  write_enrichment_tables(enrich, cfg$plot_dir)
+  write_beta_contrast_tables <- function(beta_tables, base_dir) {
+    out_dir <- file.path(base_dir, "beta_contrast", "tables")
+    if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    safe_name <- function(s) {
+      s <- as.character(s)
+      s <- gsub("[/\\?%*:|\"<>]", "_", s)
+      s <- gsub("\\s+", "_", s)
+      s <- gsub("_+", "_", s)
+      s <- sub("^_+", "", s)
+      s <- sub("_+$", "", s)
+      if (!nzchar(s)) "table" else s
+    }
+    wcsv <- function(df, path) {
+      if (!nrow(df)) return(invisible(NULL))
+      if (requireNamespace("readr", quietly = TRUE)) readr::write_csv(df, path)
+      else utils::write.csv(df, path, row.names = FALSE)
+    }
+    # Global
+    if (!is.null(beta_tables$global$ARD_vs_nonARD)) {
+      wcsv(beta_tables$global$ARD_vs_nonARD, file.path(out_dir, "global_ARD_vs_nonARD.csv"))
+    }
+    # Cause levels × modes
+    clv <- c("cause_level_1","cause_level_2","cause_level_3")
+    md  <- c("cause_vs_rest_all","ARD_vs_nonARD_within_cause","ARD_in_cause_vs_ARD_elsewhere")
+    for (lv in clv) {
+      if (!lv %in% names(beta_tables)) next
+      for (m in md) {
+        if (!m %in% names(beta_tables[[lv]])) next
+        fn <- sprintf("%s__%s.csv", safe_name(lv), safe_name(m))
+        wcsv(beta_tables[[lv]][[m]], file.path(out_dir, fn))
+      }
+    }
+    logger::log_info("β-contrast tables written to {out_dir}")
+  }
 
+  write_enrichment_tables(enrich, cfg$plot_dir)
+  write_beta_contrast_tables(beta_contrast_tables, cfg$plot_dir)
 
   # ---- 9) Keep the originals around too (optional) ----
   manhattan <- manhattan_BH_all
   volcano   <- volcano_default
 
-  # ---- 10) Summary counts (unchanged) ----
+  # ---- 10) Summary counts (unchanged placeholder) ----
   summary_tbl <- tibble::tibble(
     stage = c(
       "outcomes","outcomes_ARD","outcomes_nonARD",
@@ -377,11 +459,9 @@ run_phenome_mr <- function(
 
   invisible(list(
     MR_df = MR_df,
-    results_df = results_df,
+    results_df    = results_df,
     summary_plots = summary_plots,
-    enrich = enrich
+    enrich        = enrich,
+    beta_contrast = beta_contrast_tables
   ))
-
 }
-
-
