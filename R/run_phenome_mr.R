@@ -5,14 +5,16 @@
 #' runs MR + sensitivity/QC, and returns results + plots. Phenotypes flagged by
 #' `ARD_selected` denote age-related diseases.
 #'
-#' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like: rsid, beta, se, effect_allele, other_allele, eaf, etc.).
+#' @param exposure Character (mandatory) label for the exposure; used for
+#'   naming output directories and plot titles.
+#' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like:
+#'   rsid, beta, se, effect_allele, other_allele, eaf, etc.).
 #' @param ancestry Character (mandatory), e.g. "EUR".
 #' @param sex One of "both","male","female". If not "both", you likely use Neale.
 #' @param sensitivity_enabled Character vector of checks (default = all 8).
 #' @param sensitivity_pass_min Integer threshold to pass QC (default 6).
 #' @param Multiple_testing_correction "BH" or "bonferroni" (default "BH").
 #' @param scatterplot,snpforestplot,leaveoneoutplot Logical; produce per-outcome diagnostics.
-#' @param plot_output_dir Directory to write plots ("" = do not write).
 #' @param Neale_GWAS_dir Optional path to Neale sumstats; created if missing.
 #' @param cache_dir Cache directory for temporary files (default:
 #'   [ardmr_cache_dir()]).
@@ -27,6 +29,7 @@
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
 run_phenome_mr <- function(
+    exposure,
     exposure_snps,
     ancestry,
     sex = c("both","male","female"),
@@ -50,12 +53,28 @@ run_phenome_mr <- function(
   # ---- validate args ----
   sex <- match.arg(sex)
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  if (missing(exposure)) stop("`exposure` is mandatory.")
+  exposure <- as.character(exposure)
+  if (!length(exposure)) stop("`exposure` is mandatory.")
+  exposure <- exposure[1]
+  if (is.na(exposure)) stop("`exposure` is mandatory.")
+  exposure <- trimws(exposure)
+  if (!nzchar(exposure)) stop("`exposure` is mandatory.")
   if (missing(ancestry) || !nzchar(ancestry)) stop("`ancestry` is mandatory.")
   assert_exposure(exposure_snps)
   if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
   # Always derive standard subfolders inside cache_dir
-  plot_output_dir <- file.path(cache_dir, "plots")
+  .slug <- function(x) {
+    x <- as.character(x)
+    x[is.na(x) | !nzchar(x)] <- "NA"
+    x <- gsub("[^[:alnum:]]+", "-", x)
+    x <- gsub("-+", "-", x)
+    x <- gsub("^-|-$", "", x)
+    tolower(x)
+  }
+
+  plot_output_dir <- file.path(cache_dir, "output", .slug(exposure), sex, ancestry)
   Neale_GWAS_dir  <- file.path(cache_dir, "neale_sumstats")
   dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(Neale_GWAS_dir,  recursive = TRUE, showWarnings = FALSE)
@@ -68,9 +87,8 @@ run_phenome_mr <- function(
     "neale"
   }
 
-  # ensure logs/ exists inside cache_dir
-  log_dir <- file.path(cache_dir, "logs")
-  if (!dir.exists(log_dir)) dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
+  # ensure logs live alongside other run outputs
+  log_dir <- plot_output_dir
 
 
   logfile <- if (is.null(logfile) || !nzchar(logfile)) {
@@ -84,6 +102,7 @@ run_phenome_mr <- function(
   # Keep config bundled for helper calls
   cfg <- list(
     ancestry = ancestry,
+    exposure = exposure,
     sex = sex,
     catalog = catalog,
     checks_enabled = sensitivity_enabled,
@@ -167,10 +186,10 @@ run_phenome_mr <- function(
     results_df[FALSE, , drop = FALSE]
   }
 
-  manhattan_BH_all   <- manhattan_plot(results_df,        Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure[1])
-  manhattan_BH_ARD   <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "BH",         exposure = exposure_snps$id.exposure[1])
-  manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
-  manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure_snps$id.exposure[1])
+  manhattan_BH_all   <- manhattan_plot(results_df,        Multiple_testing_correction = "BH",         exposure = exposure)
+  manhattan_BH_ARD   <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "BH",         exposure = exposure)
+  manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure)
+  manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure)
 
   # ---- 5B. VOLCANO ----
   volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
@@ -179,7 +198,7 @@ run_phenome_mr <- function(
   logger::log_info("6) Enrichment analyses…")
   enrich <- run_enrichment(
     results_df,
-    exposure = exposure_snps$id.exposure[1],
+    exposure = exposure,
     levels = c("cause_level_1","cause_level_2","cause_level_3"),
     modes  = c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere"),
     use_qc_pass = TRUE,
@@ -234,14 +253,14 @@ run_phenome_mr <- function(
   tbl_global_bc <- beta_contrast_global_ARD(
     results_df,
     use_qc_pass = TRUE, min_nsnp = 2,
-    exposure = exposure_snps$id.exposure[1],
+    exposure = exposure,
     Multiple_testing_correction = cfg$mtc, alpha = 0.05
   )
   beta_contrast_tables$global <- list(ARD_vs_nonARD = tbl_global_bc)
   beta_contrast_plots$global  <- list(
     ARD_vs_nonARD = plot_beta_contrast_forest(
       tbl_global_bc,
-      title = sprintf("Global Δβ: ARD vs non-ARD (%s)", exposure_snps$id.exposure[1]),
+      title = sprintf("Global Δβ: ARD vs non-ARD (%s)", exposure),
       Multiple_testing_correction = cfg$mtc, alpha = 0.05
     )
   )
@@ -258,7 +277,7 @@ run_phenome_mr <- function(
           results_df,
           level = lv,
           use_qc_pass = TRUE, min_nsnp = 2,
-          exposure = exposure_snps$id.exposure[1],
+          exposure = exposure,
           Multiple_testing_correction = cfg$mtc, alpha = 0.05
         )
       } else {
@@ -267,7 +286,7 @@ run_phenome_mr <- function(
           results_df,
           level = lv, compare_mode = md,
           use_qc_pass = TRUE, min_nsnp = 2,
-          exposure = exposure_snps$id.exposure[1],
+          exposure = exposure,
           Multiple_testing_correction = cfg$mtc, alpha = 0.05
         )
       }
@@ -278,7 +297,7 @@ run_phenome_mr <- function(
         title = sprintf("Δβ by %s — %s (%s)",
                         gsub("_"," ", lv),
                         .pretty_compare(md),
-                        exposure_snps$id.exposure[1]),
+                        exposure),
         Multiple_testing_correction = cfg$mtc, alpha = 0.05
       )
     }
@@ -327,7 +346,7 @@ run_phenome_mr <- function(
   ))
   logger::log_info("β-contrast cause-level plots generated: {n_beta_cause_plots}")
 
-  # ---- 8) Save plots mirroring the list structure under cache_dir/plots ----
+  # ---- 8) Save plots mirroring the list structure under cfg$plot_dir ----
   save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
     safe_name <- function(s) {
       s <- as.character(s)
