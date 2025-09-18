@@ -58,12 +58,12 @@ exposure <- tibble::tibble(
 
 # 2) Run phenome-wide MR
 res <- run_phenome_mr(
+  exposure = "LDL-C",
   exposure_snps = exposure,
   sex = "both",                # "both" => Pan-UKB, "male"/"female" => Neale
   ancestry = "EUR",
   sensitivity_pass_min = 6,
   multiple_testing_correction = "BH",
-  plot_output_dir = "output/", # optional
   neale_gwas_dir = NULL        # required if sex != "both"
 )
 
@@ -71,6 +71,9 @@ res$results_df      # tidy results across outcomes
 res$volcano         # ggplot
 res$manhattan       # ggplot
 ```
+
+All run-specific plots, diagnostics, and logs are written to
+`<cache_dir>/output/<exposure>/<sex>/<ancestry>`.
 
 `run_phenome_mr()` builds `MR_df` from phenotypes defined by the Global Burden of Disease (GBD) cause ontology. Age-related diseases and other outcomes share this structure and are distinguished by an `ARD_selected` flag, so the instructions above apply uniformly across phenotypes.`
 
@@ -422,9 +425,10 @@ Pass gate: **≥ `sensitivity_pass_min`** of enabled checks.
 
 ## Logging & outputs
 
-* `results_df` (CSV if `plot_output_dir` set)
+* `results_df` CSV and summary tables saved under
+  `<cache_dir>/output/<exposure>/<sex>/<ancestry>`
 * Optional per-outcome harmonised RDS (hook available)
-* Console logs for mapping counts, downloads/indexing, QC summaries
+* Console and file logs stored alongside run outputs
 
 ---
 

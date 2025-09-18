@@ -5,6 +5,7 @@
 \title{Run phenome-wide MR across phenotypes (orchestrator)}
 \usage{
 run_phenome_mr(
+  exposure,
   exposure_snps,
   ancestry,
   sex = c("both", "male", "female"),
@@ -23,6 +24,9 @@ run_phenome_mr(
 )
 }
 \arguments{
+\item{exposure}{Character (mandatory) label for the exposure; used for naming
+output directories and plot titles.}
+
 \item{exposure_snps}{Data frame of exposure instruments (TwoSampleMR-like: rsid, beta, se, effect_allele, other_allele, eaf, etc.).}
 
 \item{ancestry}{Character (mandatory), e.g. "EUR".}
@@ -36,8 +40,6 @@ run_phenome_mr(
 \item{Multiple_testing_correction}{"BH" or "bonferroni" (default "BH").}
 
 \item{scatterplot, snpforestplot, leaveoneoutplot}{Logical; produce per-outcome diagnostics.}
-
-\item{plot_output_dir}{Directory to write plots ("" = do not write).}
 
 \item{Neale_GWAS_dir}{Optional path to Neale sumstats; created if missing.}
 
