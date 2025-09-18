@@ -485,4 +485,7 @@ run_phenome_mr <- function(
     enrich        = enrich,
     beta_contrast = beta_contrast_tables
   )
+
+  saveRDS(output, file = file.path(cfg$plot_dir, "results.rds"))
+  output
 }
