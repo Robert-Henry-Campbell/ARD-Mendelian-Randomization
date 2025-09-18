@@ -658,7 +658,7 @@ volcano_plot <- function(results_df,
   # Title
   exposure_lab <- tryCatch(as.character(exposure)[1], error = function(e) NA_character_)
   if (is.null(exposure_lab) || is.na(exposure_lab) || !nzchar(exposure_lab)) exposure_lab <- "exposure"
-  plot_title <- sprintf("Phenome-wide MR IVW of %s — volcano", exposure_lab)
+  plot_title <- sprintf("Phenome-wide MR of %s", exposure_lab)
 
   p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp)) +
     ggplot2::geom_point(ggplot2::aes(colour = .data$effect_dir), alpha = 0.9, size = 1.7) +
@@ -846,19 +846,19 @@ plot_beta_contrast_forest <- function(
   df <- tibble::as_tibble(beta_tbl)
   stopifnot(all(c("cause","delta_beta","se_delta","ci_low","ci_high","p","q","sig") %in% names(df)))
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
-  
+
   # order by |Δβ|
   df$._ord <- abs(df$delta_beta)
   df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
   df$cause_f <- factor(df$cause, levels = df$cause)
-  
+
   # default title from exposure if present
   if (is.null(title)) {
     exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NA_character_
     title <- sprintf("Cause-level contrast of mean MR β for %s",
                      ifelse(is.na(exp_label) || !nzchar(exp_label), "exposure", exp_label))
   }
-  
+
   p <- ggplot2::ggplot(df, ggplot2::aes(y = cause_f)) +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
     ggplot2::geom_errorbarh(
@@ -883,7 +883,7 @@ plot_beta_contrast_forest <- function(
       legend.title = ggplot2::element_text(size = 11),
       legend.text  = ggplot2::element_text(size = 11)
     )
-  
+
   if (Multiple_testing_correction == "BH") {
     p <- p +
       ggplot2::geom_point(
