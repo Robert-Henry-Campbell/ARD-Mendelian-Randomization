@@ -125,20 +125,41 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
       cand <- hdr_lines[grepl("\t", hdr_lines, fixed = TRUE)]
       if (length(cand)) hdr_line <- utils::tail(cand, 1)
     }
+
+    warn_msg <- NULL
     if (is.na(hdr_line) || !nzchar(hdr_line)) {
       con <- NULL
       hdr_line <- tryCatch({
         con <- gzcon(url(data_url, open = "rb"))
         on.exit(try(close(con), silent = TRUE), add = TRUE)
-        readLines(con, n = 1)
-      }, error = function(e) NA_character_)
+        withCallingHandlers(
+          readLines(con, n = 1),
+          warning = function(w) {
+            warn_msg <<- conditionMessage(w)
+            invokeRestart("muffleWarning")
+          }
+        )
+      }, error = function(e) {
+        warn_msg <<- conditionMessage(e)
+        NA_character_
+      })
     }
-    if (!is.character(hdr_line) || !nzchar(hdr_line)) {
-      stop("Could not obtain a header line for ", data_url, call. = FALSE)
+
+    if (length(hdr_line) > 1) hdr_line <- hdr_line[[1]]
+
+    if (is.null(hdr_line) || !length(hdr_line) || is.na(hdr_line) || !nzchar(hdr_line)) {
+      warn_text <- if (!is.null(warn_msg) && nzchar(warn_msg)) warn_msg else "no warning provided"
+      reason <- sprintf(
+        "failed to retrieve header from %s via readLines; warning: %s",
+        data_url,
+        warn_text
+      )
+      return(list(fields = NULL, error = reason))
     }
+
     hdr_line <- sub("^#+", "", hdr_line)
     fields <- strsplit(hdr_line, "\t", fixed = TRUE)[[1]]
-    trimws(fields)
+    list(fields = trimws(fields), error = NULL)
   }
 
   # Build an EXACT, case-sensitive mapping for the columns we require.
@@ -284,7 +305,21 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     }
 
     # ---- read lines and <- columns by the actual header for this GWAS ----
-    header_fields <- .get_sumstats_header(tf, url, verbose = verbose)
+    header_info <- .get_sumstats_header(tf, url, verbose = verbose)
+    if (!is.null(header_info$error)) {
+      reason <- header_info$error
+      if (verbose) {
+        logger::log_warn(
+          "Pan-UKB row {i}: unable to download header ({reason}); skipping phenotype",
+          reason = reason
+        )
+      }
+      MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+      .close_tf(tf)
+      next
+    }
+    header_fields <- header_info$fields
     if (verbose) logger::log_info("Pan-UKB row {i}: detected header fields: {paste(header_fields, collapse=' | ')}")
 
     panukb_tmp <- data.table::fread(
