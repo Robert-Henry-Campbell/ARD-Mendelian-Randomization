@@ -412,7 +412,7 @@ manhattan_plot_recolor <- function(results_df,
   legend_title <- if (Multiple_testing_correction == "BH") {
     "Significance & direction (FDR < 0.05)"
   } else {
-    "Significance & direction:"
+    NULL
   }
 
   exposure_lab <- tryCatch(as.character(exposure)[1], error = function(e) NA_character_)
