@@ -909,3 +909,108 @@ plot_beta_contrast_forest <- function(
   p
 }
 
+
+# ---------- forest for IVW mean β ----------
+#' Forest plot of IVW mean MR beta by cause
+#'
+#' @param beta_tbl Tibble with columns cause, ivw_mean_beta, se_ivw_mean,
+#'   ci_low, ci_high.
+#' @param title Optional plot title.
+#' @param subtitle Optional subtitle string.
+plot_beta_mean_forest <- function(
+    beta_tbl,
+    title = NULL,
+    subtitle = NULL
+) {
+  df <- tibble::as_tibble(beta_tbl)
+  required_cols <- c("cause", "ivw_mean_beta", "se_ivw_mean", "ci_low", "ci_high")
+  stopifnot(all(required_cols %in% names(df)))
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
+
+  df$._ord <- abs(df$ivw_mean_beta)
+  df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
+  df$cause_f <- factor(df$cause, levels = df$cause)
+
+  if (is.null(title)) {
+    exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NA_character_
+    title <- sprintf("IVW mean MR β by cause (%s)",
+                     ifelse(is.na(exp_label) || !nzchar(exp_label), "exposure", exp_label))
+  }
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(y = cause_f)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::geom_errorbarh(
+      ggplot2::aes(xmin = ci_low, xmax = ci_high),
+      height = 0.2, linewidth = 0.6, alpha = 0.7
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(x = ivw_mean_beta),
+      shape = 16, size = 2.8, colour = "black"
+    ) +
+    ggplot2::labs(
+      x = "IVW Mean Δ Log-OR per SD exposure",
+      y = "Cause",
+      title = title,
+      subtitle = subtitle
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.title.y = ggplot2::element_text(margin = ggplot2::margin(r = 8)),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6))
+    )
+
+  p <- .ardmr_attach_plot_data(p, main = df)
+  p
+}
+
+#' Global forest plot of IVW mean MR beta (all diseases vs ARDs)
+#'
+#' @param beta_global_tbl Tibble from beta_mean_global().
+#' @param title Optional title.
+plot_beta_mean_global <- function(
+    beta_global_tbl,
+    title = NULL
+) {
+  df <- tibble::as_tibble(beta_global_tbl)
+  required_cols <- c("group", "ivw_mean_beta", "se_ivw_mean", "ci_low", "ci_high")
+  stopifnot(all(required_cols %in% names(df)))
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
+
+  df$._ord <- ifelse(is.finite(df$ivw_mean_beta), abs(df$ivw_mean_beta), Inf)
+  df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
+  df$group_f <- factor(df$group, levels = df$group)
+
+  if (is.null(title)) {
+    exp_label <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NA_character_
+    title <- sprintf("Global IVW mean MR β (%s)",
+                     ifelse(is.na(exp_label) || !nzchar(exp_label), "exposure", exp_label))
+  }
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(y = group_f)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::geom_errorbarh(
+      data = df[is.finite(df$ci_low) & is.finite(df$ci_high), , drop = FALSE],
+      ggplot2::aes(xmin = ci_low, xmax = ci_high),
+      height = 0.25, linewidth = 0.6, alpha = 0.7
+    ) +
+    ggplot2::geom_point(
+      data = df[is.finite(df$ivw_mean_beta), , drop = FALSE],
+      ggplot2::aes(x = ivw_mean_beta),
+      shape = 16, size = 3.2, colour = "black"
+    ) +
+    ggplot2::labs(
+      x = "IVW Mean Δ Log-OR per SD exposure",
+      y = NULL,
+      title = title
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6))
+    )
+
+  p <- .ardmr_attach_plot_data(p, main = df)
+  p
+}
+

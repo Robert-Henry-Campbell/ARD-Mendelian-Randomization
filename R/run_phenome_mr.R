@@ -303,6 +303,69 @@ run_phenome_mr <- function(
     }
   }
 
+  # ---- 6D) β-scale IVW means ("beta" analysis) ----
+  logger::log_info("6D) Beta analysis (IVW mean MR β)…")
+
+  beta_tables <- list()
+  beta_plots  <- list()
+
+  tbl_beta_global <- beta_mean_global(
+    results_df,
+    use_qc_pass = TRUE, min_nsnp = 2,
+    exposure = exposure
+  )
+  beta_tables$global <- tbl_beta_global
+  beta_plots$global  <- list(
+    mean_effect = plot_beta_mean_global(
+      tbl_beta_global,
+      title = sprintf("Global Mean Effect of %s", exposure)
+    )
+  )
+
+  pretty_level <- function(lv) {
+    switch(lv,
+      cause_level_1 = "Cause Level 1",
+      cause_level_2 = "Cause Level 2",
+      cause_level_3 = "Cause Level 3",
+      gsub("_", " ", lv)
+    )
+  }
+
+  for (lv in cause_levels) {
+    tbl_all <- beta_mean_by_cause(
+      results_df,
+      level = lv,
+      use_qc_pass = TRUE, min_nsnp = 2,
+      exposure = exposure,
+      ard_only = FALSE,
+      drop_empty = TRUE
+    )
+    tbl_ard <- beta_mean_by_cause(
+      results_df,
+      level = lv,
+      use_qc_pass = TRUE, min_nsnp = 2,
+      exposure = exposure,
+      ard_only = TRUE,
+      drop_empty = TRUE
+    )
+
+    beta_tables[[lv]] <- list(
+      all_diseases = tbl_all,
+      age_related_diseases = tbl_ard
+    )
+
+    beta_plots[[lv]] <- list(
+      all_diseases = plot_beta_mean_forest(
+        tbl_all,
+        title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv))
+      ),
+      age_related_diseases = plot_beta_mean_forest(
+        tbl_ard,
+        title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv))
+      )
+    )
+  }
+
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- list(
     manhattan = list(
@@ -328,6 +391,7 @@ run_phenome_mr <- function(
         signed      = enrichment_cause_plots_signed[["cause_level_3"]]
       )
     ),
+    beta = beta_plots,
     beta_contrast = beta_contrast_plots
   )
 
@@ -345,6 +409,13 @@ run_phenome_mr <- function(
     integer(1)
   ))
   logger::log_info("β-contrast cause-level plots generated: {n_beta_cause_plots}")
+
+  n_beta_mean_plots <- sum(vapply(
+    summary_plots$beta[cause_levels],
+    function(l) if (is.list(l)) length(l) else 0L,
+    integer(1)
+  ))
+  logger::log_info("Beta mean cause-level plots generated: {n_beta_mean_plots}")
 
   # ---- 8) Save plots mirroring the list structure under cfg$plot_dir ----
   save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
@@ -375,6 +446,12 @@ run_phenome_mr <- function(
         width <- 7.2; height <- 5.0
       }
       # NEW: sizes for beta_contrast
+      if (grepl("^beta/global", subpath)) {
+        width <- 3.54; height <- 2.4
+      }
+      if (grepl("^beta/cause_level_", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
       if (grepl("^beta_contrast/global", subpath)) {
         width <- 3.54; height <- 2.4
       }
@@ -458,8 +535,47 @@ run_phenome_mr <- function(
     logger::log_info("β-contrast tables written to {out_dir}")
   }
 
+  write_beta_tables <- function(beta_tables, base_dir) {
+    out_dir <- file.path(base_dir, "beta", "tables")
+    if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    safe_name <- function(s) {
+      s <- as.character(s)
+      s <- gsub("[/\\?%*:|\"<>]", "_", s)
+      s <- gsub("\\s+", "_", s)
+      s <- gsub("_+", "_", s)
+      s <- sub("^_+", "", s)
+      s <- sub("_+$", "", s)
+      if (!nzchar(s)) "table" else s
+    }
+    wcsv <- function(df, path) {
+      if (!nrow(df)) return(invisible(NULL))
+      if (requireNamespace("readr", quietly = TRUE)) readr::write_csv(df, path)
+      else utils::write.csv(df, path, row.names = FALSE)
+    }
+
+    if (!is.null(beta_tables$global)) {
+      wcsv(beta_tables$global, file.path(out_dir, "global.csv"))
+    }
+
+    clv <- c("cause_level_1","cause_level_2","cause_level_3")
+    scopes <- c("all_diseases", "age_related_diseases")
+    for (lv in clv) {
+      if (!lv %in% names(beta_tables)) next
+      for (sc in scopes) {
+        if (!sc %in% names(beta_tables[[lv]])) next
+        tbl <- beta_tables[[lv]][[sc]]
+        if (!nrow(tbl)) next
+        fn <- sprintf("%s__%s.csv", safe_name(lv), safe_name(sc))
+        wcsv(tbl, file.path(out_dir, fn))
+      }
+    }
+
+    logger::log_info("Beta tables written to {out_dir}")
+  }
+
   write_enrichment_tables(enrich, cfg$plot_dir)
   write_beta_contrast_tables(beta_contrast_tables, cfg$plot_dir)
+  write_beta_tables(beta_tables, cfg$plot_dir)
 
   # ---- 9) Keep the originals around too (optional) ----
   manhattan <- manhattan_BH_all
@@ -483,6 +599,7 @@ run_phenome_mr <- function(
     results_df    = results_df,
     summary_plots = summary_plots,
     enrich        = enrich,
+    beta          = beta_tables,
     beta_contrast = beta_contrast_tables
   )
 
