@@ -300,6 +300,14 @@ run_phenome_mr <- function(
                         exposure),
         Multiple_testing_correction = cfg$mtc, alpha = 0.05
       )
+      beta_contrast_plots[[lv]][[paste0(md, "_wrap")]] <- plot_beta_contrast_forest_wrap(
+        tbl,
+        title = sprintf("Δβ by %s — %s (%s)",
+                        gsub("_"," ", lv),
+                        .pretty_compare(md),
+                        exposure),
+        Multiple_testing_correction = cfg$mtc, alpha = 0.05
+      )
     }
   }
 
@@ -363,6 +371,15 @@ run_phenome_mr <- function(
         tbl_ard,
         title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv))
       )
+    )
+
+    beta_plots[[lv]][["all_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
+      tbl_all,
+      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv))
+    )
+    beta_plots[[lv]][["age_related_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
+      tbl_ard,
+      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv))
     )
   }
 
