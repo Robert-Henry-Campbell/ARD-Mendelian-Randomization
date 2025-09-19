@@ -391,7 +391,8 @@ manhattan_plot_recolor <- function(results_df,
     )
 
   colour_levels <- c("Not significant", "Significant protective (β<0)", "Significant risk (β≥0)")
-  df$colour_group <- factor(df$colour_group, levels = colour_levels)
+  present_levels <- colour_levels[colour_levels %in% unique(df$colour_group)]
+  df$colour_group <- factor(df$colour_group, levels = present_levels)
 
   y_max   <- max(df$logp, na.rm = TRUE)
   base_y  <- 0.02 + tree_down
