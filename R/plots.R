@@ -1014,3 +1014,132 @@ plot_beta_mean_global <- function(
   p
 }
 
+#' @keywords internal
+plot_beta_mean_global_compare <- function(
+    beta_global_tbl,
+    title = NULL
+) {
+  df <- tibble::as_tibble(beta_global_tbl)
+  required_cols <- c("display_label", "ivw_mean_beta", "ci_low", "ci_high")
+  stopifnot(all(required_cols %in% names(df)))
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
+
+  df$axis_label <- df$display_label
+  levels_vec <- rev(df$display_label)
+  levels_vec <- unique(levels_vec)
+  df$axis_f <- factor(df$display_label, levels = levels_vec)
+  axis_labels <- stats::setNames(levels_vec, levels_vec)
+
+  if (is.null(title)) {
+    exposure_lab <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NA_character_
+    title <- sprintf(
+      "Global IVW mean MR β (compare%s)",
+      ifelse(is.na(exposure_lab) || !nzchar(exposure_lab), "", paste0(": ", exposure_lab))
+    )
+  }
+
+  err_data <- df[is.finite(df$ci_low) & is.finite(df$ci_high), , drop = FALSE]
+  point_data <- df[is.finite(df$ivw_mean_beta), , drop = FALSE]
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(y = .data$axis_f)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    {if (nrow(err_data)) ggplot2::geom_errorbarh(
+      data = err_data,
+      ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+      height = 0.25,
+      linewidth = 0.6,
+      alpha = 0.7
+    ) else NULL} +
+    {if (nrow(point_data)) ggplot2::geom_point(
+      data = point_data,
+      ggplot2::aes(x = .data$ivw_mean_beta),
+      shape = 16,
+      size = 3.2,
+      colour = "black"
+    ) else NULL} +
+    ggplot2::labs(
+      x = "IVW Mean Δ Log-OR per SD exposure",
+      y = NULL,
+      title = title
+    ) +
+    ggplot2::scale_y_discrete(labels = axis_labels) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6))
+    )
+
+  p <- .ardmr_attach_plot_data(p, main = df)
+  p
+}
+
+#' @keywords internal
+plot_beta_mean_cause_compare <- function(
+    beta_cause_tbl,
+    title = NULL,
+    subtitle = NULL
+) {
+  df <- tibble::as_tibble(beta_cause_tbl)
+  required_cols <- c("axis_label", "axis_id", "is_separator", "ivw_mean_beta", "ci_low", "ci_high")
+  stopifnot(all(required_cols %in% names(df)))
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
+
+  df$is_separator <- df$is_separator %in% TRUE
+  axis_levels <- rev(df$axis_id)
+  axis_levels <- unique(axis_levels)
+  df$axis_f <- factor(df$axis_id, levels = axis_levels)
+  axis_labels <- stats::setNames(df$axis_label, df$axis_id)
+  axis_labels <- axis_labels[axis_levels]
+
+  if (is.null(title)) {
+    lvl <- df$level[which(!is.na(df$level))[1]]
+    sc <- df$scope[which(!is.na(df$scope))[1]]
+    lvl_label <- if (!is.na(lvl) && nzchar(lvl)) {
+      tools::toTitleCase(gsub("_", " ", lvl))
+    } else {
+      "Cause level"
+    }
+    scope_label <- if (!is.na(sc) && nzchar(sc)) {
+      if (sc == "age_related_diseases") "Age-Related Diseases" else if (sc == "all_diseases") "All Diseases" else sc
+    } else {
+      "All Diseases"
+    }
+    title <- sprintf("%s IVW mean MR β (%s)", lvl_label, scope_label)
+  }
+
+  err_data <- df[!df$is_separator & is.finite(df$ci_low) & is.finite(df$ci_high), , drop = FALSE]
+  point_data <- df[!df$is_separator & is.finite(df$ivw_mean_beta), , drop = FALSE]
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(y = .data$axis_f)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    {if (nrow(err_data)) ggplot2::geom_errorbarh(
+      data = err_data,
+      ggplot2::aes(xmin = .data$ci_low, xmax = .data$ci_high),
+      height = 0.2,
+      linewidth = 0.6,
+      alpha = 0.7
+    ) else NULL} +
+    {if (nrow(point_data)) ggplot2::geom_point(
+      data = point_data,
+      ggplot2::aes(x = .data$ivw_mean_beta),
+      shape = 16,
+      size = 2.8,
+      colour = "black"
+    ) else NULL} +
+    ggplot2::labs(
+      x = "IVW Mean Δ Log-OR per SD exposure",
+      y = NULL,
+      title = title,
+      subtitle = subtitle
+    ) +
+    ggplot2::scale_y_discrete(labels = axis_labels) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6))
+    )
+
+  p <- .ardmr_attach_plot_data(p, main = df)
+  p
+}
+
