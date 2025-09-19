@@ -909,6 +909,39 @@ plot_beta_contrast_forest <- function(
   p
 }
 
+#' Wrapped-axis companion to `plot_beta_contrast_forest()`
+#'
+#' Applies a 27-character wrap to the displayed cause labels while keeping
+#' the attached data unchanged.
+#'
+#' @inheritParams plot_beta_contrast_forest
+#' @return ggplot object with wrapped y-axis labels.
+#' @export
+plot_beta_contrast_forest_wrap <- function(
+    beta_tbl,
+    title = NULL,
+    subtitle = "Within-cause mean β vs outside all other causes",
+    Multiple_testing_correction = c("BH","bonferroni"),
+    alpha = 0.05
+) {
+  p <- plot_beta_contrast_forest(
+    beta_tbl = beta_tbl,
+    title = title,
+    subtitle = subtitle,
+    Multiple_testing_correction = Multiple_testing_correction,
+    alpha = alpha
+  )
+
+  plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  p_wrapped <- p + ggplot2::scale_y_discrete(
+    labels = function(x) stringr::str_wrap(x, width = 27)
+  )
+  if (!is.null(plot_data)) {
+    attr(p_wrapped, "ardmr_plot_data") <- plot_data
+  }
+  p_wrapped
+}
+
 
 # ---------- forest for IVW mean β ----------
 #' Forest plot of IVW mean MR beta by cause
@@ -962,6 +995,35 @@ plot_beta_mean_forest <- function(
 
   p <- .ardmr_attach_plot_data(p, main = df)
   p
+}
+
+#' Wrapped-axis companion to `plot_beta_mean_forest()`
+#'
+#' Applies a 27-character wrap to the displayed cause labels while keeping
+#' the attached data unchanged.
+#'
+#' @inheritParams plot_beta_mean_forest
+#' @return ggplot object with wrapped y-axis labels.
+#' @export
+plot_beta_mean_forest_wrap <- function(
+    beta_tbl,
+    title = NULL,
+    subtitle = NULL
+) {
+  p <- plot_beta_mean_forest(
+    beta_tbl = beta_tbl,
+    title = title,
+    subtitle = subtitle
+  )
+
+  plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  p_wrapped <- p + ggplot2::scale_y_discrete(
+    labels = function(x) stringr::str_wrap(x, width = 27)
+  )
+  if (!is.null(plot_data)) {
+    attr(p_wrapped, "ardmr_plot_data") <- plot_data
+  }
+  p_wrapped
 }
 
 #' Global forest plot of IVW mean MR beta (all diseases vs ARDs)
