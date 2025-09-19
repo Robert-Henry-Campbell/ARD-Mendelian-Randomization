@@ -965,10 +965,168 @@ volcano_plot <- function(results_df,
 }
 
 
+#' Volcano plot with recoloured significance highlighting
+#'
+#' Generates a volcano plot of MR IVW estimates, colouring each point by
+#' significance (FDR or Bonferroni) and effect direction. Non-significant points
+#' are shown in dark grey, significant protective associations (β < 0) in blue,
+#' and significant risk associations (β ≥ 0) in red.
+#'
+#' @inheritParams volcano_plot
+#' @export
+volcano_plot_recolor <- function(results_df,
+                                 Multiple_testing_correction = c("BH","bonferroni"),
+                                 qc_pass_only = TRUE,
+                                 alpha = 0.05,
+                                 exposure = NULL,
+                                 label_top_n = 25,
+                                 verbose = TRUE) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+
+  if (is.null(results_df) || !nrow(results_df)) {
+    if (verbose && requireNamespace("logger", quietly = TRUE)) {
+      logger::log_warn("Volcano (recolor): no rows.")
+    }
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (recolor, no results)"))
+  }
+
+  df <- tibble::as_tibble(results_df)
+
+  if ("results_qc_pass" %in% names(df) && isTRUE(qc_pass_only)) {
+    if (!is.logical(df$results_qc_pass)) {
+      df$results_qc_pass <- df$results_qc_pass %in% c(TRUE,"TRUE","True","true",1,"1","T")
+    }
+    df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+  }
+
+  if (!all(c("results_beta_ivw","results_p_ivw") %in% names(df)) &&
+      !"results_log10p_ivw" %in% names(df)) {
+    stop("volcano_plot_recolor(): need 'results_beta_ivw' and either 'results_p_ivw' or 'results_log10p_ivw'.",
+         call. = FALSE)
+  }
+
+  df <- dplyr::mutate(
+    df,
+    logp = dplyr::if_else(
+      !is.na(.data$results_log10p_ivw),
+      -.data$results_log10p_ivw,
+      -log10(pmax(.data$results_p_ivw, .Machine$double.xmin))
+    )
+  )
+
+  df <- dplyr::filter(df, is.finite(.data$results_beta_ivw), is.finite(.data$logp))
+  if (!nrow(df)) {
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Volcano (recolor, no finite rows)"))
+  }
+
+  if (Multiple_testing_correction == "BH") {
+    df$q_bh <- stats::p.adjust(df$results_p_ivw, method = "BH")
+    df$sig  <- df$q_bh < alpha
+    thr_y   <- NA_real_
+  } else {
+    m       <- nrow(df)
+    alpha_b <- alpha / max(1L, m)
+    df$sig  <- df$results_p_ivw < alpha_b
+    thr_y   <- -log10(alpha_b)
+  }
+
+  df <- df |>
+    dplyr::mutate(
+      colour_group = dplyr::case_when(
+        .data$sig %in% TRUE & is.finite(.data$results_beta_ivw) & .data$results_beta_ivw < 0 ~
+          "Significant protective (β<0)",
+        .data$sig %in% TRUE & is.finite(.data$results_beta_ivw) & .data$results_beta_ivw >= 0 ~
+          "Significant risk (β≥0)",
+        TRUE ~ "Not significant"
+      )
+    )
+
+  colour_levels <- c("Not significant", "Significant protective (β<0)", "Significant risk (β≥0)")
+  df$colour_group <- factor(df$colour_group, levels = colour_levels)
+
+  exposure_lab <- tryCatch(as.character(exposure)[1], error = function(e) NA_character_)
+  if (is.null(exposure_lab) || is.na(exposure_lab) || !nzchar(exposure_lab)) exposure_lab <- "exposure"
+  plot_title <- sprintf("Phenome-wide MR of %s", exposure_lab)
+
+  legend_title <- if (Multiple_testing_correction == "BH") {
+    "Significance & direction (FDR < 0.05)"
+  } else {
+    "Significance & direction:"
+  }
+
+  colour_values <- c(
+    "Not significant" = "#4B4B4B",
+    "Significant protective (β<0)" = "#1f78b4",
+    "Significant risk (β≥0)" = "#e31a1c"
+  )
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp)) +
+    ggplot2::geom_point(ggplot2::aes(colour = .data$colour_group), alpha = 0.9, size = 1.7) +
+    ggplot2::scale_colour_manual(
+      name = legend_title,
+      values = colour_values,
+      drop = FALSE
+    ) +
+    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, alpha = 0.7) +
+    ggplot2::labs(
+      x = expression(beta[IVW]),
+      y = expression(-log[10](p[IVW])),
+      title = plot_title
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      legend.position = "top",
+      legend.title    = ggplot2::element_text(size = 9),
+      legend.text     = ggplot2::element_text(size = 9)
+    )
+
+  if (Multiple_testing_correction == "bonferroni" && !is.na(thr_y)) {
+    p <- p +
+      ggplot2::geom_hline(
+        yintercept = thr_y,
+        ggplot2::aes(linetype = "Bonferroni threshold"),
+        linewidth = 0.4
+      ) +
+      ggplot2::scale_linetype_manual(
+        name   = "Significance:",
+        values = c("Bonferroni threshold" = "dashed"),
+        guide  = ggplot2::guide_legend(order = 2)
+      )
+  }
+
+  lab_df <- tibble::tibble()
+  if ("results_outcome" %in% names(df)) {
+    lab_df <- dplyr::filter(df, .data$sig %in% TRUE & !is.na(.data$results_outcome))
+    if (nrow(lab_df)) {
+      lab_df <- lab_df[order(lab_df$logp, decreasing = TRUE), , drop = FALSE]
+      if (is.finite(label_top_n)) lab_df <- utils::head(lab_df, label_top_n)
+
+      if (requireNamespace("ggrepel", quietly = TRUE)) {
+        p <- p + ggrepel::geom_text_repel(
+          data = lab_df,
+          ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp, label = .data$results_outcome),
+          max.overlaps = Inf, box.padding = 0.25, point.padding = 0.15,
+          min.segment.length = 0, size = 2.7, seed = 123, segment.size = 0.2
+        )
+      } else {
+        p <- p + ggplot2::geom_text(
+          data = lab_df,
+          ggplot2::aes(x = .data$results_beta_ivw, y = .data$logp, label = .data$results_outcome),
+          size = 2.7, vjust = -0.25, check_overlap = TRUE
+        )
+      }
+    }
+  }
+
+  p <- .ardmr_attach_plot_data(p, main = df, labelled = lab_df)
+  p
+}
+
+
 #' Global ARD vs non-ARD summary (two-dot)
-#'
+#' 
 #' One-row forest for the global signed SES.
-#'
+#' 
 #' Expects global_tbl to contain at least: SES_signed, q_signed.
 #' If you used different names (e.g., SES_comb/q_comb), rename below.
 #'

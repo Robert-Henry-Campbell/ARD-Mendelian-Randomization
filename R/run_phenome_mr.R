@@ -198,6 +198,10 @@ run_phenome_mr <- function(
 
   # ---- 5B. VOLCANO ----
   volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
+  volcano_recolor_BH_all   <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
+  volcano_recolor_BH_ARD   <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
+  volcano_recolor_Bonf_all <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
+  volcano_recolor_Bonf_ARD <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
 
   # ---- 6) SES enrichment analyses ----
   logger::log_info("6) Enrichment analyses…")
@@ -399,6 +403,10 @@ run_phenome_mr <- function(
       bonferroni = list(all = manhattan_recolor_Bonf_all, ARD_only = manhattan_recolor_Bonf_ARD)
     ),
     volcano = list(default = volcano_default),
+    volcano_recolor = list(
+      BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
+      bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
+    ),
     enrichment = list(
       global = list(
         directional = list(ARD_vs_nonARD = enrichment_global_plot_dir),
@@ -457,6 +465,7 @@ run_phenome_mr <- function(
 
     if (inherits(x, "ggplot")) {
       path_labels <- vapply(path_parts, safe_name, character(1))
+      file_stem_override <- NULL
       if (length(path_labels) >= 1 && identical(path_labels[1], "manhattan_recolor")) {
         path_labels <- c("manhattan", path_labels[-1])
         if (length(path_labels) >= 2) {
@@ -464,6 +473,14 @@ run_phenome_mr <- function(
         } else {
           path_labels <- c("manhattan", "recolor")
         }
+      }
+      if (length(path_labels) >= 1 && identical(path_labels[1], "volcano_recolor")) {
+        correction <- if (length(path_labels) >= 2) path_labels[2] else "BH"
+        slice      <- if (length(path_labels) >= 3) path_labels[3] else "all"
+        correction <- safe_name(correction)
+        slice      <- safe_name(slice)
+        path_labels <- c("volcano", correction, paste0("recolor_", slice))
+        file_stem_override <- safe_name(paste0("recolor_", correction, "_", slice))
       }
       subpath <- paste(path_labels, collapse = "/")
       width <- 6.5; height <- 6.5
@@ -497,6 +514,7 @@ run_phenome_mr <- function(
       dir_path  <- file.path(base_dir, dirname(subpath))
       if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
       file_stem <- safe_name(basename(subpath))
+      if (!is.null(file_stem_override)) file_stem <- file_stem_override
       file_name <- paste0(file_stem, ".png")
       file_path <- file.path(dir_path, file_name)
       ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
