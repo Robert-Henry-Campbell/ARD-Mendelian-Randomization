@@ -7,7 +7,6 @@
 #'
 #' @param exposure Character (mandatory) label for the exposure; used for
 #'   naming output directories and plot titles.
-#' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like:
 #'   rsid, beta, se, effect_allele, other_allele, eaf, etc.).
 #' @param ancestry Character (mandatory), e.g. "EUR".
 #' @param sex One of "both","male","female". If not "both", you likely use Neale.
@@ -28,9 +27,9 @@
 #'
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
-run_phenome_mr <- function(
+run_phenome_mr_plotting_only <- function(
+    run_output,
     exposure,
-    exposure_snps,
     ancestry,
     sex = c("both","male","female"),
     sensitivity_enabled = c(
@@ -61,8 +60,6 @@ run_phenome_mr <- function(
   exposure <- trimws(exposure)
   if (!nzchar(exposure)) stop("`exposure` is mandatory.")
   if (missing(ancestry) || !nzchar(ancestry)) stop("`ancestry` is mandatory.")
-  assert_exposure(exposure_snps)
-  if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 
   # Always derive standard subfolders inside cache_dir
   .slug <- function(x) {
@@ -121,62 +118,21 @@ run_phenome_mr <- function(
 
   metrics <- list()
 
-  logger::log_info("1) Outcome setup…")
-  MR_df <- Outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry)
-  metrics$outcomes <- nrow(MR_df)
+###
 
-  metrics$n_ard <- sum(MR_df$ARD_selected)
-  metrics$n_non <- metrics$outcomes - metrics$n_ard
-  logger::log_info("Outcome setup: {metrics$outcomes} phenotypes loaded ({metrics$n_ard} ARD, {metrics$n_non} non-ARD)")
-
-  logger::log_info("1.1) Variant manifest downloading…")
-  Variant_manifest_downloader(catalog = cfg$catalog, cache_dir = cfg$cache_dir, overwrite = FALSE)
-
-  logger::log_info("2) Map exposure SNPs to provider positions…")
-  n_before <- nrow(exposure_snps)
-  exposure_snps2 <- exposure_snp_mapper(exposure_snps, sex = cfg$sex, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
-  metrics$exposure_in <- n_before
-  metrics$exposure_mapped <- nrow(exposure_snps2)
-  logger::log_info("Exposure mapping: {metrics$exposure_in - metrics$exposure_mapped} filtered; {metrics$exposure_mapped} remain")
-
-  if (cfg$sex == "both") {
-    logger::log_info("3) Pull Pan-UKB outcome SNP rows…")
-    MR_df <- panukb_snp_grabber(
-      exposure_snps2,
-      MR_df,
-      ancestry = cfg$ancestry,
-      cache_dir = cfg$cache_dir,
-      verbose = cfg$verbose,
-      force_refresh = cfg$force_refresh
-    )
-  } else {
-    logger::log_info("3a) Ensure Neale GWAS files + tbi present…")
-    neale_gwas_checker(MR_df, neale_dir = cfg$neale_dir, verbose = cfg$verbose, confirm = cfg$confirm)
-    logger::log_info("3b) Pull Neale outcome SNP rows…")
-    MR_df <- neale_snp_grabber(exposure_snps2, MR_df, neale_dir = cfg$neale_dir, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
-  }
-  metrics$outcome_snps <- sum(lengths(MR_df$outcome_snps))
-  logger::log_info("Outcome SNPs: {metrics$outcome_snps} rows fetched")
-
-  logger::log_info("4) Run MR + sensitivity/QC…")
-  mr_out <- mr_business_logic(
-    MR_df = MR_df,
-    exposure_snps = exposure_snps2,
-    sensitivity_enabled = cfg$checks_enabled,
-    sensitivity_pass_min = cfg$checks_pass_min,
-    scatterplot = cfg$diag_scatter,
-    snpforestplot = cfg$diag_forest,
-    leaveoneoutplot = cfg$diag_loo,
-    plot_output_dir = cfg$plot_dir,
-    cache_dir = cfg$cache_dir,
-    verbose = cfg$verbose
-  )
-  MR_df <- mr_out$MR_df
-  results_df <- mr_out$results_df
-  metrics$results <- nrow(results_df)
-  logger::log_info("MR results: {metrics$results} outcomes analysed")
+  #ALL ANALYSIS REMOVED FROM HERE
 
 
+####
+
+
+### LOADING UP MY STUFF
+
+  results_df <- run_output$results_df
+  MR_df <- run_output$MR_df
+
+
+###
   logger::log_info("5) Build summary plots…")
 
   # ---- 5A. MANHATTAN: BH vs Bonf × (all vs ARD-only) ----
