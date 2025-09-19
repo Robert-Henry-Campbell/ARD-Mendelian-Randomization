@@ -655,4 +655,229 @@ beta_contrast_by_cause_mode <- function(
 }
 
 
+# ---------- beta means (IVW) ----------
+#' Inverse-variance weighted mean MR beta by cause
+#'
+#' Computes the IVW mean of MR beta estimates within each cause at a
+#' specified cause level. The standard error is derived from the inverse of
+#' the summed weights (1/SE^2) and 95% confidence intervals use ±1.96×SE.
+#'
+#' @param results_df Tidy MR results with columns results_beta_ivw,
+#'   results_se_ivw, the chosen cause level column, and optionally
+#'   ARD_selected.
+#' @param level One of "cause_level_1", "cause_level_2", "cause_level_3".
+#' @param use_qc_pass If TRUE, keep rows with results_qc_pass == TRUE when the
+#'   column exists.
+#' @param min_nsnp Optional integer filter on results_nsnp_after.
+#' @param exposure Optional character exposure label recorded in the output.
+#' @param ard_only If TRUE, restrict to rows with ARD_selected == TRUE.
+#' @param drop_empty If TRUE, omit causes that have zero rows after filtering
+#'   (useful for ARD-only summaries).
+#' @return Tibble with columns level, cause, exposure, n, ivw_mean_beta,
+#'   se_ivw_mean, ci_low, ci_high.
+beta_mean_by_cause <- function(
+    results_df,
+    level = c("cause_level_1","cause_level_2","cause_level_3"),
+    use_qc_pass = TRUE,
+    min_nsnp = 2,
+    exposure = NULL,
+    ard_only = FALSE,
+    drop_empty = TRUE
+) {
+  level <- match.arg(level)
+  df <- tibble::as_tibble(results_df)
+
+  required_cols <- c("results_beta_ivw", "results_se_ivw", level)
+  stopifnot(all(required_cols %in% names(df)))
+
+  if (use_qc_pass && "results_qc_pass" %in% names(df)) {
+    df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+  }
+  if (!is.null(min_nsnp) && "results_nsnp_after" %in% names(df)) {
+    df <- dplyr::filter(df, .data$results_nsnp_after >= !!min_nsnp)
+  }
+
+  df <- dplyr::filter(
+    df,
+    !is.na(.data[[level]]),
+    is.finite(.data$results_beta_ivw),
+    is.finite(.data$results_se_ivw),
+    .data$results_se_ivw > 0
+  )
+
+  if (ard_only) {
+    if (!"ARD_selected" %in% names(df)) {
+      return(tibble::tibble(
+        level = character(), cause = character(), exposure = character(),
+        n = integer(), ivw_mean_beta = double(), se_ivw_mean = double(),
+        ci_low = double(), ci_high = double()
+      ))
+    }
+    df <- dplyr::filter(df, .data$ARD_selected %in% TRUE)
+  }
+
+  if (!nrow(df)) {
+    return(tibble::tibble(
+      level = character(), cause = character(), exposure = character(),
+      n = integer(), ivw_mean_beta = double(), se_ivw_mean = double(),
+      ci_low = double(), ci_high = double()
+    ))
+  }
+
+  causes <- sort(unique(df[[level]]))
+
+  calc_ivw <- function(beta, se) {
+    w <- 1 / (se^2)
+    mean_beta <- sum(w * beta) / sum(w)
+    se_mean <- sqrt(1 / sum(w))
+    list(
+      mean = mean_beta,
+      se = se_mean,
+      ci_low = mean_beta - 1.96 * se_mean,
+      ci_high = mean_beta + 1.96 * se_mean
+    )
+  }
+
+  rows <- lapply(causes, function(cz) {
+    g <- df[df[[level]] == cz, , drop = FALSE]
+    if (!nrow(g)) {
+      if (drop_empty) return(NULL)
+      return(tibble::tibble(
+        level = level, cause = cz,
+        exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
+        n = 0L,
+        ivw_mean_beta = NA_real_,
+        se_ivw_mean = NA_real_,
+        ci_low = NA_real_,
+        ci_high = NA_real_
+      ))
+    }
+    stats <- calc_ivw(g$results_beta_ivw, g$results_se_ivw)
+    tibble::tibble(
+      level = level,
+      cause = cz,
+      exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
+      n = nrow(g),
+      ivw_mean_beta = stats$mean,
+      se_ivw_mean = stats$se,
+      ci_low = stats$ci_low,
+      ci_high = stats$ci_high
+    )
+  })
+
+  rows <- rows[!vapply(rows, is.null, logical(1))]
+  if (!length(rows)) {
+    return(tibble::tibble(
+      level = character(),
+      cause = character(),
+      exposure = character(),
+      n = integer(),
+      ivw_mean_beta = double(),
+      se_ivw_mean = double(),
+      ci_low = double(),
+      ci_high = double()
+    ))
+  }
+
+  out <- dplyr::bind_rows(rows)
+  out
+}
+
+#' Global IVW mean MR beta for all diseases and ARDs
+#'
+#' @inheritParams beta_mean_by_cause
+#' @return Tibble with rows describing "All Diseases" and "Age-Related Diseases"
+#'   when available.
+beta_mean_global <- function(
+    results_df,
+    use_qc_pass = TRUE,
+    min_nsnp = 2,
+    exposure = NULL
+) {
+  df <- tibble::as_tibble(results_df)
+  stopifnot(all(c("results_beta_ivw", "results_se_ivw") %in% names(df)))
+
+  if (use_qc_pass && "results_qc_pass" %in% names(df)) {
+    df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+  }
+  if (!is.null(min_nsnp) && "results_nsnp_after" %in% names(df)) {
+    df <- dplyr::filter(df, .data$results_nsnp_after >= !!min_nsnp)
+  }
+  df <- dplyr::filter(
+    df,
+    is.finite(.data$results_beta_ivw),
+    is.finite(.data$results_se_ivw),
+    .data$results_se_ivw > 0
+  )
+
+  calc_ivw <- function(beta, se) {
+    w <- 1 / (se^2)
+    mean_beta <- sum(w * beta) / sum(w)
+    se_mean <- sqrt(1 / sum(w))
+    list(
+      mean = mean_beta,
+      se = se_mean,
+      ci_low = mean_beta - 1.96 * se_mean,
+      ci_high = mean_beta + 1.96 * se_mean
+    )
+  }
+
+  rows <- list()
+
+  if (nrow(df)) {
+    stats_all <- calc_ivw(df$results_beta_ivw, df$results_se_ivw)
+    rows[["all"]] <- tibble::tibble(
+      group = "All Diseases",
+      exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
+      n = nrow(df),
+      ivw_mean_beta = stats_all$mean,
+      se_ivw_mean = stats_all$se,
+      ci_low = stats_all$ci_low,
+      ci_high = stats_all$ci_high
+    )
+  }
+
+  if ("ARD_selected" %in% names(df)) {
+    ard_df <- df[df$ARD_selected %in% TRUE, , drop = FALSE]
+    if (nrow(ard_df)) {
+      stats_ard <- calc_ivw(ard_df$results_beta_ivw, ard_df$results_se_ivw)
+      rows[["ard"]] <- tibble::tibble(
+        group = "Age-Related Diseases",
+        exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
+        n = nrow(ard_df),
+        ivw_mean_beta = stats_ard$mean,
+        se_ivw_mean = stats_ard$se,
+        ci_low = stats_ard$ci_low,
+        ci_high = stats_ard$ci_high
+      )
+    } else {
+      rows[["ard"]] <- tibble::tibble(
+        group = "Age-Related Diseases",
+        exposure = if (is.null(exposure)) NA_character_ else as.character(exposure),
+        n = 0L,
+        ivw_mean_beta = NA_real_,
+        se_ivw_mean = NA_real_,
+        ci_low = NA_real_,
+        ci_high = NA_real_
+      )
+    }
+  }
+
+  if (!length(rows)) {
+    return(tibble::tibble(
+      group = character(),
+      exposure = character(),
+      n = integer(),
+      ivw_mean_beta = double(),
+      se_ivw_mean = double(),
+      ci_low = double(),
+      ci_high = double()
+    ))
+  }
+
+  out <- dplyr::bind_rows(rows)
+  out
+}
+
+
 
