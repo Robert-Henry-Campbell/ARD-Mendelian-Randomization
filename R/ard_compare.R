@@ -378,19 +378,23 @@ ard_compare <- function(
 
   # build and save plots
   if (nrow(global_combined)) {
-    plot_global <- plot_beta_mean_global_compare(global_combined)
     out_dir <- file.path(beta_compare_dir, "global")
+    plot_global <- plot_beta_mean_global_compare(global_combined)
     save_plot(plot_global, out_dir, "mean_effect", nrow(global_combined))
+    plot_global_wrap <- plot_beta_mean_global_compare_wrap(global_combined)
+    save_plot(plot_global_wrap, out_dir, "mean_effect_wrap", nrow(global_combined))
   }
 
   for (lvl in cause_levels) {
     for (sc in scopes) {
       plot_df <- cause_datasets[[lvl]][[sc]]$plot
       if (!nrow(plot_df)) next
-      plot_obj <- plot_beta_mean_cause_compare(plot_df)
       out_dir <- file.path(beta_compare_dir, lvl, sc)
       n_rows <- nrow(plot_df)
+      plot_obj <- plot_beta_mean_cause_compare(plot_df)
       save_plot(plot_obj, out_dir, "mean_effect", n_rows)
+      plot_obj_wrap <- plot_beta_mean_cause_compare_wrap(plot_df)
+      save_plot(plot_obj_wrap, out_dir, "mean_effect_wrap", n_rows)
     }
   }
 
