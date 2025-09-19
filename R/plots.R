@@ -924,8 +924,9 @@ plot_beta_contrast_forest_wrap <- function(
     Multiple_testing_correction = c("BH","bonferroni"),
     alpha = 0.05
 ) {
+  df <- tibble::as_tibble(beta_tbl)
   p <- plot_beta_contrast_forest(
-    beta_tbl = beta_tbl,
+    beta_tbl = df,
     title = title,
     subtitle = subtitle,
     Multiple_testing_correction = Multiple_testing_correction,
@@ -933,6 +934,12 @@ plot_beta_contrast_forest_wrap <- function(
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  if (!nrow(df)) {
+    if (!is.null(plot_data)) {
+      attr(p, "ardmr_plot_data") <- plot_data
+    }
+    return(p)
+  }
   p_wrapped <- p + ggplot2::scale_y_discrete(
     labels = function(x) stringr::str_wrap(x, width = 27)
   )
@@ -1010,13 +1017,20 @@ plot_beta_mean_forest_wrap <- function(
     title = NULL,
     subtitle = NULL
 ) {
+  df <- tibble::as_tibble(beta_tbl)
   p <- plot_beta_mean_forest(
-    beta_tbl = beta_tbl,
+    beta_tbl = df,
     title = title,
     subtitle = subtitle
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  if (!nrow(df)) {
+    if (!is.null(plot_data)) {
+      attr(p, "ardmr_plot_data") <- plot_data
+    }
+    return(p)
+  }
   p_wrapped <- p + ggplot2::scale_y_discrete(
     labels = function(x) stringr::str_wrap(x, width = 27)
   )
