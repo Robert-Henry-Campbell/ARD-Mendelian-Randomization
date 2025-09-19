@@ -1149,6 +1149,47 @@ plot_beta_mean_global_compare <- function(
   p
 }
 
+#' Wrapped-axis companion to `plot_beta_mean_global_compare()`
+#'
+#' Applies a 27-character wrap to the displayed group labels while keeping
+#' the attached data unchanged.
+#'
+#' @inheritParams plot_beta_mean_global_compare
+#' @keywords internal
+plot_beta_mean_global_compare_wrap <- function(
+    beta_global_tbl,
+    title = NULL
+) {
+  df <- tibble::as_tibble(beta_global_tbl)
+  p <- plot_beta_mean_global_compare(
+    beta_global_tbl = df,
+    title = title
+  )
+
+  plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  if (!nrow(df)) {
+    if (!is.null(plot_data)) {
+      attr(p, "ardmr_plot_data") <- plot_data
+    }
+    return(p)
+  }
+
+  levels_vec <- rev(df$display_label)
+  levels_vec <- unique(levels_vec)
+  axis_labels <- stats::setNames(levels_vec, levels_vec)
+  wrapped_labels <- stringr::str_wrap(unname(axis_labels), width = 27)
+  names(wrapped_labels) <- names(axis_labels)
+
+  p_wrapped <- p + ggplot2::scale_y_discrete(
+    limits = levels_vec,
+    labels = wrapped_labels
+  )
+  if (!is.null(plot_data)) {
+    attr(p_wrapped, "ardmr_plot_data") <- plot_data
+  }
+  p_wrapped
+}
+
 #' @keywords internal
 plot_beta_mean_cause_compare <- function(
     beta_cause_tbl,
@@ -1217,5 +1258,50 @@ plot_beta_mean_cause_compare <- function(
 
   p <- .ardmr_attach_plot_data(p, main = df)
   p
+}
+
+#' Wrapped-axis companion to `plot_beta_mean_cause_compare()`
+#'
+#' Applies a 27-character wrap to the displayed cause labels while keeping
+#' the attached data unchanged.
+#'
+#' @inheritParams plot_beta_mean_cause_compare
+#' @keywords internal
+plot_beta_mean_cause_compare_wrap <- function(
+    beta_cause_tbl,
+    title = NULL,
+    subtitle = NULL
+) {
+  df <- tibble::as_tibble(beta_cause_tbl)
+  p <- plot_beta_mean_cause_compare(
+    beta_cause_tbl = df,
+    title = title,
+    subtitle = subtitle
+  )
+
+  plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  if (!nrow(df)) {
+    if (!is.null(plot_data)) {
+      attr(p, "ardmr_plot_data") <- plot_data
+    }
+    return(p)
+  }
+
+  df$is_separator <- df$is_separator %in% TRUE
+  axis_levels <- rev(df$axis_id)
+  axis_levels <- unique(axis_levels)
+  axis_labels <- stats::setNames(df$axis_label, df$axis_id)
+  axis_labels <- axis_labels[axis_levels]
+  wrapped_labels <- stringr::str_wrap(unname(axis_labels), width = 27)
+  names(wrapped_labels) <- names(axis_labels)
+
+  p_wrapped <- p + ggplot2::scale_y_discrete(
+    limits = axis_levels,
+    labels = wrapped_labels
+  )
+  if (!is.null(plot_data)) {
+    attr(p_wrapped, "ardmr_plot_data") <- plot_data
+  }
+  p_wrapped
 }
 
