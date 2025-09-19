@@ -191,6 +191,11 @@ run_phenome_mr <- function(
   manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure)
   manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure)
 
+  manhattan_recolor_BH_all   <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
+  manhattan_recolor_BH_ARD   <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
+  manhattan_recolor_Bonf_all <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
+  manhattan_recolor_Bonf_ARD <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
+
   # ---- 5B. VOLCANO ----
   volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
 
@@ -389,6 +394,10 @@ run_phenome_mr <- function(
       BH = list(all = manhattan_BH_all, ARD_only = manhattan_BH_ARD),
       bonferroni = list(all = manhattan_Bonf_all, ARD_only = manhattan_Bonf_ARD)
     ),
+    manhattan_recolor = list(
+      BH = list(all = manhattan_recolor_BH_all, ARD_only = manhattan_recolor_BH_ARD),
+      bonferroni = list(all = manhattan_recolor_Bonf_all, ARD_only = manhattan_recolor_Bonf_ARD)
+    ),
     volcano = list(default = volcano_default),
     enrichment = list(
       global = list(
@@ -447,7 +456,16 @@ run_phenome_mr <- function(
     }
 
     if (inherits(x, "ggplot")) {
-      subpath <- paste(vapply(path_parts, safe_name, character(1)), collapse = "/")
+      path_labels <- vapply(path_parts, safe_name, character(1))
+      if (length(path_labels) >= 1 && identical(path_labels[1], "manhattan_recolor")) {
+        path_labels <- c("manhattan", path_labels[-1])
+        if (length(path_labels) >= 2) {
+          path_labels[length(path_labels)] <- paste0("recolor_", path_labels[length(path_labels)])
+        } else {
+          path_labels <- c("manhattan", "recolor")
+        }
+      }
+      subpath <- paste(path_labels, collapse = "/")
       width <- 6.5; height <- 6.5
 
       if (grepl("^manhattan", subpath)) {

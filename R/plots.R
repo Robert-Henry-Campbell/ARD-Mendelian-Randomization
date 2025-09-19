@@ -283,6 +283,227 @@ manhattan_plot <- function(results_df,
   p
 }
 
+#' Manhattan plot with recoloured significance highlighting
+#'
+#' Generates a Manhattan-style plot over outcomes, ordering phenotypes within
+#' each cause-level-2 block from smallest to largest -log10(p) and colouring
+#' points by significance and effect direction. Non-significant points are shown
+#' in dark grey, significant protective associations (β < 0) in blue, and
+#' significant risk associations (β ≥ 0) in red.
+#'
+#' @inheritParams manhattan_plot
+#' @export
+manhattan_plot_recolor <- function(results_df,
+                                   Multiple_testing_correction = c("BH","bonferroni"),
+                                   qc_pass_only = TRUE,
+                                   alpha = 0.05,
+                                   verbose = TRUE,
+                                   left_nuge = 1,
+                                   tree_down = -0.08,
+                                   label_down = -0.02,
+                                   exposure = NULL) {
+  Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+
+  if (is.null(results_df) || !nrow(results_df)) {
+    if (verbose) logger::log_warn("Manhattan (recolor): input results_df is NULL or has 0 rows; returning placeholder plot.")
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (recolor, no results)"))
+  }
+
+  if (verbose) {
+    logger::log_info(
+      "Manhattan (recolor): starting with {nrow(results_df)} rows; MTC = {Multiple_testing_correction}, alpha = {alpha}"
+    )
+  }
+
+  df <- tibble::as_tibble(results_df)
+
+  if (!"gbd_cause" %in% names(df) && "Cause Name" %in% names(df)) {
+    df$gbd_cause <- df[["Cause Name"]]
+  }
+
+  if (!"results_qc_pass" %in% names(df)) {
+    if (verbose) logger::log_info("Manhattan (recolor): 'results_qc_pass' not present; assuming all pass.")
+    df$results_qc_pass <- TRUE
+  } else if (!is.logical(df$results_qc_pass)) {
+    df$results_qc_pass <- df$results_qc_pass %in% c(TRUE,"TRUE","True","true",1,"1","T")
+  }
+
+  n_before <- nrow(df)
+  if (isTRUE(qc_pass_only)) {
+    df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
+    if (verbose) logger::log_info("Manhattan (recolor): filtered to QC-pass => {nrow(df)}/{n_before} rows remain.")
+  } else {
+    if (verbose) logger::log_info("Manhattan (recolor): qc_pass_only=FALSE; keeping all {n_before} rows (non-QC will be shown).")
+  }
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (recolor, no rows after QC filter)"))
+
+  if (!"results_p_ivw" %in% names(df)) {
+    if (verbose) logger::log_warn("Manhattan (recolor): required column 'results_p_ivw' missing; returning placeholder plot.")
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (recolor, missing results_p_ivw)"))
+  }
+  if (!"results_beta_ivw" %in% names(df)) {
+    stop("manhattan_plot_recolor(): requires 'results_beta_ivw' to colour points by effect direction.", call. = FALSE)
+  }
+
+  df <- dplyr::filter(df, !is.na(.data$results_p_ivw))
+  df$logp <- dplyr::if_else(
+    !is.na(df$results_log10p_ivw),
+    -df$results_log10p_ivw,
+    -log10(pmax(df$results_p_ivw, .Machine$double.xmin))
+  )
+  if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::labs(title = "Manhattan (recolor, no finite p-values)"))
+
+  df <- dplyr::arrange(
+    df,
+    dplyr::coalesce(.data$cause_level_1, "~"),
+    dplyr::coalesce(.data$cause_level_2, "~"),
+    .data$logp,
+    dplyr::coalesce(.data$results_outcome, "")
+  )
+  df$idx <- seq_len(nrow(df))
+
+  l2_map <- df |>
+    dplyr::group_by(.data$cause_level_1, .data$cause_level_2) |>
+    dplyr::summarise(start = min(.data$idx), end = max(.data$idx), .groups = "drop") |>
+    dplyr::arrange(.data$cause_level_1, .data$start) |>
+    dplyr::mutate(center = (start + end)/2, alt_id = dplyr::row_number())
+
+  if (Multiple_testing_correction == "BH") {
+    df$q_bh <- stats::p.adjust(df$results_p_ivw, method = "BH")
+    df$sig  <- df$q_bh < alpha
+    thr_y   <- NA_real_
+  } else {
+    m       <- nrow(df)
+    alpha_b <- alpha / max(1L, m)
+    df$sig  <- df$results_p_ivw < alpha_b
+    thr_y   <- -log10(alpha_b)
+  }
+
+  df <- df |>
+    dplyr::mutate(
+      colour_group = dplyr::case_when(
+        .data$sig %in% TRUE & is.finite(.data$results_beta_ivw) & .data$results_beta_ivw < 0 ~
+          "Significant protective (β<0)",
+        .data$sig %in% TRUE & is.finite(.data$results_beta_ivw) & .data$results_beta_ivw >= 0 ~
+          "Significant risk (β≥0)",
+        TRUE ~ "Not significant"
+      )
+    )
+
+  colour_levels <- c("Not significant", "Significant protective (β<0)", "Significant risk (β≥0)")
+  df$colour_group <- factor(df$colour_group, levels = colour_levels)
+
+  y_max   <- max(df$logp, na.rm = TRUE)
+  base_y  <- 0.02 + tree_down
+  cap     <- 0.15
+  lab_gap <- 0.08
+
+  seg_l2 <- l2_map |> dplyr::transmute(x = start, xend = end, y = base_y, yend = base_y)
+  teeth_l2 <- dplyr::bind_rows(
+    l2_map |> dplyr::transmute(x = start, xend = start, y = base_y, yend = base_y - cap/2),
+    l2_map |> dplyr::transmute(x = end,   xend = end,   y = base_y, yend = base_y - cap/2)
+  )
+  lab_l2 <- l2_map |> dplyr::transmute(
+    x = center - left_nuge,
+    y = base_y - lab_gap/2 + label_down,
+    label = dplyr::coalesce(cause_level_2, "NA")
+  )
+
+  legend_title <- if (Multiple_testing_correction == "BH") {
+    "Significance & direction (FDR < 0.05)"
+  } else {
+    "Significance & direction:"
+  }
+
+  exposure_lab <- tryCatch(as.character(exposure)[1], error = function(e) NA_character_)
+  if (is.null(exposure_lab) || is.na(exposure_lab) || !nzchar(exposure_lab)) exposure_lab <- "exposure"
+  plot_title <- sprintf("ARD-wide MR IVW of %s by GBD Cause", exposure_lab)
+
+  colour_values <- c(
+    "Not significant" = "#4B4B4B",
+    "Significant protective (β<0)" = "#1f78b4",
+    "Significant risk (β≥0)" = "#e31a1c"
+  )
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = .data$idx, y = .data$logp)) +
+    ggplot2::geom_point(ggplot2::aes(colour = .data$colour_group), alpha = 0.9, size = 1.8) +
+    ggplot2::scale_colour_manual(name = legend_title, values = colour_values, drop = FALSE) +
+    ggplot2::labs(x = NULL, y = expression(-log[10](p[IVW])), title = plot_title) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      panel.grid.major.x = ggplot2::element_blank(),
+      panel.grid.minor.x = ggplot2::element_blank(),
+      axis.text.x        = ggplot2::element_blank(),
+      axis.ticks.x       = ggplot2::element_blank(),
+      plot.margin        = ggplot2::margin(t = 10, r = 10, b = 80, l = 10),
+      legend.position    = "top",
+      legend.title       = ggplot2::element_text(size = 9),
+      legend.text        = ggplot2::element_text(size = 9)
+    ) +
+    ggplot2::guides(colour = ggplot2::guide_legend(order = 1))
+
+  if (Multiple_testing_correction == "bonferroni" && !is.na(thr_y)) {
+    p <- p +
+      ggplot2::geom_hline(
+        data = data.frame(yint = thr_y),
+        ggplot2::aes(yintercept = yint, linetype = "Bonferroni threshold"),
+        linewidth = 0.4
+      ) +
+      ggplot2::scale_linetype_manual(
+        name   = "Significance:",
+        values = c("Bonferroni threshold" = "dashed"),
+        guide  = ggplot2::guide_legend(order = 2)
+      )
+  }
+
+  if (!"results_outcome" %in% names(df)) {
+    stop("manhattan_plot_recolor(): 'results_outcome' column is required to label significant points.", call. = FALSE)
+  }
+  sig_df <- dplyr::filter(
+    df, .data$sig %in% TRUE, !is.na(.data$results_outcome),
+    is.finite(.data$idx), is.finite(.data$logp)
+  )
+  if (nrow(sig_df)) {
+    if (requireNamespace("ggrepel", quietly = TRUE)) {
+      p <- p + ggrepel::geom_text_repel(
+        data = sig_df,
+        ggplot2::aes(x = .data$idx, y = .data$logp, label = .data$results_outcome),
+        max.overlaps = Inf, box.padding = 0.25, point.padding = 0.15,
+        min.segment.length = 0, size = 2.7, seed = 123,
+        segment.size = 0.2
+      )
+    } else {
+      p <- p + ggplot2::geom_text(
+        data = sig_df,
+        ggplot2::aes(x = .data$idx, y = .data$logp, label = .data$results_outcome),
+        size = 2.7, vjust = -0.25, check_overlap = TRUE
+      )
+    }
+  }
+
+  p <- p +
+    ggplot2::geom_segment(data = seg_l2,   ggplot2::aes(x = x, xend = xend, y = y, yend = yend), linewidth = 0.4) +
+    ggplot2::geom_segment(data = teeth_l2, ggplot2::aes(x = x, xend = xend, y = y, yend = yend), linewidth = 0.4) +
+    ggplot2::geom_text(
+      data = lab_l2,
+      ggplot2::aes(x = x, y = y, label = label),
+      angle = 45, hjust = 1, vjust = 1.15, size = 3
+    ) +
+    ggplot2::coord_cartesian(ylim = c(-0.1, y_max * 1.05), clip = "off")
+
+  if (verbose) logger::log_info("Manhattan (recolor): plot object constructed; returning ggplot.")
+  p <- .ardmr_attach_plot_data(
+    p,
+    main = df,
+    significant = sig_df,
+    l2_map = l2_map,
+    segments = seg_l2,
+    teeth = teeth_l2,
+    labels = lab_l2
+  )
+  p
+}
+
 # helper for coalescing with NULLs (base R compatible)
 `%||%` <- function(a, b) if (!is.null(a)) a else b
 
