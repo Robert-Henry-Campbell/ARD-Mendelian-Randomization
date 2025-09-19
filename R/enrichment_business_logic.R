@@ -460,6 +460,17 @@ beta_contrast_by_cause <- function(
   df <- tibble::as_tibble(results_df)
   stopifnot(all(c("results_beta_ivw","results_se_ivw", level) %in% names(df)))
 
+  empty_template <- tibble::tibble(
+    level = character(), cause = character(), exposure = character(),
+    n_in = integer(), n_out = integer(),
+    beta_in = double(), beta_out = double(),
+    delta_beta = double(), se_delta = double(),
+    z = double(), p = double(),
+    ci_low = double(), ci_high = double(),
+    q = double(),
+    sig = logical()
+  )
+
   if (use_qc_pass && "results_qc_pass" %in% names(df)) {
     df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
   }
@@ -472,14 +483,7 @@ beta_contrast_by_cause <- function(
                       .data$results_se_ivw > 0)
 
   if (!nrow(df)) {
-    return(tibble::tibble(
-      level = character(), cause = character(), exposure = character(),
-      n_in = integer(), n_out = integer(),
-      beta_in = double(), beta_out = double(),
-      delta_beta = double(), se_delta = double(),
-      z = double(), p = double(), q = double(),
-      ci_low = double(), ci_high = double()
-    ))
+    return(empty_template)
   }
 
   causes <- sort(unique(df[[level]]))
@@ -524,7 +528,7 @@ beta_contrast_by_cause <- function(
   }
 
   out <- dplyr::bind_rows(lapply(causes, one))
-  if (!nrow(out)) return(out)
+  if (!nrow(out)) return(empty_template)
 
   out$q <- if (Multiple_testing_correction == "BH") {
     stats::p.adjust(out$p, method = "BH")
@@ -599,10 +603,23 @@ beta_contrast_by_cause_mode <- function(
   df <- tibble::as_tibble(results_df)
 
   stopifnot(all(c("results_beta_ivw","results_se_ivw", level) %in% names(df)))
+
+  empty_template <- tibble::tibble(
+    level = character(), cause = character(), compare_mode = character(),
+    exposure = character(),
+    n_in = integer(), n_out = integer(),
+    beta_in = double(), beta_out = double(),
+    delta_beta = double(), se_delta = double(),
+    z = double(), p = double(),
+    q = double(), sig = logical(),
+    ci_low = double(), ci_high = double()
+  )
   if (use_qc_pass && "results_qc_pass" %in% names(df)) df <- dplyr::filter(df, .data$results_qc_pass %in% TRUE)
   if (!is.null(min_nsnp) && "results_nsnp_after" %in% names(df)) df <- dplyr::filter(df, .data$results_nsnp_after >= !!min_nsnp)
   df <- dplyr::filter(df, !is.na(.data[[level]]), is.finite(.data$results_beta_ivw),
                       is.finite(.data$results_se_ivw), .data$results_se_ivw > 0)
+
+  if (!nrow(df)) return(empty_template)
 
   causes <- sort(unique(df[[level]]))
   ivw_delta <- function(b, se, g) {
@@ -641,7 +658,7 @@ beta_contrast_by_cause_mode <- function(
     )
   })
   out <- dplyr::bind_rows(rows)
-  if (!nrow(out)) return(out)
+  if (!nrow(out)) return(empty_template)
 
   out$q <- if (Multiple_testing_correction == "BH") {
     stats::p.adjust(out$p, method = "BH")
