@@ -80,6 +80,29 @@ Outcome_setup <- function(sex, ancestry) {
   logger::log_info("Mapped {n_mapped} of {n_total} phenotypes; {n_total - n_mapped} without available GWAS")
 
   MR_df <- MR_df[!is.na(MR_df[[ncol(MR_df)]]), ] #for some reason using mapped isn't ok here
+
+  if (sex == "both" && "pops" %in% names(MR_df)) {
+    pops_clean <- as.character(MR_df$pops)
+    pops_clean[is.na(pops_clean)] <- ""
+    pops_split <- strsplit(pops_clean, "\\s*,\\s*")
+
+    has_ancestry <- vapply(
+      pops_split,
+      function(pop) {
+        pop <- trimws(pop)
+        pop <- pop[pop != ""]
+        any(pop == ancestry)
+      },
+      logical(1)
+    )
+
+    dropped_ancestry <- sum(!has_ancestry)
+    logger::log_info(
+      "Pan-UKB ancestry filter| dropped {dropped_ancestry} phenotypes without ancestry {ancestry}"
+    )
+
+    MR_df <- MR_df[has_ancestry, , drop = FALSE]
+  }
   # ---- resolve duplicate ICD10s -------------------------------------------
   dup_stats <- MR_df |>
     dplyr::group_by(ICD10_explo) |>
