@@ -300,11 +300,14 @@ run_phenome_mr_plotting_only <- function(
   )
   beta_tables$global <- tbl_beta_global
 
+  beta_effect_scale <- if (identical(cfg$sex, "both")) "odds_ratio" else "absolute_risk"
+
   beta_plots$global  <- list(
     mean_effect = plot_beta_mean_global(
       tbl_beta_global,
       title = sprintf("Global Mean Effect of %s", exposure),
-      exposure_units = exposure_units
+      exposure_units = exposure_units,
+      effect_scale = beta_effect_scale
     )
   )
 
@@ -346,34 +349,40 @@ run_phenome_mr_plotting_only <- function(
       all_diseases = plot_beta_mean_forest(
         tbl_all,
         title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units
+        exposure_units = exposure_units,
+        effect_scale = beta_effect_scale
       ),
       age_related_diseases = plot_beta_mean_forest(
         tbl_ard,
         title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units
+        exposure_units = exposure_units,
+        effect_scale = beta_effect_scale
       )
     )
 
     beta_plots[[lv]][["all_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_all,
       title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units
+      exposure_units = exposure_units,
+      effect_scale = beta_effect_scale
     )
     beta_plots[[lv]][["all_diseases_wrap_yfloat"]] <- plot_beta_mean_forest_wrap_yfloat(
       tbl_all,
       title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units
+      exposure_units = exposure_units,
+      effect_scale = beta_effect_scale
     )
     beta_plots[[lv]][["age_related_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_ard,
       title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units
+      exposure_units = exposure_units,
+      effect_scale = beta_effect_scale
     )
     beta_plots[[lv]][["age_related_diseases_wrap_yfloat"]] <- plot_beta_mean_forest_wrap_yfloat(
       tbl_ard,
       title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units
+      exposure_units = exposure_units,
+      effect_scale = beta_effect_scale
     )
   }
 
@@ -503,11 +512,17 @@ run_phenome_mr_plotting_only <- function(
       file_name <- paste0(file_stem, ".png")
       file_path <- file.path(dir_path, file_name)
       is_yfloat <- length(path_labels) >= 1 && grepl("_wrap_yfloat$", tail(path_labels, 1))
-      ggsave_args <- list(filename = file_path, plot = x, width = width, dpi = 300)
-      if (!is_yfloat) {
-        ggsave_args$height <- height
+      if (is_yfloat) {
+        plot_data <- attr(x, "ardmr_plot_data", exact = TRUE)
+        main_df <- NULL
+        if (is.list(plot_data) && "main" %in% names(plot_data)) {
+          main_df <- plot_data$main
+        }
+        n_rows <- if (is.data.frame(main_df)) nrow(main_df) else 0L
+        if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
+        height <- 1.2 + 0.28 * n_rows
       }
-      do.call(ggplot2::ggsave, ggsave_args)
+      ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
       .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
       return(invisible(NULL))
     }
