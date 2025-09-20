@@ -182,6 +182,12 @@ ard_compare <- function(
     )
   }
 
+  compare_effect_scale <- if (length(sex_values) && all(sex_values == "both")) {
+    "odds_ratio"
+  } else {
+    "absolute_risk"
+  }
+
   # ensure sex/both consistency for non-EUR ancestries
   for (info in groups_info) {
     if (!identical(info$ancestry, "EUR") && !identical(info$sex, "both")) {
@@ -401,11 +407,23 @@ ard_compare <- function(
   # build and save plots
   if (nrow(global_combined)) {
     out_dir <- file.path(beta_compare_dir, "global")
-    plot_global <- plot_beta_mean_global_compare(global_combined, exposure_units = exposure_units)
+    plot_global <- plot_beta_mean_global_compare(
+      global_combined,
+      exposure_units = exposure_units,
+      effect_scale = compare_effect_scale
+    )
     save_plot(plot_global, out_dir, "mean_effect", nrow(global_combined))
-    plot_global_wrap <- plot_beta_mean_global_compare_wrap(global_combined, exposure_units = exposure_units)
+    plot_global_wrap <- plot_beta_mean_global_compare_wrap(
+      global_combined,
+      exposure_units = exposure_units,
+      effect_scale = compare_effect_scale
+    )
     save_plot(plot_global_wrap, out_dir, "mean_effect_wrap", nrow(global_combined))
-    plot_global_wrap_yfloat <- plot_beta_mean_global_compare_wrap_yfloat(global_combined, exposure_units = exposure_units)
+    plot_global_wrap_yfloat <- plot_beta_mean_global_compare_wrap_yfloat(
+      global_combined,
+      exposure_units = exposure_units,
+      effect_scale = compare_effect_scale
+    )
     save_plot(plot_global_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", nrow(global_combined))
   }
 
@@ -415,11 +433,23 @@ ard_compare <- function(
       if (!nrow(plot_df)) next
       out_dir <- file.path(beta_compare_dir, lvl, sc)
       n_rows <- nrow(plot_df)
-      plot_obj <- plot_beta_mean_cause_compare(plot_df, exposure_units = exposure_units)
+      plot_obj <- plot_beta_mean_cause_compare(
+        plot_df,
+        exposure_units = exposure_units,
+        effect_scale = compare_effect_scale
+      )
       save_plot(plot_obj, out_dir, "mean_effect", n_rows)
-      plot_obj_wrap <- plot_beta_mean_cause_compare_wrap(plot_df, exposure_units = exposure_units)
+      plot_obj_wrap <- plot_beta_mean_cause_compare_wrap(
+        plot_df,
+        exposure_units = exposure_units,
+        effect_scale = compare_effect_scale
+      )
       save_plot(plot_obj_wrap, out_dir, "mean_effect_wrap", n_rows)
-      plot_obj_wrap_yfloat <- plot_beta_mean_cause_compare_wrap_yfloat(plot_df, exposure_units = exposure_units)
+      plot_obj_wrap_yfloat <- plot_beta_mean_cause_compare_wrap_yfloat(
+        plot_df,
+        exposure_units = exposure_units,
+        effect_scale = compare_effect_scale
+      )
       save_plot(plot_obj_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", n_rows)
     }
   }
