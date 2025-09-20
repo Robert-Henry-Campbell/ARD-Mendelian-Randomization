@@ -7,6 +7,7 @@
 run_phenome_mr(
   exposure,
   exposure_snps,
+  exposure_units,
   ancestry,
   sex = c("both", "male", "female"),
   sensitivity_enabled = c("egger_intercept", "egger_slope_agreement", "weighted_median",
@@ -28,6 +29,8 @@ run_phenome_mr(
 output directories and plot titles.}
 
 \item{exposure_snps}{Data frame of exposure instruments (TwoSampleMR-like: rsid, beta, se, effect_allele, other_allele, eaf, etc.).}
+
+\item{exposure_units}{Character (mandatory) description of the exposure units for β-scale plots.}
 
 \item{ancestry}{Character (mandatory), e.g. "EUR".}
 

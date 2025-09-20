@@ -6,6 +6,7 @@
 \usage{
 ard_compare(
   exposure,
+  exposure_units,
   groups,
   sensitivity_enabled = c(
     "egger_intercept",
@@ -31,6 +32,8 @@ ard_compare(
 }
 \arguments{
 \item{exposure}{Character (mandatory) label for the exposure; used for naming output directories and plot titles.}
+
+\item{exposure_units}{Character (mandatory) description of the exposure units for β-scale plots.}
 
 \item{groups}{List of named group specifications. Each entry must provide \code{sex}, \code{ancestry}, and \code{exposure_snps} values describing a run configuration. Sex must be one of \code{"both"}, \code{"male"}, or \code{"female"}; ancestry codes should match those accepted by \code{run_phenome_mr()}. The \code{exposure_snps} component supplies the TwoSampleMR-style instrument data for that group.}
 

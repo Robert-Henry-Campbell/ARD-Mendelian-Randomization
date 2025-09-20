@@ -22,7 +22,7 @@ test_that("plot_beta_mean_forest_wrap returns base plot for empty data", {
     ci_high = double()
   )
 
-  expect_s3_class(plot_beta_mean_forest_wrap(empty_tbl), "ggplot")
+  expect_s3_class(plot_beta_mean_forest_wrap(empty_tbl, exposure_units = "SD"), "ggplot")
 })
 
 test_that("run_phenome_mr handles empty ARD-only tables and wraps plots", {
@@ -81,6 +81,7 @@ test_that("run_phenome_mr handles empty ARD-only tables and wraps plots", {
     run_phenome_mr(
       exposure = "Test exposure",
       exposure_snps = fake_exposure,
+      exposure_units = "SD",
       ancestry = "EUR",
       sex = "both",
       sensitivity_enabled = character(0),
