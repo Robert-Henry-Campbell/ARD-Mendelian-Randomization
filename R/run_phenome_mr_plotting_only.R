@@ -8,6 +8,8 @@
 #' @param exposure Character (mandatory) label for the exposure; used for
 #'   naming output directories and plot titles.
 #'   rsid, beta, se, effect_allele, other_allele, eaf, etc.).
+#' @param exposure_units Character (mandatory) description of the exposure
+#'   units for β-scale plots.
 #' @param ancestry Character (mandatory), e.g. "EUR".
 #' @param sex One of "both","male","female". If not "both", you likely use Neale.
 #' @param sensitivity_enabled Character vector of checks (default = all 8).
@@ -30,6 +32,7 @@
 run_phenome_mr_plotting_only <- function(
     run_output,
     exposure,
+    exposure_units,
     ancestry,
     sex = c("both","male","female"),
     sensitivity_enabled = c(
@@ -59,6 +62,13 @@ run_phenome_mr_plotting_only <- function(
   if (is.na(exposure)) stop("`exposure` is mandatory.")
   exposure <- trimws(exposure)
   if (!nzchar(exposure)) stop("`exposure` is mandatory.")
+  if (missing(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- as.character(exposure_units)
+  if (!length(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- exposure_units[1]
+  if (is.na(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- trimws(exposure_units)
+  if (!nzchar(exposure_units)) stop("`exposure_units` is mandatory.")
   if (missing(ancestry) || !nzchar(ancestry)) stop("`ancestry` is mandatory.")
 
   # Always derive standard subfolders inside cache_dir
@@ -100,6 +110,7 @@ run_phenome_mr_plotting_only <- function(
   cfg <- list(
     ancestry = ancestry,
     exposure = exposure,
+    exposure_units = exposure_units,
     sex = sex,
     catalog = catalog,
     checks_enabled = sensitivity_enabled,
@@ -292,7 +303,8 @@ run_phenome_mr_plotting_only <- function(
   beta_plots$global  <- list(
     mean_effect = plot_beta_mean_global(
       tbl_beta_global,
-      title = sprintf("Global Mean Effect of %s", exposure)
+      title = sprintf("Global Mean Effect of %s", exposure),
+      exposure_units = exposure_units
     )
   )
 
@@ -331,21 +343,25 @@ run_phenome_mr_plotting_only <- function(
     beta_plots[[lv]] <- list(
       all_diseases = plot_beta_mean_forest(
         tbl_all,
-        title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv))
+        title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
+        exposure_units = exposure_units
       ),
       age_related_diseases = plot_beta_mean_forest(
         tbl_ard,
-        title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv))
+        title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
+        exposure_units = exposure_units
       )
     )
 
     beta_plots[[lv]][["all_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_all,
-      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv))
+      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
+      exposure_units = exposure_units
     )
     beta_plots[[lv]][["age_related_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_ard,
-      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv))
+      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
+      exposure_units = exposure_units
     )
   }
 
@@ -610,7 +626,8 @@ run_phenome_mr_plotting_only <- function(
     summary_plots = summary_plots,
     enrich        = enrich,
     beta          = beta_tables,
-    beta_contrast = beta_contrast_tables
+    beta_contrast = beta_contrast_tables,
+    exposure_units = exposure_units
   )
 
   saveRDS(output, file = file.path(cfg$plot_dir, "results.rds"))

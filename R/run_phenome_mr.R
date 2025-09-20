@@ -9,6 +9,8 @@
 #'   naming output directories and plot titles.
 #' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like:
 #'   rsid, beta, se, effect_allele, other_allele, eaf, etc.).
+#' @param exposure_units Character (mandatory) description of the exposure
+#'   units for β-scale plots.
 #' @param ancestry Character (mandatory), e.g. "EUR".
 #' @param sex One of "both","male","female". If not "both", you likely use Neale.
 #' @param sensitivity_enabled Character vector of checks (default = all 8).
@@ -31,6 +33,7 @@
 run_phenome_mr <- function(
     exposure,
     exposure_snps,
+    exposure_units,
     ancestry,
     sex = c("both","male","female"),
     sensitivity_enabled = c(
@@ -60,6 +63,13 @@ run_phenome_mr <- function(
   if (is.na(exposure)) stop("`exposure` is mandatory.")
   exposure <- trimws(exposure)
   if (!nzchar(exposure)) stop("`exposure` is mandatory.")
+  if (missing(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- as.character(exposure_units)
+  if (!length(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- exposure_units[1]
+  if (is.na(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- trimws(exposure_units)
+  if (!nzchar(exposure_units)) stop("`exposure_units` is mandatory.")
   if (missing(ancestry) || !nzchar(ancestry)) stop("`ancestry` is mandatory.")
   assert_exposure(exposure_snps)
   if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
@@ -103,6 +113,7 @@ run_phenome_mr <- function(
   cfg <- list(
     ancestry = ancestry,
     exposure = exposure,
+    exposure_units = exposure_units,
     sex = sex,
     catalog = catalog,
     checks_enabled = sensitivity_enabled,
@@ -332,12 +343,15 @@ run_phenome_mr <- function(
     exposure = exposure
   )
   beta_tables$global <- tbl_beta_global
+
   # beta_plots$global  <- list(
   #   mean_effect = plot_beta_mean_global(
   #     tbl_beta_global,
-  #     title = sprintf("Global Mean Effect of %s", exposure)
+  #     title = sprintf("Global Mean Effect of %s", exposure),
+  #     exposure_units = exposure_units
   #   )
   # )
+
 
   pretty_level <- function(lv) {
     switch(lv,
@@ -371,26 +385,29 @@ run_phenome_mr <- function(
       age_related_diseases = tbl_ard
     )
 
-    # beta_plots[[lv]] <- list(
-    #   all_diseases = plot_beta_mean_forest(
-    #     tbl_all,
-    #     title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv))
-    #   ),
-    #   age_related_diseases = plot_beta_mean_forest(
-    #     tbl_ard,
-    #     title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv))
-    #   )
-    # )
 
-    beta_plots[[lv]] <- list()
+#   beta_plots[[lv]] <- list(
+#      all_diseases = plot_beta_mean_forest(
+#        tbl_all,
+#        title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
+#        exposure_units = exposure_units
+#      ),
+#      age_related_diseases = plot_beta_mean_forest(
+#        tbl_ard,
+#        title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
+#        exposure_units = exposure_units
+#      )
+#    )
 
     beta_plots[[lv]][["all_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_all,
-      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv))
+      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
+      exposure_units = exposure_units
     )
     beta_plots[[lv]][["age_related_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_ard,
-      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv))
+      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
+      exposure_units = exposure_units
     )
   }
 
@@ -653,9 +670,11 @@ run_phenome_mr <- function(
     MR_df = MR_df,
     results_df    = results_df,
     summary_plots = summary_plots,
-    # enrich        = enrich,
-    beta          = beta_tables
-    # , beta_contrast = beta_contrast_tables
+
+#    enrich        = enrich,
+#    beta          = beta_tables,
+#    beta_contrast = beta_contrast_tables,
+#    exposure_units = exposure_units
   )
 
   saveRDS(output, file = file.path(cfg$plot_dir, "results.rds"))
