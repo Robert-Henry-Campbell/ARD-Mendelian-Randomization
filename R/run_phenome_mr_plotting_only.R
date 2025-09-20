@@ -360,7 +360,17 @@ run_phenome_mr_plotting_only <- function(
       title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
       exposure_units = exposure_units
     )
+    beta_plots[[lv]][["all_diseases_wrap_yfloat"]] <- plot_beta_mean_forest_wrap_yfloat(
+      tbl_all,
+      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
+      exposure_units = exposure_units
+    )
     beta_plots[[lv]][["age_related_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
+      tbl_ard,
+      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
+      exposure_units = exposure_units
+    )
+    beta_plots[[lv]][["age_related_diseases_wrap_yfloat"]] <- plot_beta_mean_forest_wrap_yfloat(
       tbl_ard,
       title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
       exposure_units = exposure_units
@@ -492,7 +502,12 @@ run_phenome_mr_plotting_only <- function(
       if (!is.null(file_stem_override)) file_stem <- file_stem_override
       file_name <- paste0(file_stem, ".png")
       file_path <- file.path(dir_path, file_name)
-      ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+      is_yfloat <- length(path_labels) >= 1 && grepl("_wrap_yfloat$", tail(path_labels, 1))
+      ggsave_args <- list(filename = file_path, plot = x, width = width, dpi = 300)
+      if (!is_yfloat) {
+        ggsave_args$height <- height
+      }
+      do.call(ggplot2::ggsave, ggsave_args)
       .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
       return(invisible(NULL))
     }
