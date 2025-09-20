@@ -129,12 +129,12 @@ run_phenome_mr_plotting_only <- function(
 
   metrics <- list()
 
-###
+#####################################################################################
 
   #ALL ANALYSIS REMOVED FROM HERE
 
 
-####
+########################################################################################3
 
 
 ### LOADING UP MY STUFF
@@ -143,8 +143,7 @@ run_phenome_mr_plotting_only <- function(
   MR_df <- run_output$MR_df
 
 
-###
-
+#################################################################################
   logger::log_info("5) Build summary plots…")
 
   # ---- 5A. MANHATTAN: BH vs Bonf × (all vs ARD-only) ----
@@ -154,10 +153,10 @@ run_phenome_mr_plotting_only <- function(
     results_df[FALSE, , drop = FALSE]
   }
 
-  manhattan_BH_all   <- manhattan_plot(results_df,        Multiple_testing_correction = "BH",         exposure = exposure)
-  manhattan_BH_ARD   <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "BH",         exposure = exposure)
-  manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure)
-  manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure)
+  # manhattan_BH_all   <- manhattan_plot(results_df,        Multiple_testing_correction = "BH",         exposure = exposure)
+  # manhattan_BH_ARD   <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "BH",         exposure = exposure)
+  # manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure)
+  # manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure)
 
   manhattan_recolor_BH_all   <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
   manhattan_recolor_BH_ARD   <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
@@ -165,128 +164,128 @@ run_phenome_mr_plotting_only <- function(
   manhattan_recolor_Bonf_ARD <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
 
   # ---- 5B. VOLCANO ----
-  volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
+  # volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
   volcano_recolor_BH_all   <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
   volcano_recolor_BH_ARD   <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
   volcano_recolor_Bonf_all <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
   volcano_recolor_Bonf_ARD <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
 
   # ---- 6) SES enrichment analyses ----
-  logger::log_info("6) Enrichment analyses…")
-  enrich <- run_enrichment(
-    results_df,
-    exposure = exposure,
-    levels = c("cause_level_1","cause_level_2","cause_level_3"),
-    modes  = c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere"),
-    use_qc_pass = TRUE,
-    min_nsnp    = 2,
-    weight_scheme = "inv_se2",
-    exact_max_combn = 1e5,
-    mc_B = 100000,
-    seed = 1
-  )
+  # logger::log_info("6) Enrichment analyses…")
+  # enrich <- run_enrichment(
+  #   results_df,
+  #   exposure = exposure,
+  #   levels = c("cause_level_1","cause_level_2","cause_level_3"),
+  #   modes  = c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere"),
+  #   use_qc_pass = TRUE,
+  #   min_nsnp    = 2,
+  #   weight_scheme = "inv_se2",
+  #   exact_max_combn = 1e5,
+  #   mc_B = 100000,
+  #   seed = 1
+  # )
 
   # ---- 6A. SES enrichment plots ----
-  enrichment_global_plot_dir    <- plot_enrichment_global(enrich$global_tbl)
-  enrichment_global_plot_signed <- plot_enrichment_global_signed(enrich$global_tbl)
+  # enrichment_global_plot_dir    <- plot_enrichment_global(enrich$global_tbl)
+  # enrichment_global_plot_signed <- plot_enrichment_global_signed(enrich$global_tbl)
 
   cause_levels  <- c("cause_level_1","cause_level_2","cause_level_3")
   compare_modes <- c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere")
 
-  enrichment_cause_plots_dir <- lapply(cause_levels, function(lv) {
-    lv_list <- lapply(compare_modes, function(md) {
-      plot_enrichment_directional_forest(
-        by_cause_tbl = enrich$by_cause_tbl,
-        level = lv,
-        compare_mode = md
-      )
-    })
-    names(lv_list) <- compare_modes
-    lv_list
-  })
-  names(enrichment_cause_plots_dir) <- cause_levels
+  # enrichment_cause_plots_dir <- lapply(cause_levels, function(lv) {
+  #   lv_list <- lapply(compare_modes, function(md) {
+  #     plot_enrichment_directional_forest(
+  #       by_cause_tbl = enrich$by_cause_tbl,
+  #       level = lv,
+  #       compare_mode = md
+  #     )
+  #   })
+  #   names(lv_list) <- compare_modes
+  #   lv_list
+  # })
+  # names(enrichment_cause_plots_dir) <- cause_levels
 
-  enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
-    lv_list <- lapply(compare_modes, function(md) {
-      plot_enrichment_signed_forest(
-        by_cause_tbl = enrich$by_cause_tbl,
-        level = lv,
-        compare_mode = md
-      )
-    })
-    names(lv_list) <- compare_modes
-    lv_list
-  })
-  names(enrichment_cause_plots_signed) <- cause_levels
+  # enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
+  #   lv_list <- lapply(compare_modes, function(md) {
+  #     plot_enrichment_signed_forest(
+  #       by_cause_tbl = enrich$by_cause_tbl,
+  #       level = lv,
+  #       compare_mode = md
+  #     )
+  #   })
+  #   names(lv_list) <- compare_modes
+  #   lv_list
+  # })
+  # names(enrichment_cause_plots_signed) <- cause_levels
 
   # ---- 6C) β-scale contrasts (Δβ) analyses + plots ----
-  logger::log_info("6C) Beta-scale contrasts (Δβ)…")
+  # logger::log_info("6C) Beta-scale contrasts (Δβ)…")
 
   # Containers for tables & plots
-  beta_contrast_tables <- list()
-  beta_contrast_plots  <- list()
+  # beta_contrast_tables <- list()
+  # beta_contrast_plots  <- list()
 
   # Global ARD vs non-ARD
-  tbl_global_bc <- beta_contrast_global_ARD(
-    results_df,
-    use_qc_pass = TRUE, min_nsnp = 2,
-    exposure = exposure,
-    Multiple_testing_correction = cfg$mtc, alpha = 0.05
-  )
-  beta_contrast_tables$global <- list(ARD_vs_nonARD = tbl_global_bc)
-  beta_contrast_plots$global  <- list(
-    ARD_vs_nonARD = plot_beta_contrast_forest(
-      tbl_global_bc,
-      title = sprintf("Global Δβ: ARD vs non-ARD (%s)", exposure),
-      Multiple_testing_correction = cfg$mtc, alpha = 0.05
-    )
-  )
+  # tbl_global_bc <- beta_contrast_global_ARD(
+  #   results_df,
+  #   use_qc_pass = TRUE, min_nsnp = 2,
+  #   exposure = exposure,
+  #   Multiple_testing_correction = cfg$mtc, alpha = 0.05
+  # )
+  # beta_contrast_tables$global <- list(ARD_vs_nonARD = tbl_global_bc)
+  # beta_contrast_plots$global  <- list(
+  #   ARD_vs_nonARD = plot_beta_contrast_forest(
+  #     tbl_global_bc,
+  #     title = sprintf("Global Δβ: ARD vs non-ARD (%s)", exposure),
+  #     Multiple_testing_correction = cfg$mtc, alpha = 0.05
+  #   )
+  # )
 
   # Cause-levels × modes: cause_vs_rest_all + ARD-based modes
-  for (lv in cause_levels) {
-    beta_contrast_tables[[lv]] <- list()
-    beta_contrast_plots[[lv]]  <- list()
+  # for (lv in cause_levels) {
+  #   beta_contrast_tables[[lv]] <- list()
+  #   beta_contrast_plots[[lv]]  <- list()
 
-    for (md in compare_modes) {
-      tbl <- if (md == "cause_vs_rest_all") {
-        # all phenotypes: inside cause vs outside
-        beta_contrast_by_cause(
-          results_df,
-          level = lv,
-          use_qc_pass = TRUE, min_nsnp = 2,
-          exposure = exposure,
-          Multiple_testing_correction = cfg$mtc, alpha = 0.05
-        )
-      } else {
-        # ARD-based scopes mirroring SES contexts
-        beta_contrast_by_cause_mode(
-          results_df,
-          level = lv, compare_mode = md,
-          use_qc_pass = TRUE, min_nsnp = 2,
-          exposure = exposure,
-          Multiple_testing_correction = cfg$mtc, alpha = 0.05
-        )
-      }
+  #   for (md in compare_modes) {
+  #     tbl <- if (md == "cause_vs_rest_all") {
+  #       # all phenotypes: inside cause vs outside
+  #       beta_contrast_by_cause(
+  #         results_df,
+  #         level = lv,
+  #         use_qc_pass = TRUE, min_nsnp = 2,
+  #         exposure = exposure,
+  #         Multiple_testing_correction = cfg$mtc, alpha = 0.05
+  #       )
+  #     } else {
+  #       # ARD-based scopes mirroring SES contexts
+  #       beta_contrast_by_cause_mode(
+  #         results_df,
+  #         level = lv, compare_mode = md,
+  #         use_qc_pass = TRUE, min_nsnp = 2,
+  #         exposure = exposure,
+  #         Multiple_testing_correction = cfg$mtc, alpha = 0.05
+  #       )
+  #     }
 
-      beta_contrast_tables[[lv]][[md]] <- tbl
-      beta_contrast_plots[[lv]][[md]]  <- plot_beta_contrast_forest(
-        tbl,
-        title = sprintf("Δβ by %s — %s (%s)",
-                        gsub("_"," ", lv),
-                        .pretty_compare(md),
-                        exposure),
-        Multiple_testing_correction = cfg$mtc, alpha = 0.05
-      )
-      beta_contrast_plots[[lv]][[paste0(md, "_wrap")]] <- plot_beta_contrast_forest_wrap(
-        tbl,
-        title = sprintf("Δβ by %s — %s (%s)",
-                        gsub("_"," ", lv),
-                        .pretty_compare(md),
-                        exposure),
-        Multiple_testing_correction = cfg$mtc, alpha = 0.05
-      )
-    }
-  }
+  #     beta_contrast_tables[[lv]][[md]] <- tbl
+  #     beta_contrast_plots[[lv]][[md]]  <- plot_beta_contrast_forest(
+  #       tbl,
+  #       title = sprintf("Δβ by %s — %s (%s)",
+  #                       gsub("_"," ", lv),
+  #                       .pretty_compare(md),
+  #                       exposure),
+  #       Multiple_testing_correction = cfg$mtc, alpha = 0.05
+  #     )
+  #     beta_contrast_plots[[lv]][[paste0(md, "_wrap")]] <- plot_beta_contrast_forest_wrap(
+  #       tbl,
+  #       title = sprintf("Δβ by %s — %s (%s)",
+  #                       gsub("_"," ", lv),
+  #                       .pretty_compare(md),
+  #                       exposure),
+  #       Multiple_testing_correction = cfg$mtc, alpha = 0.05
+  #     )
+  #   }
+  # }
 
   # ---- 6D) β-scale IVW means ("beta" analysis) ----
   logger::log_info("6D) Beta analysis (IVW mean MR β)…")
@@ -300,13 +299,15 @@ run_phenome_mr_plotting_only <- function(
     exposure = exposure
   )
   beta_tables$global <- tbl_beta_global
-  beta_plots$global  <- list(
-    mean_effect = plot_beta_mean_global(
-      tbl_beta_global,
-      title = sprintf("Global Mean Effect of %s", exposure),
-      exposure_units = exposure_units
-    )
-  )
+
+  # beta_plots$global  <- list(
+  #   mean_effect = plot_beta_mean_global(
+  #     tbl_beta_global,
+  #     title = sprintf("Global Mean Effect of %s", exposure),
+  #     exposure_units = exposure_units
+  #   )
+  # )
+
 
   pretty_level <- function(lv) {
     switch(lv,
@@ -340,18 +341,19 @@ run_phenome_mr_plotting_only <- function(
       age_related_diseases = tbl_ard
     )
 
-    beta_plots[[lv]] <- list(
-      all_diseases = plot_beta_mean_forest(
-        tbl_all,
-        title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units
-      ),
-      age_related_diseases = plot_beta_mean_forest(
-        tbl_ard,
-        title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units
-      )
-    )
+
+    #   beta_plots[[lv]] <- list(
+    #      all_diseases = plot_beta_mean_forest(
+    #        tbl_all,
+    #        title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
+    #        exposure_units = exposure_units
+    #      ),
+    #      age_related_diseases = plot_beta_mean_forest(
+    #        tbl_ard,
+    #        title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
+    #        exposure_units = exposure_units
+    #      )
+    #    )
 
     beta_plots[[lv]][["all_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_all,
@@ -367,55 +369,55 @@ run_phenome_mr_plotting_only <- function(
 
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- list(
-    manhattan = list(
-      BH = list(all = manhattan_BH_all, ARD_only = manhattan_BH_ARD),
-      bonferroni = list(all = manhattan_Bonf_all, ARD_only = manhattan_Bonf_ARD)
-    ),
+    # manhattan = list(
+    #   BH = list(all = manhattan_BH_all, ARD_only = manhattan_BH_ARD),
+    #   bonferroni = list(all = manhattan_Bonf_all, ARD_only = manhattan_Bonf_ARD)
+    # ),
     manhattan_recolor = list(
       BH = list(all = manhattan_recolor_BH_all, ARD_only = manhattan_recolor_BH_ARD),
       bonferroni = list(all = manhattan_recolor_Bonf_all, ARD_only = manhattan_recolor_Bonf_ARD)
     ),
-    volcano = list(default = volcano_default),
+    # volcano = list(default = volcano_default),
     volcano_recolor = list(
       BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
       bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
     ),
-    enrichment = list(
-      global = list(
-        directional = list(ARD_vs_nonARD = enrichment_global_plot_dir),
-        signed      = list(ARD_vs_nonARD = enrichment_global_plot_signed)
-      ),
-      cause_level_1 = list(
-        directional = enrichment_cause_plots_dir[["cause_level_1"]],
-        signed      = enrichment_cause_plots_signed[["cause_level_1"]]
-      ),
-      cause_level_2 = list(
-        directional = enrichment_cause_plots_dir[["cause_level_2"]],
-        signed      = enrichment_cause_plots_signed[["cause_level_2"]]
-      ),
-      cause_level_3 = list(
-        directional = enrichment_cause_plots_dir[["cause_level_3"]],
-        signed      = enrichment_cause_plots_signed[["cause_level_3"]]
-      )
-    ),
-    beta = beta_plots,
-    beta_contrast = beta_contrast_plots
+    # enrichment = list(
+    #   global = list(
+    #     directional = list(ARD_vs_nonARD = enrichment_global_plot_dir),
+    #     signed      = list(ARD_vs_nonARD = enrichment_global_plot_signed)
+    #   ),
+    #   cause_level_1 = list(
+    #     directional = enrichment_cause_plots_dir[["cause_level_1"]],
+    #     signed      = enrichment_cause_plots_signed[["cause_level_1"]]
+    #   ),
+    #   cause_level_2 = list(
+    #     directional = enrichment_cause_plots_dir[["cause_level_2"]],
+    #     signed      = enrichment_cause_plots_signed[["cause_level_2"]]
+    #   ),
+    #   cause_level_3 = list(
+    #     directional = enrichment_cause_plots_dir[["cause_level_3"]],
+    #     signed      = enrichment_cause_plots_signed[["cause_level_3"]]
+    #   )
+    # ),
+    beta = beta_plots
+    # , beta_contrast = beta_contrast_plots
   )
 
   # Assert counts
-  n_enrich_cause_plots <- sum(vapply(
-    summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
-    function(l) if (!is.null(l$directional)) length(l$directional) else 0L,
-    integer(1)
-  ))
-  logger::log_info("Enrichment cause-level plots generated: {n_enrich_cause_plots}")
+  # n_enrich_cause_plots <- sum(vapply(
+  #   summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
+  #   function(l) if (!is.null(l$directional)) length(l$directional) else 0L,
+  #   integer(1)
+  # ))
+  # logger::log_info("Enrichment cause-level plots generated: {n_enrich_cause_plots}")
 
-  n_beta_cause_plots <- sum(vapply(
-    summary_plots$beta_contrast[cause_levels],
-    length,
-    integer(1)
-  ))
-  logger::log_info("β-contrast cause-level plots generated: {n_beta_cause_plots}")
+  # n_beta_cause_plots <- sum(vapply(
+  #   summary_plots$beta_contrast[cause_levels],
+  #   length,
+  #   integer(1)
+  # ))
+  # logger::log_info("β-contrast cause-level plots generated: {n_beta_cause_plots}")
 
   n_beta_mean_plots <- sum(vapply(
     summary_plots$beta[cause_levels],
@@ -511,55 +513,55 @@ run_phenome_mr_plotting_only <- function(
   save_plot_hierarchy(summary_plots, cfg$plot_dir)
 
   # ---- 8b) Export enrichment tables (CSV) + beta-contrast tables ----
-  write_enrichment_tables <- function(enrich, base_dir) {
-    out_dir <- file.path(base_dir, "enrichment", "tables")
-    if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-    global_csv   <- file.path(out_dir, "global.csv")
-    by_cause_csv <- file.path(out_dir, "by_cause.csv")
-    if (requireNamespace("readr", quietly = TRUE)) {
-      readr::write_csv(enrich$global_tbl,   global_csv)
-      readr::write_csv(enrich$by_cause_tbl, by_cause_csv)
-    } else {
-      utils::write.csv(enrich$global_tbl,   global_csv,   row.names = FALSE)
-      utils::write.csv(enrich$by_cause_tbl, by_cause_csv, row.names = FALSE)
-    }
-    logger::log_info("Enrichment tables written to {out_dir}")
-  }
+  # write_enrichment_tables <- function(enrich, base_dir) {
+  #   out_dir <- file.path(base_dir, "enrichment", "tables")
+  #   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  #   global_csv   <- file.path(out_dir, "global.csv")
+  #   by_cause_csv <- file.path(out_dir, "by_cause.csv")
+  #   if (requireNamespace("readr", quietly = TRUE)) {
+  #     readr::write_csv(enrich$global_tbl,   global_csv)
+  #     readr::write_csv(enrich$by_cause_tbl, by_cause_csv)
+  #   } else {
+  #     utils::write.csv(enrich$global_tbl,   global_csv,   row.names = FALSE)
+  #     utils::write.csv(enrich$by_cause_tbl, by_cause_csv, row.names = FALSE)
+  #   }
+  #   logger::log_info("Enrichment tables written to {out_dir}")
+  # }
 
-  write_beta_contrast_tables <- function(beta_tables, base_dir) {
-    out_dir <- file.path(base_dir, "beta_contrast", "tables")
-    if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- function(s) {
-      s <- as.character(s)
-      s <- gsub("[/\\?%*:|\"<>]", "_", s)
-      s <- gsub("\\s+", "_", s)
-      s <- gsub("_+", "_", s)
-      s <- sub("^_+", "", s)
-      s <- sub("_+$", "", s)
-      if (!nzchar(s)) "table" else s
-    }
-    wcsv <- function(df, path) {
-      if (!nrow(df)) return(invisible(NULL))
-      if (requireNamespace("readr", quietly = TRUE)) readr::write_csv(df, path)
-      else utils::write.csv(df, path, row.names = FALSE)
-    }
-    # Global
-    if (!is.null(beta_tables$global$ARD_vs_nonARD)) {
-      wcsv(beta_tables$global$ARD_vs_nonARD, file.path(out_dir, "global_ARD_vs_nonARD.csv"))
-    }
-    # Cause levels × modes
-    clv <- c("cause_level_1","cause_level_2","cause_level_3")
-    md  <- c("cause_vs_rest_all","ARD_vs_nonARD_within_cause","ARD_in_cause_vs_ARD_elsewhere")
-    for (lv in clv) {
-      if (!lv %in% names(beta_tables)) next
-      for (m in md) {
-        if (!m %in% names(beta_tables[[lv]])) next
-        fn <- sprintf("%s__%s.csv", safe_name(lv), safe_name(m))
-        wcsv(beta_tables[[lv]][[m]], file.path(out_dir, fn))
-      }
-    }
-    logger::log_info("β-contrast tables written to {out_dir}")
-  }
+  # write_beta_contrast_tables <- function(beta_tables, base_dir) {
+  #   out_dir <- file.path(base_dir, "beta_contrast", "tables")
+  #   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  #   safe_name <- function(s) {
+  #     s <- as.character(s)
+  #     s <- gsub("[/\\?%*:|\"<>]", "_", s)
+  #     s <- gsub("\\s+", "_", s)
+  #     s <- gsub("_+", "_", s)
+  #     s <- sub("^_+", "", s)
+  #     s <- sub("_+$", "", s)
+  #     if (!nzchar(s)) "table" else s
+  #   }
+  #   wcsv <- function(df, path) {
+  #     if (!nrow(df)) return(invisible(NULL))
+  #     if (requireNamespace("readr", quietly = TRUE)) readr::write_csv(df, path)
+  #     else utils::write.csv(df, path, row.names = FALSE)
+  #   }
+  #   # Global
+  #   if (!is.null(beta_tables$global$ARD_vs_nonARD)) {
+  #     wcsv(beta_tables$global$ARD_vs_nonARD, file.path(out_dir, "global_ARD_vs_nonARD.csv"))
+  #   }
+  #   # Cause levels × modes
+  #   clv <- c("cause_level_1","cause_level_2","cause_level_3")
+  #   md  <- c("cause_vs_rest_all","ARD_vs_nonARD_within_cause","ARD_in_cause_vs_ARD_elsewhere")
+  #   for (lv in clv) {
+  #     if (!lv %in% names(beta_tables)) next
+  #     for (m in md) {
+  #       if (!m %in% names(beta_tables[[lv]])) next
+  #       fn <- sprintf("%s__%s.csv", safe_name(lv), safe_name(m))
+  #       wcsv(beta_tables[[lv]][[m]], file.path(out_dir, fn))
+  #     }
+  #   }
+  #   logger::log_info("β-contrast tables written to {out_dir}")
+  # }
 
   write_beta_tables <- function(beta_tables, base_dir) {
     out_dir <- file.path(base_dir, "beta", "tables")
@@ -599,13 +601,13 @@ run_phenome_mr_plotting_only <- function(
     logger::log_info("Beta tables written to {out_dir}")
   }
 
-  write_enrichment_tables(enrich, cfg$plot_dir)
-  write_beta_contrast_tables(beta_contrast_tables, cfg$plot_dir)
+  # write_enrichment_tables(enrich, cfg$plot_dir)
+  # write_beta_contrast_tables(beta_contrast_tables, cfg$plot_dir)
   write_beta_tables(beta_tables, cfg$plot_dir)
 
   # ---- 9) Keep the originals around too (optional) ----
-  manhattan <- manhattan_BH_all
-  volcano   <- volcano_default
+  # manhattan <- manhattan_BH_all
+  # volcano   <- volcano_default
 
   # ---- 10) Summary counts (unchanged placeholder) ----
   summary_tbl <- tibble::tibble(
@@ -624,10 +626,11 @@ run_phenome_mr_plotting_only <- function(
     MR_df = MR_df,
     results_df    = results_df,
     summary_plots = summary_plots,
-    enrich        = enrich,
-    beta          = beta_tables,
-    beta_contrast = beta_contrast_tables,
-    exposure_units = exposure_units
+
+    #    enrich        = enrich,
+    #    beta          = beta_tables,
+    #    beta_contrast = beta_contrast_tables,
+    #    exposure_units = exposure_units
   )
 
   saveRDS(output, file = file.path(cfg$plot_dir, "results.rds"))
