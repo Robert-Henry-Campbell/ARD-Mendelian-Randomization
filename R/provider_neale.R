@@ -228,6 +228,37 @@ neale_snp_grabber <- function(
   cache_root <- file.path(cache_dir, "neale_outcome_snps", sex_sub)
   dir.create(cache_root, recursive = TRUE, showWarnings = FALSE)
 
+  cache_files <- list.files(cache_root, pattern = "\\.rds$", full.names = TRUE)
+  if (length(cache_files)) {
+    for (cf in cache_files) {
+      cache_label <- basename(cf)
+      cached <- tryCatch(readRDS(cf), error = function(e) e)
+
+      if (inherits(cached, "error")) {
+        logger::log_warn(
+          "Neale SNP grabber: cache '{cache_label}' failed to load ({conditionMessage(cached)}); deleting to force regeneration."
+        )
+        try(unlink(cf, force = TRUE), silent = TRUE)
+        next
+      }
+
+      if (!inherits(cached, "data.frame")) {
+        logger::log_warn(
+          "Neale SNP grabber: cache '{cache_label}' returned a non-data-frame object of class '{paste(class(cached), collapse = '/')}' (deleting)."
+        )
+        try(unlink(cf, force = TRUE), silent = TRUE)
+        next
+      }
+
+      if (nrow(cached) == 0L) {
+        logger::log_warn(
+          "Neale SNP grabber: cache '{cache_label}' was empty; deleting to rebuild from source data."
+        )
+        try(unlink(cf, force = TRUE), silent = TRUE)
+      }
+    }
+  }
+
   # (optional) log once if forcing refresh
   if (isTRUE(force_refresh)) {
     logger::log_info("Neale SNP grabber: force_refresh = TRUE (rebuilding cached per-outcome SNP tables).")
