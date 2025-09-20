@@ -73,6 +73,24 @@ ard_compare <- function(
   shorttimestamp <- format(Sys.time(), "%m%d_%H%M")
   exposure_slug <- slug(exposure)
   compare_root <- file.path(cache_dir, "output", exposure_slug, "compare", shorttimestamp)
+  if (!dir.exists(compare_root)) {
+    dir.create(compare_root, recursive = TRUE, showWarnings = FALSE)
+  }
+  compare_logfile <- file.path(
+    compare_root,
+    sprintf("ard_compare_%s.log", format(Sys.time(), "%Y%m%d_%H%M%S"))
+  )
+  compare_log_level <- if (isTRUE(verbose)) "INFO" else "WARN"
+  setup_logging(compare_logfile, level = compare_log_level)
+  restore_compare_logging <- function() {
+    if (nzchar(compare_logfile)) {
+      logger::log_appender(logger::appender_tee(compare_logfile))
+    } else {
+      logger::log_appender(logger::appender_console())
+    }
+    logger::log_layout(logger::layout_glue_colors)
+    logger::log_threshold(compare_log_level)
+  }
   beta_compare_dir <- file.path(compare_root, "beta_compare")
   if (!dir.exists(beta_compare_dir)) {
     dir.create(beta_compare_dir, recursive = TRUE, showWarnings = FALSE)
@@ -199,6 +217,7 @@ ard_compare <- function(
   }
 
   if (isTRUE(verbose)) {
+    restore_compare_logging()
     logger::log_info("Assembling ARD compare outputs for {length(groups_info)} groups into {compare_root}")
   }
 
@@ -206,11 +225,13 @@ ard_compare <- function(
   for (info in groups_info) {
     if (file.exists(info$global_csv)) {
       if (isTRUE(verbose)) {
+        restore_compare_logging()
         logger::log_info("Reusing existing beta tables for sex={info$sex}, ancestry={info$ancestry} ({info$global_csv}).")
       }
       next
     }
     if (isTRUE(verbose)) {
+      restore_compare_logging()
       logger::log_info("Launching run_phenome_mr for sex={info$sex}, ancestry={info$ancestry}.")
     }
     run_phenome_mr(
