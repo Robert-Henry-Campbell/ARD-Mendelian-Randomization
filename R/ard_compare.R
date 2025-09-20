@@ -174,6 +174,14 @@ ard_compare <- function(
     )
   }
 
+  sex_values <- vapply(groups_info, function(info) info$sex, character(1))
+  if (any(sex_values == "both") && !all(sex_values == "both")) {
+    stop(
+      "comparisons of panukb and neale not allowed: check sex values to ensure one catalog only",
+      call. = FALSE
+    )
+  }
+
   # ensure sex/both consistency for non-EUR ancestries
   for (info in groups_info) {
     if (!identical(info$ancestry, "EUR") && !identical(info$sex, "both")) {
