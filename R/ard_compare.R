@@ -34,7 +34,7 @@ ard_compare <- function(
     cache_dir = ardmr_cache_dir(),
     logfile = NULL,
     verbose = TRUE,
-    confirm = "ask",
+    confirm = "yes",
     force_refresh = FALSE
 ) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
