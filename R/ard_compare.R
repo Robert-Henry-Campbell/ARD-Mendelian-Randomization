@@ -392,13 +392,20 @@ ard_compare <- function(
 
   save_plot <- function(plot, dir_path, file_stem, n_rows, width = 6.0) {
     if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
-    height <- max(2.4, 1.2 + 0.28 * n_rows)
     file_path <- file.path(dir_path, paste0(file_stem, ".png"))
     is_yfloat <- is.character(file_stem) && grepl("_wrap_yfloat$", file_stem)
-    ggsave_args <- list(filename = file_path, plot = plot, width = width, dpi = 300)
-    if (!is_yfloat) {
-      ggsave_args$height <- height
+    height <- if (is_yfloat) {
+      1.2 + 0.28 * max(1, n_rows)
+    } else {
+      max(2.4, 1.2 + 0.28 * n_rows)
     }
+    ggsave_args <- list(
+      filename = file_path,
+      plot = plot,
+      width = width,
+      height = height,
+      dpi = 300
+    )
     do.call(ggplot2::ggsave, ggsave_args)
     .ardmr_write_plot_data(plot, dir_path = dir_path, base_name = file_stem)
     invisible(NULL)
