@@ -18,6 +18,7 @@
 #' @export
 ard_compare <- function(
     exposure,
+    exposure_units,
     groups,
     sensitivity_enabled = c(
       "egger_intercept","egger_slope_agreement",
@@ -44,6 +45,13 @@ ard_compare <- function(
   if (is.na(exposure) || !nzchar(exposure)) stop("`exposure` is mandatory.")
   exposure <- trimws(exposure)
   if (!nzchar(exposure)) stop("`exposure` is mandatory.")
+  if (missing(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- as.character(exposure_units)
+  if (!length(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- exposure_units[1]
+  if (is.na(exposure_units)) stop("`exposure_units` is mandatory.")
+  exposure_units <- trimws(exposure_units)
+  if (!nzchar(exposure_units)) stop("`exposure_units` is mandatory.")
 
   if (!is.list(groups) || !length(groups)) {
     stop("`groups` must be a non-empty list of group specifications.")
@@ -194,6 +202,7 @@ ard_compare <- function(
     run_phenome_mr(
       exposure = exposure,
       exposure_snps = info$exposure_snps,
+      exposure_units = exposure_units,
       ancestry = info$ancestry,
       sex = info$sex,
       sensitivity_enabled = sensitivity_enabled,
@@ -379,9 +388,9 @@ ard_compare <- function(
   # build and save plots
   if (nrow(global_combined)) {
     out_dir <- file.path(beta_compare_dir, "global")
-    plot_global <- plot_beta_mean_global_compare(global_combined)
+    plot_global <- plot_beta_mean_global_compare(global_combined, exposure_units = exposure_units)
     save_plot(plot_global, out_dir, "mean_effect", nrow(global_combined))
-    plot_global_wrap <- plot_beta_mean_global_compare_wrap(global_combined)
+    plot_global_wrap <- plot_beta_mean_global_compare_wrap(global_combined, exposure_units = exposure_units)
     save_plot(plot_global_wrap, out_dir, "mean_effect_wrap", nrow(global_combined))
   }
 
@@ -391,9 +400,9 @@ ard_compare <- function(
       if (!nrow(plot_df)) next
       out_dir <- file.path(beta_compare_dir, lvl, sc)
       n_rows <- nrow(plot_df)
-      plot_obj <- plot_beta_mean_cause_compare(plot_df)
+      plot_obj <- plot_beta_mean_cause_compare(plot_df, exposure_units = exposure_units)
       save_plot(plot_obj, out_dir, "mean_effect", n_rows)
-      plot_obj_wrap <- plot_beta_mean_cause_compare_wrap(plot_df)
+      plot_obj_wrap <- plot_beta_mean_cause_compare_wrap(plot_df, exposure_units = exposure_units)
       save_plot(plot_obj_wrap, out_dir, "mean_effect_wrap", n_rows)
     }
   }

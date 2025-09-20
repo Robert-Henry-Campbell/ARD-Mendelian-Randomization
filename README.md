@@ -60,6 +60,7 @@ exposure <- tibble::tibble(
 res <- run_phenome_mr(
   exposure = "LDL-C",
   exposure_snps = exposure,
+  exposure_units = "1-SD LDL-C",
   sex = "both",                # "both" => Pan-UKB, "male"/"female" => Neale
   ancestry = "EUR",
   sensitivity_pass_min = 6,
