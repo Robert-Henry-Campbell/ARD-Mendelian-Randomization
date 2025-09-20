@@ -344,11 +344,14 @@ run_phenome_mr <- function(
   )
   beta_tables$global <- tbl_beta_global
 
+  beta_effect_scale <- if (identical(cfg$sex, "both")) "odds_ratio" else "absolute_risk"
+
   beta_plots$global  <- list(
    mean_effect = plot_beta_mean_global(
      tbl_beta_global,
      title = sprintf("Global Mean Effect of %s", exposure),
-     exposure_units = exposure_units
+     exposure_units = exposure_units,
+     effect_scale = beta_effect_scale
    )
   )
 
@@ -386,28 +389,32 @@ run_phenome_mr <- function(
     )
 
 
-   beta_plots[[lv]] <- list(
+    beta_plots[[lv]] <- list(
       all_diseases = plot_beta_mean_forest(
         tbl_all,
         title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units
+        exposure_units = exposure_units,
+        effect_scale = beta_effect_scale
       ),
       age_related_diseases = plot_beta_mean_forest(
         tbl_ard,
         title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units
+        exposure_units = exposure_units,
+        effect_scale = beta_effect_scale
       )
     )
 
     beta_plots[[lv]][["all_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_all,
       title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units
+      exposure_units = exposure_units,
+      effect_scale = beta_effect_scale
     )
     beta_plots[[lv]][["age_related_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
       tbl_ard,
       title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units
+      exposure_units = exposure_units,
+      effect_scale = beta_effect_scale
     )
   }
 

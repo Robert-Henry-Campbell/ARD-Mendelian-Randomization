@@ -1332,7 +1332,8 @@ plot_beta_contrast_forest_wrap <- function(
 
 
 # helper to format the β-scale axis label using exposure units
-.format_beta_axis_label <- function(exposure_units) {
+.format_beta_axis_label <- function(exposure_units, effect_scale = c("odds_ratio", "absolute_risk")) {
+  effect_scale <- match.arg(effect_scale)
   if (missing(exposure_units)) stop("`exposure_units` is required.", call. = FALSE)
   units_label <- as.character(exposure_units)
   if (!length(units_label)) stop("`exposure_units` is required.", call. = FALSE)
@@ -1340,7 +1341,12 @@ plot_beta_contrast_forest_wrap <- function(
   if (is.na(units_label)) stop("`exposure_units` is required.", call. = FALSE)
   units_label <- trimws(units_label)
   if (!nzchar(units_label)) stop("`exposure_units` must be a non-empty string.", call. = FALSE)
-  sprintf("Mean Δ Log-OR per %s", units_label)
+  label_template <- switch(
+    effect_scale,
+    odds_ratio = "Mean Δ odds ratio per %s",
+    absolute_risk = "Mean Δ absolute risk per %s"
+  )
+  sprintf(label_template, units_label)
 }
 
 
@@ -1353,18 +1359,23 @@ plot_beta_contrast_forest_wrap <- function(
 #' @param subtitle Optional subtitle string.
 #' @param exposure_units Character string describing the exposure units used
 #'   for the β-scale axis label.
+#' @param effect_scale Character string specifying whether the β-axis should be
+#'   expressed as odds ratios ("odds_ratio") or absolute risk
+#'   ("absolute_risk").
 plot_beta_mean_forest <- function(
     beta_tbl,
     title = NULL,
     subtitle = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_tbl)
   required_cols <- c("cause", "ivw_mean_beta", "se_ivw_mean", "ci_low", "ci_high")
   stopifnot(all(required_cols %in% names(df)))
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
 
-  axis_label <- .format_beta_axis_label(exposure_units)
+  effect_scale <- match.arg(effect_scale)
+  axis_label <- .format_beta_axis_label(exposure_units, effect_scale = effect_scale)
 
   df$._ord <- abs(df$ivw_mean_beta)
   df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
@@ -1415,14 +1426,17 @@ plot_beta_mean_forest_wrap <- function(
     beta_tbl,
     title = NULL,
     subtitle = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_tbl)
+  effect_scale <- match.arg(effect_scale)
   p <- plot_beta_mean_forest(
     beta_tbl = df,
     title = title,
     subtitle = subtitle,
-    exposure_units = exposure_units
+    exposure_units = exposure_units,
+    effect_scale = effect_scale
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
@@ -1453,14 +1467,17 @@ plot_beta_mean_forest_wrap_yfloat <- function(
     beta_tbl,
     title = NULL,
     subtitle = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_tbl)
+  effect_scale <- match.arg(effect_scale)
   p <- plot_beta_mean_forest(
     beta_tbl = df,
     title = title,
     subtitle = subtitle,
-    exposure_units = exposure_units
+    exposure_units = exposure_units,
+    effect_scale = effect_scale
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
@@ -1485,17 +1502,22 @@ plot_beta_mean_forest_wrap_yfloat <- function(
 #' @param title Optional title.
 #' @param exposure_units Character string describing the exposure units used
 #'   for the β-scale axis label.
+#' @param effect_scale Character string specifying whether the β-axis should be
+#'   expressed as odds ratios ("odds_ratio") or absolute risk
+#'   ("absolute_risk").
 plot_beta_mean_global <- function(
     beta_global_tbl,
     title = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_global_tbl)
   required_cols <- c("group", "ivw_mean_beta", "se_ivw_mean", "ci_low", "ci_high")
   stopifnot(all(required_cols %in% names(df)))
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
 
-  axis_label <- .format_beta_axis_label(exposure_units)
+  effect_scale <- match.arg(effect_scale)
+  axis_label <- .format_beta_axis_label(exposure_units, effect_scale = effect_scale)
 
   df$._ord <- ifelse(is.finite(df$ivw_mean_beta), abs(df$ivw_mean_beta), Inf)
   df <- df[order(df$._ord, decreasing = FALSE), , drop = FALSE]
@@ -1540,14 +1562,16 @@ plot_beta_mean_global <- function(
 plot_beta_mean_global_compare <- function(
     beta_global_tbl,
     title = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_global_tbl)
   required_cols <- c("display_label", "ivw_mean_beta", "ci_low", "ci_high")
   stopifnot(all(required_cols %in% names(df)))
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
 
-  axis_label <- .format_beta_axis_label(exposure_units)
+  effect_scale <- match.arg(effect_scale)
+  axis_label <- .format_beta_axis_label(exposure_units, effect_scale = effect_scale)
 
   df$axis_label <- df$display_label
   levels_vec <- rev(df$display_label)
@@ -1608,13 +1632,16 @@ plot_beta_mean_global_compare <- function(
 plot_beta_mean_global_compare_wrap <- function(
     beta_global_tbl,
     title = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_global_tbl)
+  effect_scale <- match.arg(effect_scale)
   p <- plot_beta_mean_global_compare(
     beta_global_tbl = df,
     title = title,
-    exposure_units = exposure_units
+    exposure_units = exposure_units,
+    effect_scale = effect_scale
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
@@ -1645,13 +1672,16 @@ plot_beta_mean_global_compare_wrap <- function(
 plot_beta_mean_global_compare_wrap_yfloat <- function(
     beta_global_tbl,
     title = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_global_tbl)
+  effect_scale <- match.arg(effect_scale)
   p <- plot_beta_mean_global_compare(
     beta_global_tbl = df,
     title = title,
-    exposure_units = exposure_units
+    exposure_units = exposure_units,
+    effect_scale = effect_scale
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
@@ -1681,18 +1711,23 @@ plot_beta_mean_global_compare_wrap_yfloat <- function(
 #' @keywords internal
 #' @param exposure_units Character string describing the exposure units used
 #'   for the β-scale axis label.
+#' @param effect_scale Character string specifying whether the β-axis should be
+#'   expressed as odds ratios ("odds_ratio") or absolute risk
+#'   ("absolute_risk").
 plot_beta_mean_cause_compare <- function(
     beta_cause_tbl,
     title = NULL,
     subtitle = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_cause_tbl)
   required_cols <- c("axis_label", "axis_id", "is_separator", "ivw_mean_beta", "ci_low", "ci_high")
   stopifnot(all(required_cols %in% names(df)))
   if (!nrow(df)) return(ggplot2::ggplot() + ggplot2::theme_void())
 
-  axis_label <- .format_beta_axis_label(exposure_units)
+  effect_scale <- match.arg(effect_scale)
+  axis_label <- .format_beta_axis_label(exposure_units, effect_scale = effect_scale)
 
   df$is_separator <- df$is_separator %in% TRUE
   axis_levels <- rev(df$axis_id)
@@ -1764,14 +1799,17 @@ plot_beta_mean_cause_compare_wrap <- function(
     beta_cause_tbl,
     title = NULL,
     subtitle = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_cause_tbl)
+  effect_scale <- match.arg(effect_scale)
   p <- plot_beta_mean_cause_compare(
     beta_cause_tbl = df,
     title = title,
     subtitle = subtitle,
-    exposure_units = exposure_units
+    exposure_units = exposure_units,
+    effect_scale = effect_scale
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
@@ -1805,14 +1843,17 @@ plot_beta_mean_cause_compare_wrap_yfloat <- function(
     beta_cause_tbl,
     title = NULL,
     subtitle = NULL,
-    exposure_units
+    exposure_units,
+    effect_scale = c("odds_ratio", "absolute_risk")
 ) {
   df <- tibble::as_tibble(beta_cause_tbl)
+  effect_scale <- match.arg(effect_scale)
   p <- plot_beta_mean_cause_compare(
     beta_cause_tbl = df,
     title = title,
     subtitle = subtitle,
-    exposure_units = exposure_units
+    exposure_units = exposure_units,
+    effect_scale = effect_scale
   )
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
