@@ -1580,11 +1580,12 @@ plot_beta_mean_global_compare <- function(
   axis_labels <- stats::setNames(levels_vec, levels_vec)
 
   if (is.null(title)) {
-    exposure_lab <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure))[1] else NA_character_
-    title <- sprintf(
-      "Global IVW mean MR β (compare%s)",
-      ifelse(is.na(exposure_lab) || !nzchar(exposure_lab), "", paste0(": ", exposure_lab))
-    )
+    exposure_vals <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure)) else character()
+    exposure_lab <- tryCatch(as.character(exposure_vals)[1], error = function(e) NA_character_)
+    if (is.na(exposure_lab) || !nzchar(exposure_lab)) {
+      exposure_lab <- "the exposure"
+    }
+    title <- sprintf("Mean effect of %s", exposure_lab)
   }
 
   err_data <- df[is.finite(df$ci_low) & is.finite(df$ci_high), , drop = FALSE]
@@ -1637,12 +1638,20 @@ plot_beta_mean_global_compare_wrap <- function(
 ) {
   df <- tibble::as_tibble(beta_global_tbl)
   effect_scale <- match.arg(effect_scale)
-  p <- plot_beta_mean_global_compare(
-    beta_global_tbl = df,
-    title = title,
-    exposure_units = exposure_units,
-    effect_scale = effect_scale
-  )
+  p <- if (missing(title)) {
+    plot_beta_mean_global_compare(
+      beta_global_tbl = df,
+      exposure_units = exposure_units,
+      effect_scale = effect_scale
+    )
+  } else {
+    plot_beta_mean_global_compare(
+      beta_global_tbl = df,
+      title = title,
+      exposure_units = exposure_units,
+      effect_scale = effect_scale
+    )
+  }
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
   if (!nrow(df)) {
@@ -1677,12 +1686,20 @@ plot_beta_mean_global_compare_wrap_yfloat <- function(
 ) {
   df <- tibble::as_tibble(beta_global_tbl)
   effect_scale <- match.arg(effect_scale)
-  p <- plot_beta_mean_global_compare(
-    beta_global_tbl = df,
-    title = title,
-    exposure_units = exposure_units,
-    effect_scale = effect_scale
-  )
+  p <- if (missing(title)) {
+    plot_beta_mean_global_compare(
+      beta_global_tbl = df,
+      exposure_units = exposure_units,
+      effect_scale = effect_scale
+    )
+  } else {
+    plot_beta_mean_global_compare(
+      beta_global_tbl = df,
+      title = title,
+      exposure_units = exposure_units,
+      effect_scale = effect_scale
+    )
+  }
 
   plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
   if (!nrow(df)) {
