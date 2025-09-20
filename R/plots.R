@@ -1441,6 +1441,44 @@ plot_beta_mean_forest_wrap <- function(
   p_wrapped
 }
 
+#' Wrapped-axis companion to `plot_beta_mean_forest()` with floating height
+#'
+#' Identical to `plot_beta_mean_forest_wrap()` but intended for saving without
+#' enforcing a fixed output height.
+#'
+#' @inheritParams plot_beta_mean_forest
+#' @return ggplot object with wrapped y-axis labels.
+#' @export
+plot_beta_mean_forest_wrap_yfloat <- function(
+    beta_tbl,
+    title = NULL,
+    subtitle = NULL,
+    exposure_units
+) {
+  df <- tibble::as_tibble(beta_tbl)
+  p <- plot_beta_mean_forest(
+    beta_tbl = df,
+    title = title,
+    subtitle = subtitle,
+    exposure_units = exposure_units
+  )
+
+  plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  if (!nrow(df)) {
+    if (!is.null(plot_data)) {
+      attr(p, "ardmr_plot_data") <- plot_data
+    }
+    return(p)
+  }
+  p_wrapped <- p + ggplot2::scale_y_discrete(
+    labels = function(x) stringr::str_wrap(x, width = 27)
+  )
+  if (!is.null(plot_data)) {
+    attr(p_wrapped, "ardmr_plot_data") <- plot_data
+  }
+  p_wrapped
+}
+
 #' Global forest plot of IVW mean MR beta (all diseases vs ARDs)
 #'
 #' @param beta_global_tbl Tibble from beta_mean_global().
@@ -1604,6 +1642,43 @@ plot_beta_mean_global_compare_wrap <- function(
 }
 
 #' @keywords internal
+plot_beta_mean_global_compare_wrap_yfloat <- function(
+    beta_global_tbl,
+    title = NULL,
+    exposure_units
+) {
+  df <- tibble::as_tibble(beta_global_tbl)
+  p <- plot_beta_mean_global_compare(
+    beta_global_tbl = df,
+    title = title,
+    exposure_units = exposure_units
+  )
+
+  plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  if (!nrow(df)) {
+    if (!is.null(plot_data)) {
+      attr(p, "ardmr_plot_data") <- plot_data
+    }
+    return(p)
+  }
+
+  levels_vec <- rev(df$display_label)
+  levels_vec <- unique(levels_vec)
+  axis_labels <- stats::setNames(levels_vec, levels_vec)
+  wrapped_labels <- stringr::str_wrap(unname(axis_labels), width = 27)
+  names(wrapped_labels) <- names(axis_labels)
+
+  p_wrapped <- p + ggplot2::scale_y_discrete(
+    limits = levels_vec,
+    labels = wrapped_labels
+  )
+  if (!is.null(plot_data)) {
+    attr(p_wrapped, "ardmr_plot_data") <- plot_data
+  }
+  p_wrapped
+}
+
+#' @keywords internal
 #' @param exposure_units Character string describing the exposure units used
 #'   for the β-scale axis label.
 plot_beta_mean_cause_compare <- function(
@@ -1686,6 +1761,47 @@ plot_beta_mean_cause_compare <- function(
 #' @inheritParams plot_beta_mean_cause_compare
 #' @keywords internal
 plot_beta_mean_cause_compare_wrap <- function(
+    beta_cause_tbl,
+    title = NULL,
+    subtitle = NULL,
+    exposure_units
+) {
+  df <- tibble::as_tibble(beta_cause_tbl)
+  p <- plot_beta_mean_cause_compare(
+    beta_cause_tbl = df,
+    title = title,
+    subtitle = subtitle,
+    exposure_units = exposure_units
+  )
+
+  plot_data <- attr(p, "ardmr_plot_data", exact = TRUE)
+  if (!nrow(df)) {
+    if (!is.null(plot_data)) {
+      attr(p, "ardmr_plot_data") <- plot_data
+    }
+    return(p)
+  }
+
+  df$is_separator <- df$is_separator %in% TRUE
+  axis_levels <- rev(df$axis_id)
+  axis_levels <- unique(axis_levels)
+  axis_labels <- stats::setNames(df$axis_label, df$axis_id)
+  axis_labels <- axis_labels[axis_levels]
+  wrapped_labels <- stringr::str_wrap(unname(axis_labels), width = 27)
+  names(wrapped_labels) <- names(axis_labels)
+
+  p_wrapped <- p + ggplot2::scale_y_discrete(
+    limits = axis_levels,
+    labels = wrapped_labels
+  )
+  if (!is.null(plot_data)) {
+    attr(p_wrapped, "ardmr_plot_data") <- plot_data
+  }
+  p_wrapped
+}
+
+#' @keywords internal
+plot_beta_mean_cause_compare_wrap_yfloat <- function(
     beta_cause_tbl,
     title = NULL,
     subtitle = NULL,

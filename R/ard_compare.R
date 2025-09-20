@@ -388,7 +388,12 @@ ard_compare <- function(
     if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
     height <- max(2.4, 1.2 + 0.28 * n_rows)
     file_path <- file.path(dir_path, paste0(file_stem, ".png"))
-    ggplot2::ggsave(filename = file_path, plot = plot, width = width, height = height, dpi = 300)
+    is_yfloat <- is.character(file_stem) && grepl("_wrap_yfloat$", file_stem)
+    ggsave_args <- list(filename = file_path, plot = plot, width = width, dpi = 300)
+    if (!is_yfloat) {
+      ggsave_args$height <- height
+    }
+    do.call(ggplot2::ggsave, ggsave_args)
     .ardmr_write_plot_data(plot, dir_path = dir_path, base_name = file_stem)
     invisible(NULL)
   }
@@ -400,6 +405,8 @@ ard_compare <- function(
     save_plot(plot_global, out_dir, "mean_effect", nrow(global_combined))
     plot_global_wrap <- plot_beta_mean_global_compare_wrap(global_combined, exposure_units = exposure_units)
     save_plot(plot_global_wrap, out_dir, "mean_effect_wrap", nrow(global_combined))
+    plot_global_wrap_yfloat <- plot_beta_mean_global_compare_wrap_yfloat(global_combined, exposure_units = exposure_units)
+    save_plot(plot_global_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", nrow(global_combined))
   }
 
   for (lvl in cause_levels) {
@@ -412,6 +419,8 @@ ard_compare <- function(
       save_plot(plot_obj, out_dir, "mean_effect", n_rows)
       plot_obj_wrap <- plot_beta_mean_cause_compare_wrap(plot_df, exposure_units = exposure_units)
       save_plot(plot_obj_wrap, out_dir, "mean_effect_wrap", n_rows)
+      plot_obj_wrap_yfloat <- plot_beta_mean_cause_compare_wrap_yfloat(plot_df, exposure_units = exposure_units)
+      save_plot(plot_obj_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", n_rows)
     }
   }
 
