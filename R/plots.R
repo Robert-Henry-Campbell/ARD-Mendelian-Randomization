@@ -1585,7 +1585,7 @@ plot_beta_mean_global_compare <- function(
     if (is.na(exposure_lab) || !nzchar(exposure_lab)) {
       exposure_lab <- "the exposure"
     }
-    title <- sprintf("Mean effect of %s", exposure_lab)
+    title <- sprintf("Mean effect of %s by group", exposure_lab)
   }
 
   err_data <- df[is.finite(df$ci_low) & is.finite(df$ci_high), , drop = FALSE]
