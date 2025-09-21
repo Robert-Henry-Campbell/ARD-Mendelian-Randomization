@@ -1754,19 +1754,43 @@ plot_beta_mean_cause_compare <- function(
   axis_labels <- axis_labels[axis_levels]
 
   if (is.null(title)) {
-    lvl <- df$level[which(!is.na(df$level))[1]]
-    sc <- df$scope[which(!is.na(df$scope))[1]]
-    lvl_label <- if (!is.na(lvl) && nzchar(lvl)) {
-      tools::toTitleCase(gsub("_", " ", lvl))
-    } else {
-      "Cause level"
+    exposure_vals <- if ("exposure" %in% names(df)) unique(na.omit(df$exposure)) else character()
+    exposure_lab <- tryCatch(as.character(exposure_vals)[1], error = function(e) NA_character_)
+    if (is.na(exposure_lab) || !nzchar(exposure_lab)) {
+      exposure_lab <- "the exposure"
     }
-    scope_label <- if (!is.na(sc) && nzchar(sc)) {
-      if (sc == "age_related_diseases") "Age-Related Diseases" else if (sc == "all_diseases") "All Diseases" else sc
+
+    level_vals <- if ("level" %in% names(df)) as.character(df$level) else character()
+    level_idx <- which(!is.na(level_vals) & nzchar(level_vals))
+    level_value <- if (length(level_idx)) level_vals[level_idx[1]] else NA_character_
+    if (!is.na(level_value) && nzchar(level_value)) {
+      cause_level <- trimws(gsub("_", " ", tolower(level_value)))
     } else {
-      "All Diseases"
+      cause_level <- "cause level"
     }
-    title <- sprintf("%s IVW mean MR β (%s)", lvl_label, scope_label)
+
+    scope_vals <- if ("scope" %in% names(df)) as.character(df$scope) else character()
+    scope_idx <- which(!is.na(scope_vals) & nzchar(scope_vals))
+    scope_value <- if (length(scope_idx)) scope_vals[scope_idx[1]] else NA_character_
+
+    if (identical(scope_value, "all_diseases")) {
+      title <- sprintf("Mean effect of %s on all diseases by %s", exposure_lab, cause_level)
+    } else if (identical(scope_value, "age_related_diseases")) {
+      title <- sprintf("Mean effect of %s on ARDs by %s", exposure_lab, cause_level)
+    } else {
+      scope_label <- if (!is.na(scope_value) && nzchar(scope_value)) {
+        if (scope_value == "age_related_diseases") {
+          "Age-Related Diseases"
+        } else if (scope_value == "all_diseases") {
+          "All Diseases"
+        } else {
+          scope_value
+        }
+      } else {
+        "All Diseases"
+      }
+      title <- sprintf("%s IVW mean MR β (%s)", tools::toTitleCase(cause_level), scope_label)
+    }
   }
 
   err_data <- df[!df$is_separator & is.finite(df$ci_low) & is.finite(df$ci_high), , drop = FALSE]
