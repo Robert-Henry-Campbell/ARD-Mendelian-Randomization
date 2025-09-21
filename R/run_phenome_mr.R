@@ -357,12 +357,14 @@ run_phenome_mr <- function(
 
 
   pretty_level <- function(lv) {
-    switch(lv,
-           cause_level_1 = "Cause Level 1",
-           cause_level_2 = "Cause Level 2",
-           cause_level_3 = "Cause Level 3",
-           gsub("_", " ", lv)
+    pretty <- switch(
+      lv,
+      cause_level_1 = "cause level 1",
+      cause_level_2 = "cause level 2",
+      cause_level_3 = "cause level 3",
+      gsub("_", " ", lv, fixed = TRUE)
     )
+    tolower(pretty)
   }
 
   for (lv in cause_levels) {
