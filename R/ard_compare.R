@@ -61,6 +61,9 @@ ard_compare <- function(
     dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
   }
 
+  catalog <- if (groups[[1]]$sex == "both") "panukb" else "neale"
+  # or by name: catalog <- if (groups[["eur_both"]]$sex == "both") "panukb" else "neale"
+
   slug <- function(x) {
     x <- as.character(x)
     x[is.na(x) | !nzchar(x)] <- "NA"
