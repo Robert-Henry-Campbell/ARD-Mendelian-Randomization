@@ -798,7 +798,7 @@ plot_enrichment_global_signed <- function(
 
 # ---------- Signed enrichment violins ----------
 
-.enrichment_violin_prepare <- function(df, group_col, extra_cols = character()) {
+.enrichment_violin_prepare <- function(df, group_col, extra_cols = character(), group_levels = NULL) {
   df <- tibble::as_tibble(df)
   if (!nrow(df)) {
     return(list(draws = tibble::tibble(), observed = tibble::tibble(), levels = character()))
@@ -821,10 +821,15 @@ plot_enrichment_global_signed <- function(
     return(list(draws = tibble::tibble(), observed = tibble::tibble(), levels = character()))
   }
 
-  ses_vals <- df$SES_signed
-  ord <- order(ses_vals, df$group_label, na.last = NA)
-  if (!length(ord)) ord <- order(df$group_label)
-  levels_use <- unique(df$group_label[ord])
+  if (!is.null(group_levels)) {
+    levels_use <- unique(as.character(group_levels))
+  } else {
+    ses_vals <- df$SES_signed
+    ord <- order(ses_vals, df$group_label, na.last = NA)
+    if (!length(ord)) ord <- order(df$group_label)
+    levels_use <- unique(df$group_label[ord])
+  }
+  levels_use <- levels_use[!is.na(levels_use)]
   df$group_f <- factor(df$group_label, levels = levels_use)
   df$row_id <- seq_len(nrow(df))
 
@@ -1002,6 +1007,96 @@ plot_enrichment_signed_violin_global <- function(
   } else {
     p <- p + ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10))
   }
+
+  .ardmr_attach_plot_data(p, draws = draws, observed = obs)
+}
+
+#' Global signed enrichment violin plot across ARD compare groups
+#'
+#' @param combined_global_tbl Data frame containing one row per group with
+#'   retained permutation draws and associated metadata. Expected to include
+#'   columns `perm_stat`, `group_axis_label`, and `group_order` in addition to
+#'   the enrichment outputs.
+#' @param alpha BH significance threshold for colouring the observed statistic.
+#' @param title Optional plot title.
+#' @param subtitle Optional subtitle.
+plot_enrichment_signed_violin_global_compare <- function(
+    combined_global_tbl,
+    alpha = 0.05,
+    title = NULL,
+    subtitle = NULL
+) {
+  df <- tibble::as_tibble(combined_global_tbl)
+  if (!nrow(df)) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::theme_void(base_size = 11) +
+        ggplot2::labs(title = title %||% "Global enrichment (no data)")
+    )
+  }
+
+  required_cols <- c("perm_stat", "group_axis_label", "group_order")
+  missing_cols <- setdiff(required_cols, names(df))
+  if (length(missing_cols)) {
+    stop(
+      sprintf(
+        "Combined global enrichment table is missing required columns: %s",
+        paste(missing_cols, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  df <- df[order(df$group_order, seq_len(nrow(df))), , drop = FALSE]
+  df$plot_group <- df$group_axis_label
+  axis_levels <- unique(df$group_axis_label)
+  axis_levels <- axis_levels[!is.na(axis_levels)]
+  if (!length(axis_levels)) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::theme_void(base_size = 11) +
+        ggplot2::labs(title = title %||% "Global enrichment (no groups)")
+    )
+  }
+
+  prep <- .enrichment_violin_prepare(
+    df,
+    group_col = "plot_group",
+    extra_cols = c(
+      "group_id", "group_order", "group_axis_label", "sex", "ancestry",
+      "scope", "exposure", "pheno_sex", "n_total", "n_ard", "n_non",
+      "perm_scope"
+    ),
+    group_levels = axis_levels
+  )
+
+  draws <- prep$draws
+  obs <- prep$observed
+
+  if (!nrow(draws)) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::theme_void(base_size = 11) +
+        ggplot2::labs(
+          title = title %||% "Global enrichment (compare)",
+          subtitle = "No permutation draws available"
+        )
+    )
+  }
+
+  exp_label <- tryCatch(unique(na.omit(obs$exposure))[1], error = function(e) NULL)
+  if (is.null(exp_label) || !nzchar(exp_label)) exp_label <- "exposure"
+  if (is.null(title)) {
+    title <- sprintf("Global enrichment of %s across groups", exp_label)
+  }
+  if (is.null(subtitle)) {
+    subtitle <- "ARD vs non-ARD, two-sided permutation test"
+  }
+
+  p <- .build_enrichment_violin_plot(draws, obs, orientation = "forest", alpha = alpha) +
+    ggplot2::labs(title = title, subtitle = subtitle) +
+    ggplot2::scale_y_discrete(labels = function(x) stringr::str_wrap(x, width = 27)) +
+    ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10))
 
   .ardmr_attach_plot_data(p, draws = draws, observed = obs)
 }
