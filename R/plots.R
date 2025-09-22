@@ -872,7 +872,13 @@ plot_enrichment_global_signed <- function(
   list(draws = draws_df, observed = obs_df, levels = levels_use)
 }
 
-.build_enrichment_violin_plot <- function(draw_df, obs_df, orientation = c("vertical","forest"), alpha = 0.05) {
+.build_enrichment_violin_plot <- function(
+    draw_df,
+    obs_df,
+    orientation = c("vertical","forest"),
+    alpha = 0.05,
+    violin_width = 1.25
+) {
   orientation <- match.arg(orientation)
   if (!nrow(obs_df)) {
     placeholder <- ggplot2::ggplot() +
@@ -900,7 +906,13 @@ plot_enrichment_global_signed <- function(
 
   if (orientation == "vertical") {
     base <- ggplot2::ggplot(draw_df, ggplot2::aes(x = group_f, y = Tg_ses)) +
-      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 1.25) + #used to be width = .75
+      ggplot2::geom_violin(
+        fill = "grey85",
+        colour = "grey60",
+        alpha = 0.9,
+        trim = FALSE,
+        width = violin_width
+      ) +
       ggplot2::geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4, colour = "grey50") +
       ggplot2::geom_segment(
         data = obs_df,
@@ -923,7 +935,13 @@ plot_enrichment_global_signed <- function(
       )
   } else {
     base <- ggplot2::ggplot(draw_df, ggplot2::aes(y = group_f, x = Tg_ses)) +
-      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 1.25) + #used to be width = .75
+      ggplot2::geom_violin(
+        fill = "grey85",
+        colour = "grey60",
+        alpha = 0.9,
+        trim = FALSE,
+        width = violin_width
+      ) +
       ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, colour = "grey50") +
       ggplot2::geom_segment(
         data = obs_df,
@@ -1093,7 +1111,13 @@ plot_enrichment_signed_violin_global_compare <- function(
     subtitle <- "ARD vs non-ARD, two-sided permutation test"
   }
 
-  p <- .build_enrichment_violin_plot(draws, obs, orientation = "forest", alpha = alpha) +
+  p <- .build_enrichment_violin_plot(
+    draws,
+    obs,
+    orientation = "forest",
+    alpha = alpha,
+    violin_width = 0.75
+  ) +
     ggplot2::labs(title = title, subtitle = subtitle) +
     ggplot2::scale_y_discrete(labels = function(x) stringr::str_wrap(x, width = 27)) +
     ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10))
