@@ -575,7 +575,7 @@ run_phenome_mr <- function(
         }
         n_rows <- as.integer(n_rows)
         if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
-        height <- yfloat_base + (yfloat_coef * 2.5) * n_rows
+        height <- yfloat_base + (yfloat_coef * 1.3) * n_rows #adjust this coefficient to stretch rows
       }
       if (grepl("^volcano", subpath)) {
         width <- 7.2; height <- 5.0
