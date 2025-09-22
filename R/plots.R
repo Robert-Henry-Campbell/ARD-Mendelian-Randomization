@@ -1063,7 +1063,9 @@ plot_enrichment_signed_violin_by_cause <- function(
   if (orientation == "vertical") {
     p <- p + ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, vjust = 1, size = 9))
   } else {
-    p <- p + ggplot2::theme(axis.text.y = ggplot2::element_text(size = 9))
+    p <- p +
+      ggplot2::scale_y_discrete(labels = function(x) stringr::str_wrap(x, width = 27)) +
+      ggplot2::theme(axis.text.y = ggplot2::element_text(size = 9))
   }
 
   .ardmr_attach_plot_data(p, draws = draws, observed = obs)
