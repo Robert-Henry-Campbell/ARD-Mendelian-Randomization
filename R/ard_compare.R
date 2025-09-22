@@ -715,7 +715,7 @@ ard_compare <- function(
         )
         n_causes <- length(unique(heat_df$cause))
         heat_out_dir <- file.path(enrich_compare_dir, lvl, sc)
-        save_plot(heat_plot, heat_out_dir, "group_heatmap", max(1, n_causes), width = 3.54)
+        save_plot(heat_plot, heat_out_dir, "group_heatmap", max(1, n_causes), width = 7.2)
       }
     }
   }
