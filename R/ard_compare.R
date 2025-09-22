@@ -98,7 +98,9 @@ ard_compare <- function(
   if (!dir.exists(beta_compare_dir)) {
     dir.create(beta_compare_dir, recursive = TRUE, showWarnings = FALSE)
   }
-  enrich_compare_dir <- file.path(compare_root, "enrich_compare")
+
+  enrich_compare_dir <- file.path(compare_root, "enrichment_compare")
+
   if (!dir.exists(enrich_compare_dir)) {
     dir.create(enrich_compare_dir, recursive = TRUE, showWarnings = FALSE)
   }
