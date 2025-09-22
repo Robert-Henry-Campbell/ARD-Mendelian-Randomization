@@ -7,8 +7,11 @@
 #'
 #' @param exposure Character (mandatory) label for the exposure; used for
 #'   naming output directories and plot titles.
-#' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like:
-#'   rsid, beta, se, effect_allele, other_allele, eaf, etc.).
+#' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like). needs cols:
+#'[1] "id.exposure"           "Exposure"                "SNP" (must be rsid format) "Chr"
+#'[5] "Pos"                    "effect_allele.exposure" "other_allele.exposure"  "eaf.exposure"
+#'[9] "beta.exposure"          "se.exposure"            "palindromic"            "pval.exposure"
+#'[13] "mr_keep"                "F"
 #' @param exposure_units Character (mandatory) description of the exposure
 #'   units for β-scale plots.
 #' @param ancestry Character (mandatory), e.g. "EUR".
