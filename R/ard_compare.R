@@ -98,7 +98,9 @@ ard_compare <- function(
   if (!dir.exists(beta_compare_dir)) {
     dir.create(beta_compare_dir, recursive = TRUE, showWarnings = FALSE)
   }
+
   enrich_compare_dir <- file.path(compare_root, "enrichment_compare")
+
   if (!dir.exists(enrich_compare_dir)) {
     dir.create(enrich_compare_dir, recursive = TRUE, showWarnings = FALSE)
   }
@@ -733,8 +735,8 @@ ard_compare <- function(
       file.path(enrichment_compare_dir, "global"),
       "violin_forest",
       n_groups,
-      width = 3.54,
-      height = 1.8 + 0.28 * max(1, n_groups)
+      width = 7.2,
+      height = 1.8 + 0.4 * max(1, n_groups)
     )
   } else if (isTRUE(verbose)) {
     restore_compare_logging()
