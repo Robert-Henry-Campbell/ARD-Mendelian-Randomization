@@ -622,14 +622,16 @@ ard_compare <- function(
     }
   }
 
-  save_plot <- function(plot, dir_path, file_stem, n_rows, width = 6.0) {
+  save_plot <- function(plot, dir_path, file_stem, n_rows, width = 6.0, height = NULL) {
     if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
     file_path <- file.path(dir_path, paste0(file_stem, ".png"))
     is_yfloat <- is.character(file_stem) && grepl("_wrap_yfloat$", file_stem)
-    height <- if (is_yfloat) {
-      1.2 + 0.28 * max(1, n_rows)
-    } else {
-      max(2.4, 1.2 + 0.28 * n_rows)
+    if (is.null(height)) {
+      height <- if (is_yfloat) {
+        1.2 + 0.28 * max(1, n_rows)
+      } else {
+        max(2.4, 1.2 + 0.28 * n_rows)
+      }
     }
     ggsave_args <- list(
       filename = file_path,
@@ -721,7 +723,8 @@ ard_compare <- function(
       file.path(enrichment_compare_dir, "global"),
       "violin_forest",
       n_groups,
-      width = 7.2
+      width = 3.54,
+      height = 1.8 + 0.28 * max(1, n_groups)
     )
   } else if (isTRUE(verbose)) {
     restore_compare_logging()
