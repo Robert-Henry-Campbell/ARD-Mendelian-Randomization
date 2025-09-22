@@ -991,7 +991,7 @@ plot_enrichment_signed_violin_global <- function(
     title <- sprintf("Global enrichment of %s", exp_label)
   }
   if (is.null(subtitle)) {
-    subtitle <- sprintf("ARD vs non-ARD · two-sided permutation test (BH q < %.2f highlighted)", alpha)
+    subtitle <- "ARD vs non-ARD, two-sided permutation test"
   }
 
   p <- .build_enrichment_violin_plot(draws, obs, orientation = orientation, alpha = alpha) +
@@ -1053,8 +1053,7 @@ plot_enrichment_signed_violin_by_cause <- function(
     title <- sprintf("Cause level %d signed enrichment of %s", .level_number(level), exp_label)
   }
   if (is.null(subtitle)) {
-    subtitle <- sprintf("%s · two-sided permutation test (BH q < %.2f highlighted)",
-                        .pretty_compare(compare_mode), alpha)
+    subtitle <- "Within-cause effect size vs all-cause effect size, two-sided permutation test"
   }
 
   p <- .build_enrichment_violin_plot(draws, obs, orientation = orientation, alpha = alpha) +
