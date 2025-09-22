@@ -894,7 +894,12 @@ plot_enrichment_global_signed <- function(
   obs_df <- tibble::as_tibble(obs_df)
   draw_df <- tibble::as_tibble(draw_df)
 
-  sig_labels <- c(sprintf("q < %.2f", alpha), sprintf("q ≥ %.2f", alpha))
+  alpha_formatted <- sprintf("%.2f", alpha)
+  alpha_formatted <- sub("^0\\.", ".", alpha_formatted)
+  sig_labels <- c(
+    sprintf("q < %s (BH)", alpha_formatted),
+    sprintf("q ≥ %s (BH)", alpha_formatted)
+  )
   obs_df$signif_label <- ifelse(
     is.finite(obs_df$q_signed) & obs_df$q_signed < alpha,
     sig_labels[1], sig_labels[2]
@@ -903,6 +908,10 @@ plot_enrichment_global_signed <- function(
   obs_df$signif_label <- base::droplevels(obs_df$signif_label)
 
   colour_map <- stats::setNames(c("firebrick", "grey30"), sig_labels)
+  active_levels <- levels(obs_df$signif_label)
+  if (length(active_levels)) {
+    colour_map <- colour_map[active_levels]
+  }
 
   if (orientation == "vertical") {
     base <- ggplot2::ggplot(draw_df, ggplot2::aes(x = group_f, y = Tg_ses)) +
@@ -965,8 +974,9 @@ plot_enrichment_global_signed <- function(
 
   base +
     ggplot2::scale_colour_manual(
-      name = sprintf("BH (q < %.2f)", alpha),
-      values = colour_map
+      name = NULL,
+      values = colour_map,
+      drop = TRUE
     )
 }
 
