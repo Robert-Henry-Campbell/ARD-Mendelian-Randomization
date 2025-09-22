@@ -170,53 +170,60 @@ run_phenome_mr_plotting_only <- function(
   volcano_recolor_Bonf_all <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
   volcano_recolor_Bonf_ARD <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
 
-  # ---- 6) SES enrichment analyses ----
-  # logger::log_info("6) Enrichment analyses…")
-  # enrich <- run_enrichment(
-  #   results_df,
-  #   exposure = exposure,
-  #   levels = c("cause_level_1","cause_level_2","cause_level_3"),
-  #   modes  = c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere"),
-  #   use_qc_pass = TRUE,
-  #   min_nsnp    = 2,
-  #   weight_scheme = "inv_se2",
-  #   exact_max_combn = 1e5,
-  #   mc_B = 100000,
-  #   seed = 1
-  # )
+  # ---- 6) Signed enrichment analyses ----
+  logger::log_info("6) Enrichment analyses…")
+  enrich <- run_enrichment(
+    results_df,
+    exposure = exposure,
+    levels = c("cause_level_1","cause_level_2","cause_level_3"),
+    modes  = c("cause_vs_rest_all"),
+    use_qc_pass = TRUE,
+    min_nsnp    = 2,
+    weight_scheme = "inv_se2",
+    exact_max_combn = 1e5,
+    mc_B = 10000,
+    seed = 1,
+    retain_permutations = TRUE,
+    retain_perm_max = 10000
+  )
 
-  # ---- 6A. SES enrichment plots ----
-  # enrichment_global_plot_dir    <- plot_enrichment_global(enrich$global_tbl)
-  # enrichment_global_plot_signed <- plot_enrichment_global_signed(enrich$global_tbl)
-
+  logger::log_info("6A) Enrichment violin plots…")
   cause_levels  <- c("cause_level_1","cause_level_2","cause_level_3")
-  compare_modes <- c("ARD_vs_nonARD_within_cause","cause_vs_rest_all","ARD_in_cause_vs_ARD_elsewhere")
+  compare_mode  <- "cause_vs_rest_all"
 
-  # enrichment_cause_plots_dir <- lapply(cause_levels, function(lv) {
-  #   lv_list <- lapply(compare_modes, function(md) {
-  #     plot_enrichment_directional_forest(
-  #       by_cause_tbl = enrich$by_cause_tbl,
-  #       level = lv,
-  #       compare_mode = md
-  #     )
-  #   })
-  #   names(lv_list) <- compare_modes
-  #   lv_list
-  # })
-  # names(enrichment_cause_plots_dir) <- cause_levels
+  enrichment_global_violin_vertical <- plot_enrichment_signed_violin_global(
+    enrich$global_tbl,
+    orientation = "vertical",
+    alpha = 0.05
+  )
+  enrichment_global_violin_forest <- plot_enrichment_signed_violin_global(
+    enrich$global_tbl,
+    orientation = "forest",
+    alpha = 0.05
+  )
 
-  # enrichment_cause_plots_signed <- lapply(cause_levels, function(lv) {
-  #   lv_list <- lapply(compare_modes, function(md) {
-  #     plot_enrichment_signed_forest(
-  #       by_cause_tbl = enrich$by_cause_tbl,
-  #       level = lv,
-  #       compare_mode = md
-  #     )
-  #   })
-  #   names(lv_list) <- compare_modes
-  #   lv_list
-  # })
-  # names(enrichment_cause_plots_signed) <- cause_levels
+  enrichment_cause_violin <- lapply(cause_levels, function(lv) {
+    list(
+      violin_vertical = plot_enrichment_signed_violin_by_cause(
+        enrich$by_cause_tbl,
+        level = lv,
+        compare_mode = compare_mode,
+        orientation = "vertical",
+        alpha = 0.05
+      ),
+      violin_forest = plot_enrichment_signed_violin_by_cause(
+        enrich$by_cause_tbl,
+        level = lv,
+        compare_mode = compare_mode,
+        orientation = "forest",
+        alpha = 0.05
+      )
+    )
+  })
+  names(enrichment_cause_violin) <- cause_levels
+
+  n_enrichment_cause_plots <- sum(vapply(enrichment_cause_violin, length, integer(1)))
+  logger::log_info("Enrichment cause-level plots generated: {n_enrichment_cause_plots}")
 
   # ---- 6C) β-scale contrasts (Δβ) analyses + plots ----
   # logger::log_info("6C) Beta-scale contrasts (Δβ)…")
@@ -313,12 +320,14 @@ run_phenome_mr_plotting_only <- function(
 
 
   pretty_level <- function(lv) {
-    switch(lv,
-           cause_level_1 = "Cause Level 1",
-           cause_level_2 = "Cause Level 2",
-           cause_level_3 = "Cause Level 3",
-           gsub("_", " ", lv)
+    pretty <- switch(
+      lv,
+      cause_level_1 = "cause level 1",
+      cause_level_2 = "cause level 2",
+      cause_level_3 = "cause level 3",
+      gsub("_", " ", lv, fixed = TRUE)
     )
+    tolower(pretty)
   }
 
   for (lv in cause_levels) {
@@ -400,6 +409,15 @@ run_phenome_mr_plotting_only <- function(
     volcano_recolor = list(
       BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
       bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
+    ),
+    enrichment = list(
+      global = list(
+        violin_vertical = enrichment_global_violin_vertical,
+        violin_forest = enrichment_global_violin_forest
+      ),
+      cause_level_1 = enrichment_cause_violin[["cause_level_1"]],
+      cause_level_2 = enrichment_cause_violin[["cause_level_2"]],
+      cause_level_3 = enrichment_cause_violin[["cause_level_3"]]
     ),
     # enrichment = list(
     #   global = list(
@@ -483,7 +501,7 @@ run_phenome_mr_plotting_only <- function(
         width <- 7.2; height <- 6.5
       }
       if (grepl("^enrichment/global", subpath)) {
-        width <- 3.54; height <- 2.4
+        width <- 7.2; height <- 4.0
       }
       if (grepl("^enrichment/cause_level_", subpath)) {
         width <- 7.2; height <- 5.0
@@ -657,7 +675,7 @@ run_phenome_mr_plotting_only <- function(
     results_df    = results_df,
     summary_plots = summary_plots,
 
-    #    enrich        = enrich,
+    enrich        = enrich,
     beta          = beta_tables
     #    beta_contrast = beta_contrast_tables,
     #    exposure_units = exposure_units

@@ -890,7 +890,7 @@ plot_enrichment_global_signed <- function(
   )
   obs_df$signif_label <- factor(obs_df$signif_label, levels = sig_labels)
 
-  colour_map <- c(sig_labels[1] = "firebrick", sig_labels[2] = "grey30")
+  colour_map <- stats::setNames(c("firebrick", "grey30"), sig_labels)
 
   if (orientation == "vertical") {
     base <- ggplot2::ggplot(draw_df, ggplot2::aes(x = group_f, y = Tg_ses)) +
@@ -1072,7 +1072,7 @@ plot_enrichment_signed_violin_by_cause <- function(
 
 
 #' Volcano plot (IVW): effect size vs significance
-#' 
+#'
 #' Colours: grey = protective (β<0), black = risk (β≥0).
 #' Significance legend:
 #'   - BH: red ring on significant points (q < alpha).
@@ -1400,9 +1400,9 @@ volcano_plot_recolor <- function(results_df,
 
 
 #' Global ARD vs non-ARD summary (two-dot)
-#' 
+#'
 #' One-row forest for the global signed SES.
-#' 
+#'
 #' Expects global_tbl to contain at least: SES_signed, q_signed.
 #' If you used different names (e.g., SES_comb/q_comb), rename below.
 #'
@@ -1626,7 +1626,7 @@ plot_beta_contrast_forest_wrap <- function(
 
 # ---------- forest for IVW mean β ----------
 #' Forest plot of IVW mean MR beta by cause
-#' 
+#'
 #' @param beta_tbl Tibble with columns cause, ivw_mean_beta, se_ivw_mean,
 #'   ci_low, ci_high.
 #' @param title Optional plot title.
