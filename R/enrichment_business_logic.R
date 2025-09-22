@@ -64,7 +64,7 @@ signed_ivw_score <- function(beta, p) {
 
 #' Choose weights ("none" or "inv_se2")
 #' @keywords internal
-.choose_weights <- function(se, scheme = c("none","inv_se2")) {
+.choose_weights <- function(se, scheme = c("inv_se2","none")) {
   scheme <- match.arg(scheme)
   if (scheme == "inv_se2") {
     w <- 1 / (se^2); w[!is.finite(w)] <- NA_real_
@@ -218,7 +218,9 @@ signed_ivw_score <- function(beta, p) {
 #' @param modes Character vector among the three compare modes (see details).
 #' @param use_qc_pass Logical; if TRUE and present, filter \code{results_qc_pass==TRUE}.
 #' @param min_nsnp Integer; if present, filter \code{results_nsnp_after >= min_nsnp}.
-#' @param weight_scheme \code{"none"} or \code{"inv_se2"} (needs \code{results_se_ivw}).
+#' @param weight_scheme Weighting scheme; defaults to \code{"inv_se2"}
+#'   (1/SE^2, requires \code{results_se_ivw}) with \code{"none"}
+#'   available as a fallback.
 #' @param exact_max_combn Maximum \eqn{choose(n,a)} for exact enumeration; otherwise Monte Carlo.
 #' @param mc_B Monte Carlo permutations if not exact.
 #' @param seed RNG seed.
@@ -235,7 +237,7 @@ run_enrichment <- function(
     modes  = c("cause_vs_rest_all"),
     use_qc_pass = TRUE,
     min_nsnp = 2,
-    weight_scheme = c("none","inv_se2"),
+    weight_scheme = c("inv_se2","none"),
     exact_max_combn = 1e5,
     mc_B = 10000,
     seed = NULL,
@@ -299,7 +301,7 @@ enrichment_global_directional <- function(
     exposure = .default_exposure(),
     use_qc_pass = TRUE,
     min_nsnp = 2,
-    weight_scheme = c("none","inv_se2"),
+    weight_scheme = c("inv_se2","none"),
     exact_max_combn = 1e5,
     mc_B = 10000,
     seed = NULL,
@@ -374,7 +376,7 @@ enrichment_by_cause_directional <- function(
     exposure = .default_exposure(),
     use_qc_pass = TRUE,
     min_nsnp = 2,
-    weight_scheme = c("none","inv_se2"),
+    weight_scheme = c("inv_se2","none"),
     exact_max_combn = 1e5,
     mc_B = 10000,
     seed = NULL,
