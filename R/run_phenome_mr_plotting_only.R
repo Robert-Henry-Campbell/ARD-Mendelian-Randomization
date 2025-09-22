@@ -144,6 +144,7 @@ run_phenome_mr_plotting_only <- function(
 
 
 #################################################################################
+
   logger::log_info("5) Build summary plots…")
 
   # ---- 5A. MANHATTAN: BH vs Bonf × (all vs ARD-only) ----
@@ -497,7 +498,7 @@ run_phenome_mr_plotting_only <- function(
       subpath <- paste(path_labels, collapse = "/")
       width <- 7.2; height <- 6.5
       plot_data <- attr(x, "ardmr_plot_data", exact = TRUE)
-      yfloat_base <- 1.2
+      yfloat_base <- 1.8 #was 1.2
       yfloat_coef <- 0.28
 
       if (grepl("^manhattan", subpath)) {
