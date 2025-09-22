@@ -540,6 +540,9 @@ run_phenome_mr <- function(
       }
       subpath <- paste(path_labels, collapse = "/")
       width <- 7.2; height <- 6.5
+      plot_data <- attr(x, "ardmr_plot_data", exact = TRUE)
+      yfloat_base <- 1.2
+      yfloat_coef <- 0.28
 
       if (grepl("^manhattan", subpath)) {
         width <- 7.2; height <- 6.5
@@ -549,6 +552,30 @@ run_phenome_mr <- function(
       }
       if (grepl("^enrichment/cause_level_", subpath)) {
         width <- 7.2; height <- 5.0
+      }
+      is_enrichment_cause_forest <- length(path_parts) >= 3 &&
+        identical(path_parts[1], "enrichment") &&
+        grepl("^cause_level_", path_parts[2]) &&
+        identical(path_parts[3], "violin_forest")
+      if (is_enrichment_cause_forest) {
+        observed_df <- NULL
+        if (is.list(plot_data) && "observed" %in% names(plot_data)) {
+          observed_df <- plot_data$observed
+        }
+        n_rows <- if (is.data.frame(observed_df)) {
+          if ("group_label" %in% names(observed_df)) {
+            groups <- unique(observed_df$group_label)
+            groups <- groups[!is.na(groups)]
+            length(groups)
+          } else {
+            nrow(observed_df)
+          }
+        } else {
+          0L
+        }
+        n_rows <- as.integer(n_rows)
+        if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
+        height <- yfloat_base + (yfloat_coef * 2.5) * n_rows
       }
       if (grepl("^volcano", subpath)) {
         width <- 7.2; height <- 5.0
@@ -575,14 +602,13 @@ run_phenome_mr <- function(
       file_path <- file.path(dir_path, file_name)
       is_yfloat <- length(path_labels) >= 1 && grepl("_wrap_yfloat$", tail(path_labels, 1))
       if (is_yfloat) {
-        plot_data <- attr(x, "ardmr_plot_data", exact = TRUE)
         main_df <- NULL
         if (is.list(plot_data) && "main" %in% names(plot_data)) {
           main_df <- plot_data$main
         }
         n_rows <- if (is.data.frame(main_df)) nrow(main_df) else 0L
         if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
-        height <- 1.2 + 0.28 * n_rows
+        height <- yfloat_base + yfloat_coef * n_rows
       }
       ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
       .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
