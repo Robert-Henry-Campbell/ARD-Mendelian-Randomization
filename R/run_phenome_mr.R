@@ -610,6 +610,11 @@ run_phenome_mr <- function(
         if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
         height <- yfloat_base + yfloat_coef * n_rows
       }
+      if (length(path_labels) >= 1 && identical(path_labels[1], "beta")) {
+        # ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+        # .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
+        return(invisible(NULL))
+      }
       ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
       .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
       return(invisible(NULL))

@@ -665,19 +665,19 @@ ard_compare <- function(
       exposure_units = exposure_units,
       effect_scale = compare_effect_scale
     )
-    save_plot(plot_global, out_dir, "mean_effect", nrow(global_combined))
+    # save_plot(plot_global, out_dir, "mean_effect", nrow(global_combined))
     plot_global_wrap <- plot_beta_mean_global_compare_wrap(
       global_combined,
       exposure_units = exposure_units,
       effect_scale = compare_effect_scale
     )
-    save_plot(plot_global_wrap, out_dir, "mean_effect_wrap", nrow(global_combined))
+    # save_plot(plot_global_wrap, out_dir, "mean_effect_wrap", nrow(global_combined))
     plot_global_wrap_yfloat <- plot_beta_mean_global_compare_wrap_yfloat(
       global_combined,
       exposure_units = exposure_units,
       effect_scale = compare_effect_scale
     )
-    save_plot(plot_global_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", nrow(global_combined))
+    # save_plot(plot_global_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", nrow(global_combined))
   }
 
   for (lvl in cause_levels) {
@@ -691,19 +691,19 @@ ard_compare <- function(
         exposure_units = exposure_units,
         effect_scale = compare_effect_scale
       )
-      save_plot(plot_obj, out_dir, "mean_effect", n_rows)
+      # save_plot(plot_obj, out_dir, "mean_effect", n_rows)
       plot_obj_wrap <- plot_beta_mean_cause_compare_wrap(
         plot_df,
         exposure_units = exposure_units,
         effect_scale = compare_effect_scale
       )
-      save_plot(plot_obj_wrap, out_dir, "mean_effect_wrap", n_rows)
+      # save_plot(plot_obj_wrap, out_dir, "mean_effect_wrap", n_rows)
       plot_obj_wrap_yfloat <- plot_beta_mean_cause_compare_wrap_yfloat(
         plot_df,
         exposure_units = exposure_units,
         effect_scale = compare_effect_scale
       )
-      save_plot(plot_obj_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", n_rows)
+      # save_plot(plot_obj_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", n_rows)
 
       heat_df <- heatmap_datasets[[lvl]][[sc]]
       if (is.data.frame(heat_df) && nrow(heat_df)) {
