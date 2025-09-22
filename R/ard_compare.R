@@ -98,6 +98,10 @@ ard_compare <- function(
   if (!dir.exists(beta_compare_dir)) {
     dir.create(beta_compare_dir, recursive = TRUE, showWarnings = FALSE)
   }
+  enrich_compare_dir <- file.path(compare_root, "enrichment_compare")
+  if (!dir.exists(enrich_compare_dir)) {
+    dir.create(enrich_compare_dir, recursive = TRUE, showWarnings = FALSE)
+  }
 
   ancestry_label <- function(sex, ancestry) {
     sx <- tolower(trimws(sex))
@@ -469,14 +473,14 @@ ard_compare <- function(
     list(table = combined, plot = plot_df)
   }
 
-  format_p_label <- function(p) {
-    out <- rep("NA", length(p))
-    ok <- is.finite(p)
+  format_q_label <- function(q) {
+    out <- rep("NA", length(q))
+    ok <- is.finite(q)
     if (any(ok)) {
-      hi <- ok & p >= 0.001
+      hi <- ok & q >= 0.001
       lo <- ok & !hi
-      out[hi] <- sprintf("%.3f", p[hi])
-      out[lo] <- sprintf("%.2e", p[lo])
+      out[hi] <- sprintf("%.3f", q[hi])
+      out[lo] <- sprintf("%.2e", q[lo])
     }
     out
   }
@@ -542,6 +546,11 @@ ard_compare <- function(
 
       p_vals <- pull_vals("p_signed")
       ses_vals <- pull_vals("SES_signed")
+      q_vals <- rep(NA_real_, length(p_vals))
+      finite_p <- is.finite(p_vals)
+      if (any(finite_p)) {
+        q_vals[finite_p] <- stats::p.adjust(p_vals[finite_p], method = "BH")
+      }
 
       rows[[i]] <- tibble::tibble(
         level = level,
@@ -554,13 +563,14 @@ ard_compare <- function(
         group_order = info$index,
         p_signed = p_vals,
         SES_signed = ses_vals,
-        significant = is.finite(p_vals) & (p_vals < p_threshold),
+        q_value = q_vals,
+        significant = is.finite(q_vals) & (q_vals < p_threshold),
         direction = dplyr::case_when(
           is.finite(ses_vals) & ses_vals < 0 ~ "protective",
           is.finite(ses_vals) & ses_vals > 0 ~ "risk",
           TRUE ~ "neutral"
         ),
-        label = format_p_label(p_vals),
+        label = format_q_label(q_vals),
         exposure = exposure_label
       )
     }
@@ -702,8 +712,8 @@ ard_compare <- function(
           exposure = exposure
         )
         n_causes <- length(unique(heat_df$cause))
-        width <- max(4.8, 2.5 + 1.1 * length(groups_info))
-        save_plot(heat_plot, out_dir, "group_heatmap", max(1, n_causes), width = width)
+        heat_out_dir <- file.path(enrich_compare_dir, lvl, sc)
+        save_plot(heat_plot, heat_out_dir, "group_heatmap", max(1, n_causes), width = 3.54)
       }
     }
   }
