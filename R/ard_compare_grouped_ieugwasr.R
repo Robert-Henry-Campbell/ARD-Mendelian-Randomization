@@ -14,7 +14,7 @@
 run_ieugwasr_ard_compare <- function(
     csv_path,
     cache_dir      = ardmr_cache_dir(),
-    jwt            = Sys.getenv("IEU_JWT", unset = ""),
+    jwt            = Sys.getenv("OPENGWAS_JWT"),
     prompt_for_units = interactive(),
     p_threshold    = 5e-8,
     r2             = 0.001,
