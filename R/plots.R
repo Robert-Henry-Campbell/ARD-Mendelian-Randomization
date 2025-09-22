@@ -796,9 +796,283 @@ plot_enrichment_global_signed <- function(
 }
 
 
+# ---------- Signed enrichment violins ----------
+
+.enrichment_violin_prepare <- function(df, group_col, extra_cols = character()) {
+  df <- tibble::as_tibble(df)
+  if (!nrow(df)) {
+    return(list(draws = tibble::tibble(), observed = tibble::tibble(), levels = character()))
+  }
+  if (!group_col %in% names(df)) {
+    stop(sprintf("Column '%s' not found in data frame.", group_col), call. = FALSE)
+  }
+  if (!"perm_stat" %in% names(df)) {
+    stop("Input data frame must contain a 'perm_stat' list-column of permutation draws.", call. = FALSE)
+  }
+  missing_extra <- setdiff(extra_cols, names(df))
+  if (length(missing_extra)) {
+    stop(sprintf("Missing columns required for plotting: %s", paste(missing_extra, collapse = ", ")), call. = FALSE)
+  }
+
+  df$group_label <- as.character(df[[group_col]])
+  keep <- !is.na(df$group_label)
+  df <- df[keep, , drop = FALSE]
+  if (!nrow(df)) {
+    return(list(draws = tibble::tibble(), observed = tibble::tibble(), levels = character()))
+  }
+
+  ses_vals <- df$SES_signed
+  ord <- order(ses_vals, df$group_label, na.last = NA)
+  if (!length(ord)) ord <- order(df$group_label)
+  levels_use <- unique(df$group_label[ord])
+  df$group_f <- factor(df$group_label, levels = levels_use)
+  df$row_id <- seq_len(nrow(df))
+
+  draws_list <- lapply(seq_len(nrow(df)), function(i) {
+    draws <- df$perm_stat[[i]]
+    if (is.null(draws) || !length(draws)) return(NULL)
+    mu <- df$mean_signed[i]
+    sd <- df$sd_signed[i]
+    ses <- if (is.finite(sd) && sd > 0) (draws - mu) / sd else rep(0, length(draws))
+    tibble::tibble(
+      row_id = df$row_id[i],
+      group_label = df$group_label[i],
+      group_f = df$group_f[i],
+      Tg = draws,
+      Tg_ses = ses
+    )
+  })
+
+  draws_df <- dplyr::bind_rows(draws_list)
+  if (nrow(draws_df)) {
+    meta_cols <- unique(c("row_id", extra_cols))
+    meta_cols <- meta_cols[meta_cols %in% names(df)]
+    if (length(meta_cols) > 1L) {
+      meta_df <- df[, meta_cols, drop = FALSE]
+      draws_df <- dplyr::left_join(draws_df, meta_df, by = "row_id")
+    }
+    draws_df$row_id <- NULL
+  } else {
+    draws_df <- tibble::tibble()
+  }
+
+  obs_cols <- unique(c(group_col, extra_cols,
+                       "stat_signed","mean_signed","sd_signed","SES_signed",
+                       "p_signed","q_signed","n_perm_signed","exact_signed","perm_scope"))
+  obs_cols <- obs_cols[obs_cols %in% names(df)]
+  obs_df <- df[, obs_cols, drop = FALSE]
+  obs_df$group_label <- df$group_label
+  obs_df$group_f <- df$group_f
+
+  list(draws = draws_df, observed = obs_df, levels = levels_use)
+}
+
+.build_enrichment_violin_plot <- function(draw_df, obs_df, orientation = c("vertical","forest"), alpha = 0.05) {
+  orientation <- match.arg(orientation)
+  if (!nrow(obs_df)) {
+    placeholder <- ggplot2::ggplot() +
+      ggplot2::theme_void(base_size = 11) +
+      ggplot2::geom_text(
+        ggplot2::aes(x = 0, y = 0, label = "No data available"),
+        colour = "grey40"
+      ) +
+      ggplot2::xlab(NULL) + ggplot2::ylab(NULL)
+    return(placeholder)
+  }
+
+  obs_df <- tibble::as_tibble(obs_df)
+  draw_df <- tibble::as_tibble(draw_df)
+
+  sig_labels <- c(sprintf("q < %.2f", alpha), sprintf("q ≥ %.2f", alpha))
+  obs_df$signif_label <- ifelse(
+    is.finite(obs_df$q_signed) & obs_df$q_signed < alpha,
+    sig_labels[1], sig_labels[2]
+  )
+  obs_df$signif_label <- factor(obs_df$signif_label, levels = sig_labels)
+
+  colour_map <- c(sig_labels[1] = "firebrick", sig_labels[2] = "grey30")
+
+  if (orientation == "vertical") {
+    base <- ggplot2::ggplot(draw_df, ggplot2::aes(x = group_f, y = Tg_ses)) +
+      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 0.75) +
+      ggplot2::geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4, colour = "grey50") +
+      ggplot2::geom_segment(
+        data = obs_df,
+        ggplot2::aes(x = group_f, xend = group_f, y = 0, yend = SES_signed, colour = signif_label),
+        linewidth = 0.6, alpha = 0.7
+      ) +
+      ggplot2::geom_point(
+        data = obs_df,
+        ggplot2::aes(x = group_f, y = SES_signed, colour = signif_label),
+        size = 2.5
+      ) +
+      ggplot2::labs(x = NULL, y = expression(Standardized~T[G]~"(SES)")) +
+      ggplot2::theme_minimal(base_size = 11) +
+      ggplot2::theme(
+        panel.grid.major.x = ggplot2::element_blank(),
+        panel.grid.minor.x = ggplot2::element_blank(),
+        legend.position = "top",
+        legend.title = ggplot2::element_text(size = 10),
+        legend.text = ggplot2::element_text(size = 10)
+      )
+  } else {
+    base <- ggplot2::ggplot(draw_df, ggplot2::aes(y = group_f, x = Tg_ses)) +
+      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 0.75) +
+      ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, colour = "grey50") +
+      ggplot2::geom_segment(
+        data = obs_df,
+        ggplot2::aes(y = group_f, yend = group_f, x = 0, xend = SES_signed, colour = signif_label),
+        linewidth = 0.6, alpha = 0.7
+      ) +
+      ggplot2::geom_point(
+        data = obs_df,
+        ggplot2::aes(y = group_f, x = SES_signed, colour = signif_label),
+        size = 2.5
+      ) +
+      ggplot2::labs(y = NULL, x = expression(Standardized~T[G]~"(SES)")) +
+      ggplot2::theme_minimal(base_size = 11) +
+      ggplot2::theme(
+        panel.grid.major.y = ggplot2::element_blank(),
+        legend.position = "top",
+        legend.title = ggplot2::element_text(size = 10),
+        legend.text = ggplot2::element_text(size = 10)
+      )
+  }
+
+  base +
+    ggplot2::scale_colour_manual(
+      name = sprintf("BH (q < %.2f)", alpha),
+      values = colour_map,
+      drop = FALSE
+    )
+}
+
+#' Global signed enrichment violin plot
+#'
+#' @param global_tbl Output of [enrichment_global_directional()] (or similar)
+#'   with retained permutation draws.
+#' @param orientation Either "vertical" (group on x-axis) or "forest"
+#'   (group on y-axis, violin oriented horizontally).
+#' @param alpha BH significance threshold for colouring the observed statistic.
+#' @param title Optional plot title.
+#' @param subtitle Optional subtitle.
+#' @export
+plot_enrichment_signed_violin_global <- function(
+    global_tbl,
+    orientation = c("vertical","forest"),
+    alpha = 0.05,
+    title = NULL,
+    subtitle = NULL
+) {
+  orientation <- match.arg(orientation)
+  df <- tibble::as_tibble(global_tbl)
+  if (!nrow(df)) {
+    return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::labs(title = title %||% "Global enrichment (no data)"))
+  }
+
+  df$plot_group <- "ARD vs non-ARD"
+  prep <- .enrichment_violin_prepare(
+    df,
+    group_col = "plot_group",
+    extra_cols = c("scope","exposure","pheno_sex","n_total","n_ard","n_non","perm_scope")
+  )
+
+  draws <- prep$draws
+  obs <- prep$observed
+
+  if (!nrow(draws)) {
+    return(ggplot2::ggplot() + ggplot2::theme_void() +
+             ggplot2::labs(title = title %||% "Global enrichment", subtitle = "No permutation draws available"))
+  }
+
+  exp_label <- tryCatch(unique(na.omit(obs$exposure))[1], error = function(e) NULL)
+  if (is.null(exp_label) || !nzchar(exp_label)) exp_label <- "exposure"
+  if (is.null(title)) {
+    title <- sprintf("Global enrichment of %s", exp_label)
+  }
+  if (is.null(subtitle)) {
+    subtitle <- sprintf("ARD vs non-ARD · two-sided permutation test (BH q < %.2f highlighted)", alpha)
+  }
+
+  p <- .build_enrichment_violin_plot(draws, obs, orientation = orientation, alpha = alpha) +
+    ggplot2::labs(title = title, subtitle = subtitle)
+
+  if (orientation == "vertical") {
+    p <- p + ggplot2::theme(axis.text.x = ggplot2::element_text(size = 10))
+  } else {
+    p <- p + ggplot2::theme(axis.text.y = ggplot2::element_text(size = 10))
+  }
+
+  .ardmr_attach_plot_data(p, draws = draws, observed = obs)
+}
+
+#' Cause-level signed enrichment violin plot
+#'
+#' @param by_cause_tbl Table returned by [enrichment_by_cause_directional()].
+#' @param level Cause level identifier (e.g., "cause_level_1").
+#' @param compare_mode Comparison mode (default "cause_vs_rest_all").
+#' @inheritParams plot_enrichment_signed_violin_global
+#' @export
+plot_enrichment_signed_violin_by_cause <- function(
+    by_cause_tbl,
+    level,
+    compare_mode = "cause_vs_rest_all",
+    orientation = c("vertical","forest"),
+    alpha = 0.05,
+    title = NULL,
+    subtitle = NULL
+) {
+  orientation <- match.arg(orientation)
+  df <- tibble::as_tibble(by_cause_tbl)
+  df <- df[df$level == level & df$compare_mode == compare_mode, , drop = FALSE]
+  if (!nrow(df)) {
+    pretty_level <- gsub("_", " ", level)
+    return(ggplot2::ggplot() + ggplot2::theme_void() +
+             ggplot2::labs(title = title %||% sprintf("%s enrichment (no data)", pretty_level)))
+  }
+
+  df$plot_group <- df$cause
+  prep <- .enrichment_violin_prepare(
+    df,
+    group_col = "plot_group",
+    extra_cols = c("level","cause","compare_mode","exposure","pheno_sex","n_total","n_pos","n_neg","perm_scope")
+  )
+
+  draws <- prep$draws
+  obs <- prep$observed
+
+  if (!nrow(draws)) {
+    pretty_level <- sprintf("Cause level %d", .level_number(level))
+    return(ggplot2::ggplot() + ggplot2::theme_void() +
+             ggplot2::labs(title = title %||% sprintf("%s enrichment", pretty_level), subtitle = "No permutation draws available"))
+  }
+
+  exp_label <- tryCatch(unique(na.omit(obs$exposure))[1], error = function(e) NULL)
+  if (is.null(exp_label) || !nzchar(exp_label)) exp_label <- "exposure"
+  if (is.null(title)) {
+    title <- sprintf("Cause level %d signed enrichment of %s", .level_number(level), exp_label)
+  }
+  if (is.null(subtitle)) {
+    subtitle <- sprintf("%s · two-sided permutation test (BH q < %.2f highlighted)",
+                        .pretty_compare(compare_mode), alpha)
+  }
+
+  p <- .build_enrichment_violin_plot(draws, obs, orientation = orientation, alpha = alpha) +
+    ggplot2::labs(title = title, subtitle = subtitle)
+
+  if (orientation == "vertical") {
+    p <- p + ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, vjust = 1, size = 9))
+  } else {
+    p <- p + ggplot2::theme(axis.text.y = ggplot2::element_text(size = 9))
+  }
+
+  .ardmr_attach_plot_data(p, draws = draws, observed = obs)
+}
+
+
 
 #' Volcano plot (IVW): effect size vs significance
-#'
+#' 
 #' Colours: grey = protective (β<0), black = risk (β≥0).
 #' Significance legend:
 #'   - BH: red ring on significant points (q < alpha).
