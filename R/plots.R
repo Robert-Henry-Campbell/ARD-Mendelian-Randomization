@@ -1221,8 +1221,8 @@ plot_enrichment_group_heatmap <- function(
 ) {
   df <- tibble::as_tibble(heatmap_df)
   required <- c(
-    "cause","group_label","p_signed","SES_signed","significant",
-    "direction","label","cause_order","group_order"
+    "cause","group_label","p_signed","SES_signed","q_value",
+    "significant","direction","label","cause_order","group_order"
   )
   if (!all(required %in% names(df))) {
     stop("plot_enrichment_group_heatmap(): heatmap_df missing required columns.", call. = FALSE)
@@ -1270,7 +1270,7 @@ plot_enrichment_group_heatmap <- function(
       all_diseases = "All diseases",
       scope
     )
-    subtitle <- sprintf("%s scope · cause vs rest (two-sided permutation p)", scope_label)
+    subtitle <- sprintf("%s scope · cause vs rest (BH-adjusted q-values)", scope_label)
   }
 
   df$label <- as.character(df$label)
@@ -1284,11 +1284,11 @@ plot_enrichment_group_heatmap <- function(
       limits = c("protective","neutral","risk"),
       breaks = c("protective","neutral","risk"),
       labels = c(
-        "Protective (SES < 0, p < 0.05)",
+        "Protective (BH q-val < .05)",
         "Not significant / NA",
-        "Risk (SES > 0, p < 0.05)"
+        "Risk (BH q-val < .05)"
       ),
-      name = "Enrichment",
+      name = NULL,
       drop = FALSE
     ) +
     ggplot2::labs(
@@ -1303,7 +1303,7 @@ plot_enrichment_group_heatmap <- function(
       axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, vjust = 1),
       axis.text.y = ggplot2::element_text(hjust = 1),
       legend.position = "top",
-      legend.title = ggplot2::element_text(size = 10),
+      legend.title = ggplot2::element_blank(),
       legend.text = ggplot2::element_text(size = 9)
     )
 
