@@ -1071,6 +1071,116 @@ plot_enrichment_signed_violin_by_cause <- function(
 }
 
 
+#' Heatmap of signed enrichment p-values across compare groups
+#'
+#' @param heatmap_df Data frame containing one row per cause × group cell.
+#'   Expected columns include: `cause`, `group_label`, `p_signed`,
+#'   `SES_signed`, `significant`, `direction`, `label`, `cause_order`,
+#'   `group_order`.
+#' @param level Cause level identifier (e.g., "cause_level_1").
+#' @param scope Scope string ("all_diseases" or "age_related_diseases").
+#' @param exposure Optional exposure label for the title.
+#' @param title,subtitle Optional strings overriding the defaults.
+#' @keywords internal
+plot_enrichment_group_heatmap <- function(
+    heatmap_df,
+    level,
+    scope,
+    exposure = NULL,
+    title = NULL,
+    subtitle = NULL
+) {
+  df <- tibble::as_tibble(heatmap_df)
+  required <- c(
+    "cause","group_label","p_signed","SES_signed","significant",
+    "direction","label","cause_order","group_order"
+  )
+  if (!all(required %in% names(df))) {
+    stop("plot_enrichment_group_heatmap(): heatmap_df missing required columns.", call. = FALSE)
+  }
+  if (!nrow(df)) {
+    return(ggplot2::ggplot() + ggplot2::theme_void())
+  }
+
+  df$cause <- as.character(df$cause)
+  df$group_label <- as.character(df$group_label)
+  cause_levels <- unique(df$cause[order(df$cause_order, df$cause)])
+  group_levels <- unique(df$group_label[order(df$group_order, df$group_label)])
+  df$cause_f <- factor(df$cause, levels = rev(cause_levels))
+  df$group_f <- factor(df$group_label, levels = group_levels)
+  df$significant <- df$significant %in% TRUE
+
+  dir_vals <- ifelse(df$direction %in% c("protective","risk"), df$direction, "neutral")
+  dir_vals[!df$significant] <- "neutral"
+  df$fill_state <- factor(dir_vals, levels = c("protective","neutral","risk"))
+
+  palette <- c(
+    protective = "#c6dbef",
+    neutral = "#e0e0e0",
+    risk = "#fcbba1"
+  )
+
+  exp_label <- tryCatch(as.character(exposure)[1], error = function(e) NA_character_)
+  if (is.null(exp_label) || is.na(exp_label) || !nzchar(exp_label)) {
+    exp_label <- "exposure"
+  }
+
+  if (is.null(title)) {
+    lvl_num <- suppressWarnings(.level_number(level))
+    if (is.na(lvl_num) || !is.finite(lvl_num)) {
+      title <- sprintf("Enrichment heatmap for %s", exp_label)
+    } else {
+      title <- sprintf("Cause level %d enrichment heatmap for %s", lvl_num, exp_label)
+    }
+  }
+
+  if (is.null(subtitle)) {
+    scope_label <- switch(
+      scope,
+      age_related_diseases = "Age-related diseases",
+      all_diseases = "All diseases",
+      scope
+    )
+    subtitle <- sprintf("%s scope · cause vs rest (two-sided permutation p)", scope_label)
+  }
+
+  df$label <- as.character(df$label)
+  df$label[is.na(df$label) | !nzchar(df$label)] <- "NA"
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = group_f, y = cause_f, fill = fill_state)) +
+    ggplot2::geom_tile(color = "white", linewidth = 0.4) +
+    ggplot2::geom_text(ggplot2::aes(label = label), size = 3.2, colour = "#1a1a1a") +
+    ggplot2::scale_fill_manual(
+      values = palette,
+      limits = c("protective","neutral","risk"),
+      breaks = c("protective","neutral","risk"),
+      labels = c(
+        "Protective (SES < 0, p < 0.05)",
+        "Not significant / NA",
+        "Risk (SES > 0, p < 0.05)"
+      ),
+      name = "Enrichment",
+      drop = FALSE
+    ) +
+    ggplot2::labs(
+      x = NULL,
+      y = NULL,
+      title = title,
+      subtitle = subtitle
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, vjust = 1),
+      axis.text.y = ggplot2::element_text(hjust = 1),
+      legend.position = "top",
+      legend.title = ggplot2::element_text(size = 10),
+      legend.text = ggplot2::element_text(size = 9)
+    )
+
+  .ardmr_attach_plot_data(p, main = df)
+}
+
 
 #' Volcano plot (IVW): effect size vs significance
 #'

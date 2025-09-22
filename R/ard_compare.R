@@ -276,7 +276,26 @@ ard_compare <- function(
     )
   }
 
+  load_group_enrichment <- function(info) {
+    rds_path <- file.path(info$group_dir, "results.rds")
+    if (!file.exists(rds_path)) {
+      return(tibble::tibble())
+    }
+
+    res <- tryCatch(readRDS(rds_path), error = function(e) NULL)
+    if (!is.list(res) || is.null(res$enrich)) {
+      return(tibble::tibble())
+    }
+    enrich <- res$enrich
+    if (!is.list(enrich) || !is.data.frame(enrich$by_cause_tbl)) {
+      return(tibble::tibble())
+    }
+
+    tibble::as_tibble(enrich$by_cause_tbl)
+  }
+
   group_tables <- lapply(groups_info, load_group_tables)
+  group_enrichment <- lapply(groups_info, load_group_enrichment)
 
   # combine global tables
   combine_global <- function(group_tables, groups_info) {
@@ -380,6 +399,110 @@ ard_compare <- function(
     list(table = combined, plot = plot_df)
   }
 
+  format_p_label <- function(p) {
+    out <- rep("NA", length(p))
+    ok <- is.finite(p)
+    if (any(ok)) {
+      hi <- ok & p >= 0.001
+      lo <- ok & !hi
+      out[hi] <- sprintf("%.3f", p[hi])
+      out[lo] <- sprintf("%.2e", p[lo])
+    }
+    out
+  }
+
+  build_heatmap_dataset <- function(
+      level,
+      scope,
+      cause_datasets,
+      group_enrichment,
+      groups_info,
+      exposure_label,
+      compare_mode = "cause_vs_rest_all",
+      p_threshold = 0.05
+  ) {
+    cause_tbl <- cause_datasets[[level]][[scope]]$table
+    if (!is.data.frame(cause_tbl) || !nrow(cause_tbl)) {
+      return(tibble::tibble())
+    }
+
+    causes <- unique(cause_tbl$cause)
+    causes <- causes[!is.na(causes)]
+    causes <- trimws(as.character(causes))
+    causes <- causes[nzchar(causes)]
+    if (!length(causes)) {
+      return(tibble::tibble())
+    }
+
+    cause_order <- stats::setNames(seq_along(causes), causes)
+
+    rows <- vector("list", length(groups_info))
+    for (i in seq_along(groups_info)) {
+      info <- groups_info[[i]]
+      enrich_tbl <- group_enrichment[[i]]
+      if (is.data.frame(enrich_tbl) && nrow(enrich_tbl) &&
+          all(c("level","compare_mode","cause") %in% names(enrich_tbl))) {
+        enrich_tbl <- enrich_tbl[
+          enrich_tbl$level == level &
+            enrich_tbl$compare_mode == compare_mode,
+          ,
+          drop = FALSE
+        ]
+      } else {
+        enrich_tbl <- tibble::tibble()
+      }
+
+      if (nrow(enrich_tbl)) {
+        enrich_tbl$cause <- trimws(as.character(enrich_tbl$cause))
+      }
+
+      match_idx <- if (nrow(enrich_tbl)) match(causes, enrich_tbl$cause) else rep(NA_integer_, length(causes))
+      pull_vals <- function(col, default = NA_real_) {
+        if (!nrow(enrich_tbl) || is.null(enrich_tbl[[col]])) {
+          rep(default, length(causes))
+        } else {
+          vals <- rep(default, length(causes))
+          ok <- !is.na(match_idx)
+          if (any(ok)) {
+            vals[ok] <- enrich_tbl[[col]][match_idx[ok]]
+          }
+          vals
+        }
+      }
+
+      p_vals <- pull_vals("p_signed")
+      ses_vals <- pull_vals("SES_signed")
+
+      rows[[i]] <- tibble::tibble(
+        level = level,
+        scope = scope,
+        compare_mode = compare_mode,
+        cause = causes,
+        cause_order = unname(cause_order[causes]),
+        group_id = info$id,
+        group_label = info$display,
+        group_order = info$index,
+        p_signed = p_vals,
+        SES_signed = ses_vals,
+        significant = is.finite(p_vals) & (p_vals < p_threshold),
+        direction = dplyr::case_when(
+          is.finite(ses_vals) & ses_vals < 0 ~ "protective",
+          is.finite(ses_vals) & ses_vals > 0 ~ "risk",
+          TRUE ~ "neutral"
+        ),
+        label = format_p_label(p_vals),
+        exposure = exposure_label
+      )
+    }
+
+    out <- dplyr::bind_rows(rows)
+    if (!nrow(out)) {
+      return(tibble::tibble())
+    }
+    out$direction[out$significant %in% FALSE] <- "neutral"
+    out
+  }
+
   cause_levels <- c("cause_level_1","cause_level_2","cause_level_3")
   scopes <- c("all_diseases","age_related_diseases")
   cause_datasets <- list()
@@ -387,6 +510,21 @@ ard_compare <- function(
     cause_datasets[[lvl]] <- list()
     for (sc in scopes) {
       cause_datasets[[lvl]][[sc]] <- make_cause_dataset(lvl, sc, group_tables, groups_info)
+    }
+  }
+
+  heatmap_datasets <- list()
+  for (lvl in cause_levels) {
+    heatmap_datasets[[lvl]] <- list()
+    for (sc in scopes) {
+      heatmap_datasets[[lvl]][[sc]] <- build_heatmap_dataset(
+        level = lvl,
+        scope = sc,
+        cause_datasets = cause_datasets,
+        group_enrichment = group_enrichment,
+        groups_info = groups_info,
+        exposure_label = exposure
+      )
     }
   }
 
@@ -482,6 +620,19 @@ ard_compare <- function(
         effect_scale = compare_effect_scale
       )
       save_plot(plot_obj_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", n_rows)
+
+      heat_df <- heatmap_datasets[[lvl]][[sc]]
+      if (is.data.frame(heat_df) && nrow(heat_df)) {
+        heat_plot <- plot_enrichment_group_heatmap(
+          heat_df,
+          level = lvl,
+          scope = sc,
+          exposure = exposure
+        )
+        n_causes <- length(unique(heat_df$cause))
+        width <- max(4.8, 2.5 + 1.1 * length(groups_info))
+        save_plot(heat_plot, out_dir, "group_heatmap", max(1, n_causes), width = width)
+      }
     }
   }
 
