@@ -476,7 +476,7 @@ ard_compare <- function(
   }
 
   format_q_label <- function(q) {
-    out <- rep("NA", length(q))
+    out <- rep("", length(q))
     ok <- is.finite(q)
     if (any(ok)) {
       hi <- ok & q >= 0.001
@@ -549,9 +549,9 @@ ard_compare <- function(
       p_vals <- pull_vals("p_signed")
       ses_vals <- pull_vals("SES_signed")
       q_vals <- rep(NA_real_, length(p_vals))
-      finite_p <- is.finite(p_vals)
-      if (any(finite_p)) {
-        q_vals[finite_p] <- stats::p.adjust(p_vals[finite_p], method = "BH")
+      finite_idx <- which(is.finite(p_vals))
+      if (length(finite_idx)) {
+        q_vals[finite_idx] <- stats::p.adjust(p_vals[finite_idx], method = "BH")
       }
 
       rows[[i]] <- tibble::tibble(

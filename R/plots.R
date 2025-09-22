@@ -1239,8 +1239,11 @@ plot_enrichment_group_heatmap <- function(
   df$group_f <- factor(df$group_label, levels = group_levels)
   df$significant <- df$significant %in% TRUE
 
+  missing_cells <- !is.finite(df$p_signed) | !is.finite(df$q_value)
+
   dir_vals <- ifelse(df$direction %in% c("protective","risk"), df$direction, "neutral")
   dir_vals[!df$significant] <- "neutral"
+  dir_vals[missing_cells] <- NA_character_
   df$fill_state <- factor(dir_vals, levels = c("protective","neutral","risk"))
 
   palette <- c(
@@ -1274,22 +1277,24 @@ plot_enrichment_group_heatmap <- function(
   }
 
   df$label <- as.character(df$label)
-  df$label[is.na(df$label) | !nzchar(df$label)] <- "NA"
+  df$label[is.na(df$label) | !nzchar(df$label)] <- NA_character_
 
   p <- ggplot2::ggplot(df, ggplot2::aes(x = group_f, y = cause_f, fill = fill_state)) +
     ggplot2::geom_tile(color = "white", linewidth = 0.4) +
-    ggplot2::geom_text(ggplot2::aes(label = label), size = 3.2, colour = "#1a1a1a") +
+    ggplot2::geom_text(ggplot2::aes(label = label), size = 3.2, colour = "#1a1a1a", na.rm = TRUE) +
     ggplot2::scale_fill_manual(
       values = palette,
       limits = c("protective","neutral","risk"),
       breaks = c("protective","neutral","risk"),
       labels = c(
         "Protective (BH q-val < .05)",
-        "Not significant / NA",
+        "Not significant",
         "Risk (BH q-val < .05)"
       ),
       name = NULL,
-      drop = FALSE
+      drop = FALSE,
+      na.value = "#ffffff",
+      na.translate = FALSE
     ) +
     ggplot2::labs(
       x = NULL,
