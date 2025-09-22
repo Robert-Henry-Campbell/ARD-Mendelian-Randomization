@@ -130,6 +130,25 @@ ard_compare <- function(
     lbl
   }
 
+  ancestry_display <- function(ancestry) {
+    ancestry_label("both", ancestry)
+  }
+
+  sex_display <- function(sex) {
+    sx <- tolower(trimws(sex))
+    switch(
+      sx,
+      both = "both sexes",
+      male = "male",
+      female = "female",
+      stop(sprintf("Unsupported sex value '%s'.", sex), call. = FALSE)
+    )
+  }
+
+  group_axis_label <- function(sex, ancestry) {
+    paste0(ancestry_display(ancestry), ", ", sex_display(sex))
+  }
+
   read_table <- function(path, required = TRUE) {
     if (!file.exists(path)) {
       if (!required) {
@@ -190,8 +209,10 @@ ard_compare <- function(
       display = display,
       group_dir = group_dir,
       global_csv = global_csv,
+      results_rds = file.path(group_dir, "results.rds"),
       label = display,
-      id = sprintf("group_%02d", i)
+      id = sprintf("group_%02d", i),
+      axis_label = group_axis_label(sex, ancestry)
     )
   }
 
@@ -277,6 +298,55 @@ ard_compare <- function(
   }
 
   group_tables <- lapply(groups_info, load_group_tables)
+
+  load_group_enrichment <- function(info) {
+    results_path <- info$results_rds
+    if (!file.exists(results_path)) {
+      if (isTRUE(verbose)) {
+        restore_compare_logging()
+        logger::log_warn(
+          "Global enrichment results not found for sex={info$sex}, ancestry={info$ancestry} ({results_path})."
+        )
+      }
+      return(tibble::tibble())
+    }
+    enr <- tryCatch(readRDS(results_path), error = function(e) e)
+    if (inherits(enr, "error")) {
+      if (isTRUE(verbose)) {
+        restore_compare_logging()
+        logger::log_warn(
+          "Failed to read enrichment results for sex={info$sex}, ancestry={info$ancestry}: {enr$message}"
+        )
+      }
+      return(tibble::tibble())
+    }
+    if (!is.list(enr) || !"enrich" %in% names(enr)) {
+      if (isTRUE(verbose)) {
+        restore_compare_logging()
+        logger::log_warn(
+          "Enrichment component missing in results for sex={info$sex}, ancestry={info$ancestry}."
+        )
+      }
+      return(tibble::tibble())
+    }
+    global_tbl <- tryCatch(enr$enrich$global_tbl, error = function(e) NULL)
+    if (!is.data.frame(global_tbl) || !nrow(global_tbl)) {
+      return(tibble::tibble())
+    }
+    df <- tibble::as_tibble(global_tbl)
+    df$group_id <- info$id
+    df$group_order <- info$index
+    df$group_axis_label <- info$axis_label
+    df$group_display <- info$display
+    df$sex <- info$sex
+    df$ancestry <- info$ancestry
+    df
+  }
+
+  enrichment_global_combined <- dplyr::bind_rows(lapply(groups_info, load_group_enrichment))
+  if (nrow(enrichment_global_combined)) {
+    enrichment_global_combined <- dplyr::arrange(enrichment_global_combined, .data$group_order)
+  }
 
   # combine global tables
   combine_global <- function(group_tables, groups_info) {
@@ -483,6 +553,28 @@ ard_compare <- function(
       )
       save_plot(plot_obj_wrap_yfloat, out_dir, "mean_effect_wrap_yfloat", n_rows)
     }
+  }
+
+  enrichment_compare_dir <- file.path(compare_root, "enrichment_compare")
+  if (nrow(enrichment_global_combined)) {
+    n_groups <- enrichment_global_combined$group_axis_label
+    n_groups <- n_groups[!is.na(n_groups)]
+    n_groups <- length(unique(n_groups))
+    n_groups <- if (is.finite(n_groups) && n_groups > 0) n_groups else 1L
+    plot_enrichment_compare <- plot_enrichment_signed_violin_global_compare(
+      enrichment_global_combined,
+      alpha = 0.05
+    )
+    save_plot(
+      plot_enrichment_compare,
+      file.path(enrichment_compare_dir, "global"),
+      "violin_forest",
+      n_groups,
+      width = 7.2
+    )
+  } else if (isTRUE(verbose)) {
+    restore_compare_logging()
+    logger::log_warn("No enrichment data available for compare violin forest plot.")
   }
 
   invisible(NULL)
