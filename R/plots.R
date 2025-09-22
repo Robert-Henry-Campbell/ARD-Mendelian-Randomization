@@ -889,6 +889,7 @@ plot_enrichment_global_signed <- function(
     sig_labels[1], sig_labels[2]
   )
   obs_df$signif_label <- factor(obs_df$signif_label, levels = sig_labels)
+  obs_df$signif_label <- base::droplevels(obs_df$signif_label)
 
   colour_map <- stats::setNames(c("firebrick", "grey30"), sig_labels)
 
@@ -942,8 +943,7 @@ plot_enrichment_global_signed <- function(
   base +
     ggplot2::scale_colour_manual(
       name = sprintf("BH (q < %.2f)", alpha),
-      values = colour_map,
-      drop = FALSE
+      values = colour_map
     )
 }
 
