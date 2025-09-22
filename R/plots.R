@@ -894,7 +894,7 @@ plot_enrichment_global_signed <- function(
 
   if (orientation == "vertical") {
     base <- ggplot2::ggplot(draw_df, ggplot2::aes(x = group_f, y = Tg_ses)) +
-      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 0.75) +
+      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 1.25) + #used to be width = .75
       ggplot2::geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4, colour = "grey50") +
       ggplot2::geom_segment(
         data = obs_df,
@@ -917,7 +917,7 @@ plot_enrichment_global_signed <- function(
       )
   } else {
     base <- ggplot2::ggplot(draw_df, ggplot2::aes(y = group_f, x = Tg_ses)) +
-      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 0.75) +
+      ggplot2::geom_violin(fill = "grey85", colour = "grey60", alpha = 0.9, trim = FALSE, width = 1.25) + #used to be width = .75
       ggplot2::geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4, colour = "grey50") +
       ggplot2::geom_segment(
         data = obs_df,
