@@ -144,7 +144,6 @@ run_phenome_mr_plotting_only <- function(
 
 
 #################################################################################
-
   logger::log_info("5) Build summary plots…")
 
   # ---- 5A. MANHATTAN: BH vs Bonf × (all vs ARD-only) ----
