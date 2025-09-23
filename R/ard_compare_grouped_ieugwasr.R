@@ -206,29 +206,78 @@ run_ieugwasr_ard_compare <- function(
 
   # instrument extraction + F filtering (robust to column names)
   get_instruments <- function(ieu_id) {
-    ins <- TwoSampleMR::extract_instruments(
-      outcomes = ieu_id,
-      p1       = p_threshold,
-      clump    = TRUE,
-      r2       = r2,
-      kb       = kb
+    # helper to compute F with whatever column names we get back
+    pick_colname <- function(df, candidates) {
+      nm <- candidates[candidates %in% names(df)][1]
+      if (is.na(nm)) NA_character_ else nm
+    }
+
+    # 1) Try the normal call (your settings)
+    ins <- try(
+      TwoSampleMR::extract_instruments(
+        outcomes = ieu_id, p1 = p_threshold, clump = TRUE, r2 = r2, kb = kb
+      ),
+      silent = TRUE
     )
-    if (!nrow(ins)) return(ins[0, ])
 
-    # pick beta/se regardless of suffix
-    beta_nm <- pick_colname(ins, c("beta","beta.exposure"), TRUE, "beta")
-    se_nm   <- pick_colname(ins, c("se","se.exposure"), TRUE, "se")
+    if (inherits(ins, "try-error")) {
+      message(sprintf("[extract_instruments] error for %s. Retrying with clump=FALSE…", ieu_id))
+      # 2) Retry without clumping (sometimes the clumping step is where it breaks)
+      ins <- try(
+        TwoSampleMR::extract_instruments(
+          outcomes = ieu_id, p1 = p_threshold, clump = FALSE
+        ),
+        silent = TRUE
+      )
+      if (inherits(ins, "try-error")) {
+        message(sprintf("[extract_instruments] still error for %s. Probing dataset availability…", ieu_id))
+        # 3) Probe that the study ID is valid & accessible
+        info_ok <- !inherits(try(ieugwasr::gwasinfo(ieu_id), silent = TRUE), "try-error")
+        # Try to pull a single variant to see if the dataset is reachable at all
+        probe <- try(
+          TwoSampleMR::extract_outcome_data(variants = "rs56116432", outcomes = ieu_id),
+          silent = TRUE
+        )
+        if (!info_ok) {
+          warning(sprintf("Study '%s' not found via gwasinfo() -> likely bad ID. Skipping.", ieu_id))
+        } else if (inherits(probe, "try-error")) {
+          warning(sprintf("Study '%s' exists but OpenGWAS access failed (JWT/permission/network). Skipping.", ieu_id))
+        } else {
+          warning(sprintf(
+            "Study '%s' is accessible, but instrument endpoint errored (API quirk). Treating as failure & skipping.",
+            ieu_id
+          ))
+        }
+        return(tibble::tibble())  # graceful skip
+      }
+    }
 
-    # compute F before any joins (simple & avoids NSE issues)
-    F_tmp <- f_stat(ins[[beta_nm]], ins[[se_nm]])
-    ins$F_tmp <- F_tmp
-    ins <- ins |> filter(is.finite(.data$F_tmp), .data$F_tmp >= f_threshold) |> select(-.data$F_tmp)
-    if (!nrow(ins)) return(ins[0, ])
+    # If we get here, we have a data.frame (maybe empty = 'no hits')
+    if (!nrow(ins)) {
+      message(sprintf("No instruments for %s at p<=%g (pre-clump). Returning 0 rows.", ieu_id, p_threshold))
+      return(ins[0, ])
+    }
 
-    # add Chr/Pos (robust)
+    # F filter (handle column name variants)
+    beta_nm <- pick_colname(ins, c("beta","beta.exposure"))
+    se_nm   <- pick_colname(ins, c("se","se.exposure"))
+    if (!nzchar(beta_nm) || !nzchar(se_nm)) {
+      warning(sprintf("Missing beta/se columns in instruments for %s; skipping.", ieu_id))
+      return(tibble::tibble())
+    }
+    ins$F_tmp <- (ins[[beta_nm]] / ins[[se_nm]])^2
+    ins <- dplyr::filter(ins, is.finite(.data$F_tmp), .data$F_tmp >= f_threshold) |>
+      dplyr::select(-.data$F_tmp)
+    if (!nrow(ins)) {
+      message(sprintf("All instruments for %s dropped by F-stat >= %g. Returning 0 rows.", ieu_id, f_threshold))
+      return(ins[0, ])
+    }
+
+    # Chr/Pos annotation (your robust helper)
     ins <- annotate_chrpos(ins)
     ins
   }
+
 
   # ---- read CSV ----
   expos <- readr::read_csv(csv_path, show_col_types = FALSE)
