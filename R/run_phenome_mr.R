@@ -89,6 +89,11 @@ run_phenome_mr <- function(
 
   plot_output_dir <- file.path(cache_dir, "output", .slug(exposure), sex, ancestry)
   Neale_GWAS_dir  <- file.path(cache_dir, "neale_sumstats")
+  purged_plot_dir <- FALSE
+  if (isTRUE(force_refresh) && dir.exists(plot_output_dir)) {
+    unlink(plot_output_dir, recursive = TRUE, force = TRUE)
+    purged_plot_dir <- TRUE
+  }
   dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(Neale_GWAS_dir,  recursive = TRUE, showWarnings = FALSE)
 
@@ -111,6 +116,11 @@ run_phenome_mr <- function(
   }
   setup_logging(logfile, level = if (verbose) "INFO" else "WARN")
   logger::log_info("Logging to {logfile}")
+  if (isTRUE(purged_plot_dir)) {
+    logger::log_info(
+      "force_refresh enabled: cleared existing artifacts at {plot_output_dir}"
+    )
+  }
 
   # Keep config bundled for helper calls
   cfg <- list(
