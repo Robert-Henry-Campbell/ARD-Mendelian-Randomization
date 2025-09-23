@@ -167,7 +167,14 @@ run_phenome_mr <- function(
     logger::log_info("3a) Ensure Neale GWAS files + tbi present…")
     neale_gwas_checker(MR_df, neale_dir = cfg$neale_dir, verbose = cfg$verbose, confirm = cfg$confirm)
     logger::log_info("3b) Pull Neale outcome SNP rows…")
-    MR_df <- neale_snp_grabber(exposure_snps2, MR_df, neale_dir = cfg$neale_dir, cache_dir = cfg$cache_dir, verbose = cfg$verbose)
+    MR_df <- neale_snp_grabber(
+      exposure_snps2,
+      MR_df,
+      neale_dir = cfg$neale_dir,
+      cache_dir = cfg$cache_dir,
+      verbose = cfg$verbose,
+      force_refresh = cfg$force_refresh
+    )
   }
   metrics$outcome_snps <- sum(lengths(MR_df$outcome_snps))
   logger::log_info("Outcome SNPs: {metrics$outcome_snps} rows fetched")
