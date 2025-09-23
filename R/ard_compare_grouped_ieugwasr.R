@@ -36,12 +36,6 @@ run_ieugwasr_ard_compare <- function(
   miss <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss)) stop("Please install required packages: ", paste(miss, collapse = ", "))
 
-  library(dplyr)
-  library(readr)
-  library(purrr)
-  library(stringr)
-  library(tibble)
-
   # ---- auth ----
   if (!nzchar(jwt)) stop("IEU_JWT or OPENGWAS_JWT env var not set and no 'jwt' provided.")
   Sys.setenv(OPENGWAS_JWT = jwt)
@@ -135,12 +129,18 @@ run_ieugwasr_ard_compare <- function(
   annotate_chrpos <- function(dat) {
     # reuse if already present
     if (all(c("chr.exposure","pos.exposure") %in% names(dat))) {
-      return(dat |> mutate(Chr = as.character(.data$chr.exposure),
-                           Pos = as.numeric(.data$pos.exposure)))
+      return(dat |>
+        dplyr::mutate(
+          Chr = as.character(.data$chr.exposure),
+          Pos = as.numeric(.data$pos.exposure)
+        ))
     }
     if (all(c("chr","pos") %in% names(dat))) {
-      return(dat |> mutate(Chr = as.character(.data$chr),
-                           Pos = as.numeric(.data$pos)))
+      return(dat |>
+        dplyr::mutate(
+          Chr = as.character(.data$chr),
+          Pos = as.numeric(.data$pos)
+        ))
     }
 
     if (!"SNP" %in% names(dat)) stop("annotate_chrpos(): 'SNP' column is missing.")
@@ -149,36 +149,44 @@ run_ieugwasr_ard_compare <- function(
     ann <- try(ieugwasr::variants_rsid(snps), silent = TRUE)
     if (!inherits(ann, "try-error") && all(c("name","chr","pos") %in% names(ann))) {
       ann <- ann |>
-        transmute(SNP = .data$name,
-                  Chr = as.character(.data$chr),
-                  Pos = as.numeric(.data$pos))
-      return(left_join(dat, ann, by = "SNP"))
+        dplyr::transmute(
+          SNP = .data$name,
+          Chr = as.character(.data$chr),
+          Pos = as.numeric(.data$pos)
+        )
+      return(dplyr::left_join(dat, ann, by = "SNP"))
     }
 
     look_one_study <- function(study_id, rs) {
       out <- ieugwasr::associations(variants = rs, id = study_id)
       if (!nrow(out)) return(out[0, ])
-      out |> select(rsid, chr, pos) |> distinct()
+      out |>
+        dplyr::select(rsid, chr, pos) |>
+        dplyr::distinct()
     }
 
     study_id <- if ("id.exposure" %in% names(dat)) dat$id.exposure[1] else NA_character_
     if (is.na(study_id)) {
       warning("No id.exposure in dat; cannot fetch chr/pos. Returning NA Chr/Pos.")
-      return(dat |> mutate(Chr = NA_character_, Pos = as.numeric(NA)))
+      return(dat |>
+        dplyr::mutate(Chr = NA_character_, Pos = as.numeric(NA)))
     }
 
     chunks <- split(snps, ceiling(seq_along(snps)/500))
     ann_list <- lapply(chunks, function(rs) try(look_one_study(study_id, rs), silent = TRUE))
     ann_list <- ann_list[!vapply(ann_list, inherits, logical(1), "try-error")]
     if (length(ann_list)) {
-      ann2 <- bind_rows(ann_list) |>
-        transmute(SNP = .data$rsid,
-                  Chr = as.character(.data$chr),
-                  Pos = as.numeric(.data$pos))
-      return(left_join(dat, ann2, by = "SNP"))
+      ann2 <- dplyr::bind_rows(ann_list) |>
+        dplyr::transmute(
+          SNP = .data$rsid,
+          Chr = as.character(.data$chr),
+          Pos = as.numeric(.data$pos)
+        )
+      return(dplyr::left_join(dat, ann2, by = "SNP"))
     }
 
-    dat |> mutate(Chr = NA_character_, Pos = as.numeric(NA))
+    dat |>
+      dplyr::mutate(Chr = NA_character_, Pos = as.numeric(NA))
   }
 
   build_exposure_snps <- function(raw, exposure_label, ieu_id) {
@@ -196,8 +204,8 @@ run_ieugwasr_ard_compare <- function(
       stop(sprintf("Non-rsID variant IDs for %s: e.g. %s", ieu_id, paste(utils::head(bad,5), collapse=", ")))
     }
 
-    out <- raw %>%
-      mutate(
+    out <- raw |>
+      dplyr::mutate(
         id.exposure            = ieu_id,
         exposure               = exposure_label,
         Exposure               = exposure_label,  # optional alias
@@ -210,14 +218,14 @@ run_ieugwasr_ard_compare <- function(
         palindromic            = palindrome_flag(.data[[ea_nm]], .data[[oa_nm]]),
         mr_keep                = TRUE,
         F                      = f_stat(.data[[beta_nm]], .data[[se_nm]])
-      ) %>%
-      select(
+      ) |>
+      dplyr::select(
         id.exposure, exposure, Exposure, SNP, Chr, Pos,
         effect_allele.exposure, other_allele.exposure, eaf.exposure,
         beta.exposure, se.exposure, palindromic, pval.exposure,
         mr_keep, F
-      ) %>%
-      arrange(SNP)
+      ) |>
+      dplyr::arrange(.data$SNP)
 
     need <- c("id.exposure","exposure","SNP","Chr","Pos",
               "effect_allele.exposure","other_allele.exposure","eaf.exposure",
@@ -363,8 +371,8 @@ run_ieugwasr_ard_compare <- function(
   if (length(miss_cols)) stop("CSV missing required columns: ", paste(miss_cols, collapse = ", "))
   if (!"exposure_units" %in% names(expos)) expos$exposure_units <- NA_character_
 
-  expos <- expos %>%
-    mutate(
+  expos <- expos |>
+    dplyr::mutate(
       exposure = safe_chr(exposure),
       exposure_group = safe_chr(exposure_group),
       sex = safe_chr(sex),
@@ -411,9 +419,9 @@ run_ieugwasr_ard_compare <- function(
   message("Fetching & preparing instruments…")
   extraction_meta <- list()  # one entry per attempted row
 
-  expos_prepared <- expos %>%
-    mutate(.row_id = dplyr::row_number()) %>%
-    group_split(.row_id, .keep = TRUE) %>%
+  expos_prepared <- expos |>
+    dplyr::mutate(.row_id = dplyr::row_number()) |>
+    dplyr::group_split(.row_id, .keep = TRUE) |>
     purrr::map(function(rr) {
       r <- dplyr::slice(rr, 1)
       ieu_id   <- r$ieu_id
@@ -450,14 +458,14 @@ run_ieugwasr_ard_compare <- function(
         multiple_testing_correction = mtc_val,
         confirm        = confirm_val
       )
-    }) %>%
+    }) |>
     purrr::compact()
 
   # ---- summary + user interrupt BEFORE ard_compare() ----
   meta_df <- dplyr::bind_rows(extraction_meta)
   if (is.null(meta_df) || !nrow(meta_df)) stop("No exposure rows were attempted; nothing to do.")
 
-  meta_df <- meta_df %>%
+  meta_df <- meta_df |>
     dplyr::mutate(
       status = as.character(.data$status),
       p_used = suppressWarnings(as.numeric(.data$p_used))
@@ -469,8 +477,8 @@ run_ieugwasr_ard_compare <- function(
   succ_5e6 <- sum(meta_df$status == "success" & !is.na(meta_df$p_used) & meta_df$p_used > 5e-7 & meta_df$p_used <= 5e-6)
   failed_n <- sum(meta_df$status == "fail")
 
-  failed_wh <- meta_df %>%
-    dplyr::filter(.data$status == "fail") %>%
+  failed_wh <- meta_df |>
+    dplyr::filter(.data$status == "fail") |>
     dplyr::distinct(.data$ieu_id, .data$exposure)
 
   summary_tbl <- tibble::tibble(
