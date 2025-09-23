@@ -2,7 +2,7 @@
 #'
 #' @param csv_path Path to a CSV with columns: ieu_id, Exposure, exposure_group, sex, ancestry
 #' @param cache_dir Output/cache directory used by ard_compare/run_phenome_mr
-#' @param jwt IEU JWT string; defaults to Sys.getenv("IEU_JWT")
+#' @param jwt IEU JWT string; defaults to IEU_JWT/OPENGWAS_JWT env vars
 #' @param prompt_for_units If TRUE, interactively prompt for missing units; otherwise stop on missing units
 #' @param p_threshold Genome-wide significance threshold for instrument extraction (default 5e-8)
 #' @param r2 LD clumping r^2 threshold (default 0.001)
@@ -14,7 +14,13 @@
 run_ieugwasr_ard_compare <- function(
     csv_path,
     cache_dir      = ardmr_cache_dir(),
-    jwt            = Sys.getenv("OPENGWAS_JWT"),
+
+    jwt            = {
+      jwt_env <- Sys.getenv("IEU_JWT", unset = "")
+      if (!nzchar(jwt_env)) jwt_env <- Sys.getenv("OPENGWAS_JWT", unset = "")
+      jwt_env
+    },
+
     prompt_for_units = interactive(),
     p_threshold    = 5e-8,
     r2             = 0.001,
@@ -33,8 +39,9 @@ run_ieugwasr_ard_compare <- function(
   library(tibble)
 
   # ---- auth ----
-  if (!nzchar(jwt)) stop("IEU_JWT env var not set and no 'jwt' provided.")
-  ieugwasr::set_user_jwt(jwt)
+  if (!nzchar(jwt)) stop("IEU_JWT or OPENGWAS_JWT env var not set and no 'jwt' provided.")
+  # See ieugwasr authentication guide: https://mrcieu.github.io/ieugwasr/articles/guide_authentication.html
+  Sys.setenv(OPENGWAS_JWT = jwt)
 
   # ---- helpers ----
   is_rsid <- function(x) !is.na(x) & grepl("^rs\\d+$", x)
