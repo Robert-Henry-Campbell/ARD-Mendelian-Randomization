@@ -27,7 +27,7 @@ ard_compare(
   logfile = NULL,
   verbose = TRUE,
   confirm = "ask",
-  force_refresh = FALSE
+  force_refresh = TRUE
 )
 }
 \arguments{
@@ -53,14 +53,15 @@ ard_compare(
 
 \item{confirm}{Character; whether to prompt before downloading required resources when using Neale data. One of \code{"ask"}, \code{"yes"}, or \code{"no"}.}
 
-\item{force_refresh}{Logical; if \code{TRUE}, re-download remote resources even if they are already cached.}
+\item{force_refresh}{Logical; when \code{TRUE} (default) clear any existing outputs for each group before re-running
+\code{run_phenome_mr()}. Set to \code{FALSE} to reuse cached results.}
 }
 \value{
 Invisibly returns \code{NULL} after writing the combined compare outputs to disk.
 }
 \description{
-Calls \code{run_phenome_mr()} for each supplied group (reusing cached runs when available) and builds beta-scale comparison tables and forests that stack the groups side-by-side.
+Calls \code{run_phenome_mr()} for each supplied group (regenerating outputs by default; set \code{force_refresh = FALSE} to reuse cached runs) and builds beta-scale comparison tables and forests that stack the groups side-by-side.
 }
 \details{
-Combined plots and tables are written beneath \code{cache_dir/output/<exposure>/compare/<timestamp>/beta_compare/}. Existing \code{beta/tables/global.csv} files are treated as proof that a group's run already exists.
+Combined plots and tables are written beneath \code{cache_dir/output/<exposure>/compare/<timestamp>/beta_compare/}. Existing \code{beta/tables/global.csv} files are treated as proof that a group's run already exists when \code{force_refresh = FALSE}.
 }
