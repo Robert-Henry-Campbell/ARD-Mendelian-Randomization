@@ -108,7 +108,7 @@ run_ieugwasr_ard_compare <- function(
     NA_character_
   }
 
-  # chr/pos annotator: reuse if present, else reflookup(), else associations()
+  # chr/pos annotator: reuse if present, else variants_rsid(), else associations()
   annotate_chrpos <- function(dat) {
     # reuse if already present
     if (all(c("chr.exposure","pos.exposure") %in% names(dat))) {
@@ -123,10 +123,10 @@ run_ieugwasr_ard_compare <- function(
     if (!"SNP" %in% names(dat)) stop("annotate_chrpos(): 'SNP' column is missing.")
     snps <- unique(dat$SNP)
 
-    ann <- try(ieugwasr::reflookup(snps), silent = TRUE)
-    if (!inherits(ann, "try-error") && all(c("rsid","chr","pos") %in% names(ann))) {
+    ann <- try(ieugwasr::variants_rsid(snps), silent = TRUE)
+    if (!inherits(ann, "try-error") && all(c("name","chr","pos") %in% names(ann))) {
       ann <- ann |>
-        transmute(SNP = .data$rsid,
+        transmute(SNP = .data$name,
                   Chr = as.character(.data$chr),
                   Pos = as.numeric(.data$pos))
       return(left_join(dat, ann, by = "SNP"))
