@@ -99,6 +99,27 @@ run_ieugwasr_ard_compare <- function(
     unname(out)
   }
 
+  # LD-pop mapping for clumping
+  ld_pop_from_ancestry <- function(anc) {
+    anc0 <- toupper(trimws(ifelse(is.null(anc) || is.na(anc), "", as.character(anc))))
+    if (anc0 %in% c("EUR","EUROPEAN")) return("EUR")
+    if (anc0 %in% c("AFR","AFRICAN","AFRICAN-UKB")) return("AFR")
+    if (anc0 %in% c("EAS","EAST_ASIAN","EAST-ASIAN","EAST ASIAN")) return("EAS")
+    if (anc0 %in% c("CSA","SAS","SOUTH_ASIAN","CENTRAL_SOUTH_ASIAN","SOUTH ASIAN")) return("SAS")
+    warning(sprintf("Unknown ancestry '%s'; defaulting LD pop to EUR for clumping.", anc))
+    "EUR"
+  }
+
+  # light retry/backoff for flaky API calls
+  with_backoff <- function(expr, tries = 3, base_sleep = 0.5) {
+    for (i in seq_len(tries)) {
+      out <- try(force(expr), silent = TRUE)
+      if (!inherits(out, "try-error")) return(out)
+      if (i < tries) Sys.sleep(base_sleep * 2^(i-1))
+    }
+    out
+  }
+
   # units via ieugwasr::gwasinfo()
   fetch_units <- function(ieu_id) {
     info <- try(ieugwasr::gwasinfo(ieu_id), silent = TRUE)
@@ -204,80 +225,131 @@ run_ieugwasr_ard_compare <- function(
     out
   }
 
-  # instrument extraction + F filtering (robust to column names)
-  get_instruments <- function(ieu_id) {
-    # helper to compute F with whatever column names we get back
-    pick_colname <- function(df, candidates) {
-      nm <- candidates[candidates %in% names(df)][1]
-      if (is.na(nm)) NA_character_ else nm
-    }
+  # ---- p-value backoff ladder ----
+  p_backoff <- c(p_threshold, 5e-7, 5e-6) |> unique()
 
-    # 1) Try the normal call (your settings)
-    ins <- try(
-      TwoSampleMR::extract_instruments(
-        outcomes = ieu_id, p1 = p_threshold, clump = TRUE, r2 = r2, kb = kb
-      ),
-      silent = TRUE
-    )
+  # instrument extraction + F filtering with ancestry-aware fallback + p backoff
+  # ALWAYS clumps before returning
+  get_instruments <- function(ieu_id, ancestry) {
+    ld_pop <- ld_pop_from_ancestry(ancestry)
 
-    if (inherits(ins, "try-error")) {
-      message(sprintf("[extract_instruments] error for %s. Retrying with clump=FALSE…", ieu_id))
-      # 2) Retry without clumping (sometimes the clumping step is where it breaks)
-      ins <- try(
-        TwoSampleMR::extract_instruments(
-          outcomes = ieu_id, p1 = p_threshold, clump = FALSE
-        ),
-        silent = TRUE
-      )
-      if (inherits(ins, "try-error")) {
-        message(sprintf("[extract_instruments] still error for %s. Probing dataset availability…", ieu_id))
-        # 3) Probe that the study ID is valid & accessible
-        info_ok <- !inherits(try(ieugwasr::gwasinfo(ieu_id), silent = TRUE), "try-error")
-        # Try to pull a single variant to see if the dataset is reachable at all
-        probe <- try(
-          TwoSampleMR::extract_outcome_data(variants = "rs56116432", outcomes = ieu_id),
-          silent = TRUE
-        )
-        if (!info_ok) {
-          warning(sprintf("Study '%s' not found via gwasinfo() -> likely bad ID. Skipping.", ieu_id))
-        } else if (inherits(probe, "try-error")) {
-          warning(sprintf("Study '%s' exists but OpenGWAS access failed (JWT/permission/network). Skipping.", ieu_id))
-        } else {
-          warning(sprintf(
-            "Study '%s' is accessible, but instrument endpoint errored (API quirk). Treating as failure & skipping.",
-            ieu_id
-          ))
-        }
-        return(tibble::tibble())  # graceful skip
+    # helper: robust tophits across ieugwasr versions (p vs pval)
+    safe_tophits <- function(id, thr) {
+      th <- try(ieugwasr::tophits(id = id, p = thr), silent = TRUE)
+      if (inherits(th, "try-error") || !is.data.frame(th)) {
+        th <- try(ieugwasr::tophits(id = id, pval = thr), silent = TRUE)
       }
+      if (inherits(th, "try-error") || !is.data.frame(th)) return(NULL)
+      if (!nrow(th)) return(th[0, ])
+      if (!"p" %in% names(th) && "pval" %in% names(th)) th$p <- th$pval
+      th
     }
 
-    # If we get here, we have a data.frame (maybe empty = 'no hits')
-    if (!nrow(ins)) {
-      message(sprintf("No instruments for %s at p<=%g (pre-clump). Returning 0 rows.", ieu_id, p_threshold))
-      return(ins[0, ])
+    # helper: self-clump a table that has rsids + p-values, then subset original
+    # helper: self-clump a table that has rsids + p-values, then subset original
+    self_clump <- function(tbl, rs_col = "SNP", p_col = NULL) {
+      # pick a p-value column if not provided
+      if (is.null(p_col)) {
+        p_col <- pick_colname(tbl, c("p","pval","pval.exposure","pval.outcome"), TRUE, "p-value")
+      }
+
+      # build library for clumping
+      lib <- tbl |>
+        dplyr::transmute(rsid = .data[[rs_col]], p = .data[[p_col]]) |>
+        dplyr::filter(is.finite(.data$p), !is.na(.data$rsid)) |>
+        dplyr::distinct()
+
+      # if 0 or 1 SNPs, just return the input (no clumping possible/needed)
+      if (!nrow(lib) || nrow(lib) == 1L) {
+        return(tbl)
+      }
+
+      cl <- with_backoff(ieugwasr::ld_clump(lib, pop = ld_pop, r2 = r2, kb = kb))
+      if (inherits(cl, "try-error") || !is.data.frame(cl) || !nrow(cl)) {
+        warning(sprintf("ld_clump() failed/empty for %s (pop=%s). Proceeding UNCLUMPED.", ieu_id, ld_pop))
+        return(tbl)
+      }
+
+      # correct key mapping: keep rows in tbl whose rs_col matches cl$rsid
+      dplyr::semi_join(tbl, cl, by = setNames("rsid", rs_col))
     }
 
-    # F filter (handle column name variants)
-    beta_nm <- pick_colname(ins, c("beta","beta.exposure"))
-    se_nm   <- pick_colname(ins, c("se","se.exposure"))
-    if (!nzchar(beta_nm) || !nzchar(se_nm)) {
-      warning(sprintf("Missing beta/se columns in instruments for %s; skipping.", ieu_id))
-      return(tibble::tibble())
-    }
-    ins$F_tmp <- (ins[[beta_nm]] / ins[[se_nm]])^2
-    ins <- dplyr::filter(ins, is.finite(.data$F_tmp), .data$F_tmp >= f_threshold) |>
-      dplyr::select(-.data$F_tmp)
-    if (!nrow(ins)) {
-      message(sprintf("All instruments for %s dropped by F-stat >= %g. Returning 0 rows.", ieu_id, f_threshold))
-      return(ins[0, ])
+
+    for (pthr in p_backoff) {
+      message(sprintf("[ID=%s] Trying instrument extraction at p<=%.0e …", ieu_id, pthr))
+
+      # ---- 1) Standard path: already clumped by API ----
+      ins <- with_backoff(
+        TwoSampleMR::extract_instruments(outcomes = ieu_id, p1 = pthr, clump = TRUE, r2 = r2, kb = kb)
+      )
+
+      # If that fails or returns 0 rows, try unclumped then self-clump
+      if (inherits(ins, "try-error") || !nrow(ins)) {
+        if (inherits(ins, "try-error")) {
+          message(sprintf("[ID=%s] extract_instruments(clump=TRUE) errored at p<=%.0e; retrying clump=FALSE + self-clump …", ieu_id, pthr))
+        } else {
+          message(sprintf("[ID=%s] No SNPs via extract_instruments(clump=TRUE) at p<=%.0e; retrying clump=FALSE + self-clump …", ieu_id, pthr))
+        }
+        ins <- with_backoff(
+          TwoSampleMR::extract_instruments(outcomes = ieu_id, p1 = pthr, clump = FALSE)
+        )
+        if (!inherits(ins, "try-error") && nrow(ins)) {
+          pcol_try <- if ("pval" %in% names(ins)) "pval" else if ("pval.exposure" %in% names(ins)) "pval.exposure" else NULL
+          ins <- self_clump(ins, rs_col = "SNP", p_col = pcol_try)
+        }
+      }
+
+      # ---- 2) Fallback to tophits + self-clump ----
+      if (inherits(ins, "try-error") || !nrow(ins)) {
+        message(sprintf("[ID=%s] Falling back to ieugwasr::tophits() at p<=%.0e …", ieu_id, pthr))
+        th <- safe_tophits(ieu_id, pthr)
+        if (is.null(th)) {
+          message(sprintf("[ID=%s] tophits error at p<=%.0e; continuing backoff …", ieu_id, pthr))
+          next
+        }
+        if (!nrow(th)) {
+          message(sprintf("[ID=%s] No SNPs at p<=%.0e; continuing backoff …", ieu_id, pthr))
+          next
+        }
+        thc <- self_clump(th, rs_col = "rsid", p_col = "p")
+        ins <- dplyr::transmute(
+          thc,
+          SNP           = .data$rsid,
+          effect_allele = .data$ea,
+          other_allele  = .data$oa,
+          eaf           = .data$eaf,
+          beta          = .data$beta,
+          se            = .data$se,
+          pval          = .data$p
+        )
+      }
+
+      # ---- 3) F filter (robust to column name variants) ----
+      beta_nm <- if ("beta" %in% names(ins)) "beta" else if ("beta.exposure" %in% names(ins)) "beta.exposure" else NA_character_
+      se_nm   <- if ("se"   %in% names(ins)) "se"   else if ("se.exposure"   %in% names(ins)) "se.exposure"   else NA_character_
+      if (is.na(beta_nm) || is.na(se_nm)) {
+        message(sprintf("[ID=%s] Missing beta/se at p<=%.0e; continuing backoff …", ieu_id, pthr))
+        next
+      }
+      ins$F_tmp <- (ins[[beta_nm]] / ins[[se_nm]])^2
+      ins <- dplyr::filter(ins, is.finite(.data$F_tmp), .data$F_tmp >= f_threshold) |>
+        dplyr::select(-.data$F_tmp)
+      if (!nrow(ins)) {
+        message(sprintf("[ID=%s] All SNPs dropped by F-stat (>= %g) at p<=%.0e; continuing backoff …", ieu_id, f_threshold, pthr))
+        next
+      }
+
+      # ---- 4) Annotate chr/pos and return ----
+      ins <- annotate_chrpos(ins)
+      message(sprintf("[ID=%s] SUCCESS at p<=%.0e: %d clumped SNPs retained (F>=%.1f).", ieu_id, pthr, nrow(ins), f_threshold))
+      attr(ins, "p_used") <- pthr
+      return(ins)
     }
 
-    # Chr/Pos annotation (your robust helper)
-    ins <- annotate_chrpos(ins)
-    ins
+    # If we reach here, nothing found across the ladder
+    message(sprintf("[ID=%s] FAILED after backoff (5e-08 → 5e-07 → 5e-06). Skipping.", ieu_id))
+    return(tibble::tibble())
   }
-
 
   # ---- read CSV ----
   expos <- readr::read_csv(csv_path, show_col_types = FALSE)
@@ -333,17 +405,29 @@ run_ieugwasr_ard_compare <- function(
     }
   }
 
-  # ---- build per-row instrument tables ----
+  # ---- build per-row instrument tables + collect meta ----
   message("Fetching & preparing instruments…")
+  extraction_meta <- list()  # one entry per attempted row
+
   expos_prepared <- expos %>%
     mutate(.row_id = dplyr::row_number()) %>%
-    group_split(.row_id, .keep = TRUE) %>%   # modern dplyr arg
+    group_split(.row_id, .keep = TRUE) %>%
     purrr::map(function(rr) {
       r <- dplyr::slice(rr, 1)
       ieu_id   <- r$ieu_id
       exp_name <- r$exposure
 
-      ins <- get_instruments(ieu_id)
+      ins <- get_instruments(ieu_id, ancestry = r$ancestry)
+      p_used <- attr(ins, "p_used")
+      status <- if (nrow(ins)) "success" else "fail"
+
+      extraction_meta[[length(extraction_meta)+1]] <<- list(
+        ieu_id   = ieu_id,
+        exposure = exp_name,
+        p_used   = if (length(p_used)) p_used else NA_real_,
+        status   = status
+      )
+
       if (!nrow(ins)) {
         warning(sprintf("No instruments retained for %s; skipping.", ieu_id))
         return(NULL)
@@ -351,7 +435,7 @@ run_ieugwasr_ard_compare <- function(
 
       snps_df <- build_exposure_snps(ins, exposure_label = exp_name, ieu_id = ieu_id)
 
-      mtc_val    <- normalize_mtc(r$multiple_testing_correction)[1]
+      mtc_val     <- normalize_mtc(r$multiple_testing_correction)[1]
       confirm_val <- normalize_confirm(r$confirm)[1]
 
       list(
@@ -366,6 +450,53 @@ run_ieugwasr_ard_compare <- function(
       )
     }) %>%
     purrr::compact()
+
+  # ---- summary + user interrupt BEFORE ard_compare() ----
+  meta_df <- dplyr::bind_rows(extraction_meta)
+  if (is.null(meta_df) || !nrow(meta_df)) stop("No exposure rows were attempted; nothing to do.")
+
+  meta_df <- meta_df %>%
+    dplyr::mutate(
+      status = as.character(.data$status),
+      p_used = suppressWarnings(as.numeric(.data$p_used))
+    )
+
+  tried_n <- nrow(meta_df)
+  succ_5e8 <- sum(meta_df$status == "success" & !is.na(meta_df$p_used) & meta_df$p_used <= 5e-8)
+  succ_5e7 <- sum(meta_df$status == "success" & !is.na(meta_df$p_used) & meta_df$p_used > 5e-8 & meta_df$p_used <= 5e-7)
+  succ_5e6 <- sum(meta_df$status == "success" & !is.na(meta_df$p_used) & meta_df$p_used > 5e-7 & meta_df$p_used <= 5e-6)
+  failed_n <- sum(meta_df$status == "fail")
+
+  failed_wh <- meta_df %>%
+    dplyr::filter(.data$status == "fail") %>%
+    dplyr::distinct(.data$ieu_id, .data$exposure)
+
+  summary_tbl <- tibble::tibble(
+    total_attempted   = tried_n,
+    extracted_at_5e_08 = succ_5e8,
+    extracted_at_5e_07 = succ_5e7,
+    extracted_at_5e_06 = succ_5e6,
+    failed_total       = failed_n
+  )
+
+  message("\n=== Instrument Extraction Summary ===")
+  print(summary_tbl)
+  if (failed_n) {
+    message("\nFailed studies (no instruments after backoff):")
+    print(failed_wh, n = Inf)
+  }
+
+  # user interrupt (interactive sessions only)
+  if (interactive()) {
+    ans <- readline("Proceed to ard_compare() with the successfully extracted exposures? [y/N]: ")
+    if (!nzchar(ans) || !tolower(substr(ans,1,1)) %in% c("y")) {
+      stop("User aborted before ard_compare().")
+    }
+  } else {
+    message("Non-interactive session detected; proceeding without prompt.")
+  }
+
+
 
   if (!length(expos_prepared)) stop("No valid rows after instrument preparation.")
 
