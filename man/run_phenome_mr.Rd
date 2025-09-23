@@ -21,7 +21,7 @@ run_phenome_mr(
   logfile = NULL,
   verbose = TRUE,
   confirm = "ask",
-  force_refresh = FALSE
+  force_refresh = TRUE
 )
 }
 \arguments{
@@ -58,7 +58,7 @@ output directories and plot titles.}
 resources when using Neale data. One of "ask", "yes", or "no".}
 
 \item{force_refresh}{Logical; if \code{TRUE}, re-download remote resources even if
-they are already cached.}
+they are already cached. Defaults to \code{TRUE}.}
 }
 \value{
 A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
