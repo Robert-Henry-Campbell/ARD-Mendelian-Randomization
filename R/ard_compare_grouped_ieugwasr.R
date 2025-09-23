@@ -42,21 +42,33 @@ run_ieugwasr_ard_compare <- function(
 
   # ---- auth ----
   if (!nzchar(jwt)) stop("IEU_JWT or OPENGWAS_JWT env var not set and no 'jwt' provided.")
-  # See ieugwasr authentication guide: https://mrcieu.github.io/ieugwasr/articles/guide_authentication.html
   Sys.setenv(OPENGWAS_JWT = jwt)
 
   # ---- helpers ----
   is_rsid <- function(x) !is.na(x) & grepl("^rs\\d+$", x)
+
   palindrome_flag <- function(a1, a2) {
     a1 <- toupper(a1); a2 <- toupper(a2)
     (a1=="A"&a2=="T")|(a1=="T"&a2=="A")|(a1=="C"&a2=="G")|(a1=="G"&a2=="C")
   }
+
   f_stat <- function(beta, se) (beta/se)^2
+
   safe_chr <- function(x) {
     x <- trimws(as.character(x))
     x[!nzchar(x) | is.na(x)] <- NA_character_
     x
   }
+
+  # pick first existing column name from a list
+  pick_colname <- function(df, candidates, required = TRUE, context = "column") {
+    nm <- candidates[candidates %in% names(df)][1]
+    if (isTRUE(required) && is.na(nm)) {
+      stop("Could not find any of: ", paste(candidates, collapse=", "), " for ", context)
+    }
+    nm
+  }
+
   normalize_mtc <- function(x) {
     x <- safe_chr(x)
     if (!length(x)) return(NA_character_)
@@ -75,6 +87,7 @@ run_ieugwasr_ard_compare <- function(
     }, character(1))
     unname(out)
   }
+
   normalize_confirm <- function(x) {
     x <- safe_chr(x)
     if (!length(x)) return(NA_character_)
@@ -86,7 +99,7 @@ run_ieugwasr_ard_compare <- function(
     unname(out)
   }
 
-  # Use only ieugwasr::gwasinfo() (get_trait is deprecated)
+  # units via ieugwasr::gwasinfo()
   fetch_units <- function(ieu_id) {
     info <- try(ieugwasr::gwasinfo(ieu_id), silent = TRUE)
     if (!inherits(info,"try-error") && "unit" %in% names(info)) {
@@ -95,89 +108,85 @@ run_ieugwasr_ard_compare <- function(
     NA_character_
   }
 
-  # Robust chr/pos annotator: reuse columns if present, else reflookup(), else associations()
+  # chr/pos annotator: reuse if present, else reflookup(), else associations()
   annotate_chrpos <- function(dat) {
-    # 0) Already present from extract_instruments()
-    if (all(c("chr.exposure", "pos.exposure") %in% names(dat))) {
-      return(
-        dat |>
-          dplyr::mutate(
-            Chr = as.character(.data$chr.exposure),
-            Pos = as.numeric(.data$pos.exposure)
-          )
-      )
+    # reuse if already present
+    if (all(c("chr.exposure","pos.exposure") %in% names(dat))) {
+      return(dat |> mutate(Chr = as.character(.data$chr.exposure),
+                           Pos = as.numeric(.data$pos.exposure)))
     }
     if (all(c("chr","pos") %in% names(dat))) {
-      return(
-        dat |>
-          dplyr::mutate(
-            Chr = as.character(.data$chr),
-            Pos = as.numeric(.data$pos)
-          )
-      )
+      return(dat |> mutate(Chr = as.character(.data$chr),
+                           Pos = as.numeric(.data$pos)))
     }
 
+    if (!"SNP" %in% names(dat)) stop("annotate_chrpos(): 'SNP' column is missing.")
     snps <- unique(dat$SNP)
 
-    # 1) Preferred: reflookup()
     ann <- try(ieugwasr::reflookup(snps), silent = TRUE)
     if (!inherits(ann, "try-error") && all(c("rsid","chr","pos") %in% names(ann))) {
       ann <- ann |>
-        dplyr::transmute(SNP = .data$rsid,
-                         Chr = as.character(.data$chr),
-                         Pos = as.numeric(.data$pos))
-      return(dplyr::left_join(dat, ann, by = "SNP"))
+        transmute(SNP = .data$rsid,
+                  Chr = as.character(.data$chr),
+                  Pos = as.numeric(.data$pos))
+      return(left_join(dat, ann, by = "SNP"))
     }
 
-    # 2) Fallback: associations() (per-study; chunk to avoid long URLs)
     look_one_study <- function(study_id, rs) {
       out <- ieugwasr::associations(variants = rs, id = study_id)
       if (!nrow(out)) return(out[0, ])
-      out |>
-        dplyr::select(rsid, chr, pos) |>
-        dplyr::distinct()
+      out |> select(rsid, chr, pos) |> distinct()
     }
 
     study_id <- if ("id.exposure" %in% names(dat)) dat$id.exposure[1] else NA_character_
     if (is.na(study_id)) {
       warning("No id.exposure in dat; cannot fetch chr/pos. Returning NA Chr/Pos.")
-      return(dat |> dplyr::mutate(Chr = NA_character_, Pos = as.numeric(NA)))
+      return(dat |> mutate(Chr = NA_character_, Pos = as.numeric(NA)))
     }
 
     chunks <- split(snps, ceiling(seq_along(snps)/500))
     ann_list <- lapply(chunks, function(rs) try(look_one_study(study_id, rs), silent = TRUE))
     ann_list <- ann_list[!vapply(ann_list, inherits, logical(1), "try-error")]
     if (length(ann_list)) {
-      ann2 <- dplyr::bind_rows(ann_list) |>
-        dplyr::transmute(SNP = .data$rsid,
-                         Chr = as.character(.data$chr),
-                         Pos = as.numeric(.data$pos))
-      return(dplyr::left_join(dat, ann2, by = "SNP"))
+      ann2 <- bind_rows(ann_list) |>
+        transmute(SNP = .data$rsid,
+                  Chr = as.character(.data$chr),
+                  Pos = as.numeric(.data$pos))
+      return(left_join(dat, ann2, by = "SNP"))
     }
 
-    # 3) Last resort: NA columns
-    dat |> dplyr::mutate(Chr = NA_character_, Pos = as.numeric(NA))
+    dat |> mutate(Chr = NA_character_, Pos = as.numeric(NA))
   }
 
   build_exposure_snps <- function(raw, exposure_label, ieu_id) {
+    # resolve column names that differ by version
+    beta_nm <- pick_colname(raw, c("beta","beta.exposure"), TRUE, "beta")
+    se_nm   <- pick_colname(raw, c("se","se.exposure"), TRUE, "se")
+    ea_nm   <- pick_colname(raw, c("effect_allele","effect_allele.exposure"), TRUE, "effect_allele")
+    oa_nm   <- pick_colname(raw, c("other_allele","other_allele.exposure"), TRUE, "other_allele")
+    eaf_nm  <- pick_colname(raw, c("eaf","eaf.exposure"), TRUE, "eaf")
+    pval_nm <- pick_colname(raw, c("pval","pval.exposure"), TRUE, "pval")
+
+    if (!"SNP" %in% names(raw)) stop("Expected 'SNP' in instrument table.")
     if (any(!is_rsid(raw$SNP))) {
       bad <- unique(raw$SNP[!is_rsid(raw$SNP)])
       stop(sprintf("Non-rsID variant IDs for %s: e.g. %s", ieu_id, paste(utils::head(bad,5), collapse=", ")))
     }
+
     out <- raw %>%
       mutate(
         id.exposure            = ieu_id,
         exposure               = exposure_label,
-        Exposure               = exposure_label,   # optional alias (some consumers expect this)
-        effect_allele.exposure = effect_allele,
-        other_allele.exposure  = other_allele,
-        eaf.exposure           = eaf,
-        beta.exposure          = beta,
-        se.exposure            = se,
-        pval.exposure          = pval,
-        palindromic            = palindrome_flag(effect_allele, other_allele),
+        Exposure               = exposure_label,  # optional alias
+        effect_allele.exposure = .data[[ea_nm]],
+        other_allele.exposure  = .data[[oa_nm]],
+        eaf.exposure           = .data[[eaf_nm]],
+        beta.exposure          = .data[[beta_nm]],
+        se.exposure            = .data[[se_nm]],
+        pval.exposure          = .data[[pval_nm]],
+        palindromic            = palindrome_flag(.data[[ea_nm]], .data[[oa_nm]]),
         mr_keep                = TRUE,
-        F                      = f_stat(beta.exposure, se.exposure)
+        F                      = f_stat(.data[[beta_nm]], .data[[se_nm]])
       ) %>%
       select(
         id.exposure, exposure, Exposure, SNP, Chr, Pos,
@@ -195,7 +204,7 @@ run_ieugwasr_ard_compare <- function(
     out
   }
 
-  # Current TwoSampleMR::extract_instruments; rely on OPENGWAS_JWT env (no extra arg)
+  # instrument extraction + F filtering (robust to column names)
   get_instruments <- function(ieu_id) {
     ins <- TwoSampleMR::extract_instruments(
       outcomes = ieu_id,
@@ -206,11 +215,18 @@ run_ieugwasr_ard_compare <- function(
     )
     if (!nrow(ins)) return(ins[0, ])
 
+    # pick beta/se regardless of suffix
+    beta_nm <- pick_colname(ins, c("beta","beta.exposure"), TRUE, "beta")
+    se_nm   <- pick_colname(ins, c("se","se.exposure"), TRUE, "se")
+
+    # compute F before any joins (simple & avoids NSE issues)
+    F_tmp <- f_stat(ins[[beta_nm]], ins[[se_nm]])
+    ins$F_tmp <- F_tmp
+    ins <- ins |> filter(is.finite(.data$F_tmp), .data$F_tmp >= f_threshold) |> select(-.data$F_tmp)
+    if (!nrow(ins)) return(ins[0, ])
+
+    # add Chr/Pos (robust)
     ins <- annotate_chrpos(ins)
-    ins <- ins |>
-      dplyr::mutate(F_tmp = f_stat(beta, se)) |>
-      dplyr::filter(is.finite(F_tmp), F_tmp >= f_threshold) |>
-      dplyr::select(-F_tmp)
     ins
   }
 
@@ -272,7 +288,7 @@ run_ieugwasr_ard_compare <- function(
   message("Fetching & preparing instruments…")
   expos_prepared <- expos %>%
     mutate(.row_id = dplyr::row_number()) %>%
-    group_split(.row_id, .keep = TRUE) %>%   # <- .keep (fixes deprecation warning)
+    group_split(.row_id, .keep = TRUE) %>%   # modern dplyr arg
     purrr::map(function(rr) {
       r <- dplyr::slice(rr, 1)
       ieu_id   <- r$ieu_id
@@ -286,7 +302,7 @@ run_ieugwasr_ard_compare <- function(
 
       snps_df <- build_exposure_snps(ins, exposure_label = exp_name, ieu_id = ieu_id)
 
-      mtc_val <- normalize_mtc(r$multiple_testing_correction)[1]
+      mtc_val    <- normalize_mtc(r$multiple_testing_correction)[1]
       confirm_val <- normalize_confirm(r$confirm)[1]
 
       list(
