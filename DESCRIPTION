@@ -17,12 +17,14 @@ Imports:
     ggrepel,
     logger,
     purrr,
+    readr,
     stringr,
     tibble,
     TwoSampleMR,
     Rsamtools,
     GenomicRanges,
     IRanges,
+    ieugwasr,
     digest
 Suggests:
     testthat (>= 3.0.0),
