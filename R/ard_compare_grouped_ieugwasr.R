@@ -10,6 +10,7 @@
 #' @param r2 LD clumping r^2 threshold (default 0.001)
 #' @param kb Clumping window in kb (default 10000)
 #' @param f_threshold Per-variant F-stat minimum (default 10)
+#' @param force_refresh If TRUE, force ard_compare() to refresh cached results
 #'
 #' @return (invisible) list with names of processed exposure_groups
 #' @export
@@ -27,7 +28,8 @@ run_ieugwasr_ard_compare <- function(
     p_threshold    = 5e-8,
     r2             = 0.001,
     kb             = 10000,
-    f_threshold    = 10
+    f_threshold    = 10,
+    force_refresh  = TRUE
 ) {
   # ---- packages ----
   pkgs <- c("TwoSampleMR","ieugwasr","dplyr","readr","purrr","stringr","tibble")
@@ -571,7 +573,7 @@ run_ieugwasr_ard_compare <- function(
       logfile                     = NULL,
       verbose                     = TRUE,
       confirm                     = confirm_val,
-      force_refresh               = FALSE
+      force_refresh               = force_refresh
     )
 
     processed <- c(processed, grp_name)
