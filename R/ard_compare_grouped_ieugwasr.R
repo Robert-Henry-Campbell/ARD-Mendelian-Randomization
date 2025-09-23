@@ -61,9 +61,7 @@ run_ieugwasr_ard_compare <- function(
     x <- safe_chr(x)
     if (!length(x)) return(NA_character_)
     out <- vapply(x, function(val) {
-      if (is.na(val)) {
-        stop("multiple_testing_correction cannot be missing in the CSV.")
-      }
+      if (is.na(val)) stop("multiple_testing_correction cannot be missing in the CSV.")
       lv <- tolower(val)
       if (lv %in% c("bh","fdr")) {
         "BH"
@@ -72,10 +70,7 @@ run_ieugwasr_ard_compare <- function(
       } else if (val %in% c("BH","bonferroni")) {
         val
       } else {
-        stop(sprintf(
-          "Unsupported multiple_testing_correction value '%s'. Use 'BH' or 'bonferroni'.",
-          val
-        ))
+        stop(sprintf("Unsupported multiple_testing_correction value '%s'. Use 'BH' or 'bonferroni'.", val))
       }
     }, character(1))
     unname(out)
@@ -84,36 +79,84 @@ run_ieugwasr_ard_compare <- function(
     x <- safe_chr(x)
     if (!length(x)) return(NA_character_)
     out <- vapply(x, function(val) {
-      if (is.na(val)) {
-        stop("confirm cannot be missing in the CSV.")
-      }
+      if (is.na(val)) stop("confirm cannot be missing in the CSV.")
       lv <- tolower(val)
-      if (lv %in% c("ask","yes","no")) {
-        lv
-      } else {
-        stop(sprintf("Unsupported confirm value '%s'. Use 'ask', 'yes', or 'no'.", val))
-      }
+      if (lv %in% c("ask","yes","no")) lv else stop(sprintf("Unsupported confirm value '%s'. Use 'ask', 'yes', or 'no'.", val))
     }, character(1))
     unname(out)
   }
 
+  # Use only ieugwasr::gwasinfo() (get_trait is deprecated)
   fetch_units <- function(ieu_id) {
     info <- try(ieugwasr::gwasinfo(ieu_id), silent = TRUE)
     if (!inherits(info,"try-error") && "unit" %in% names(info)) {
       u <- safe_chr(info$unit[1]); if (!is.na(u)) return(u)
     }
-    tr <- try(TwoSampleMR::get_trait(ieu_id), silent = TRUE)
-    if (!inherits(tr,"try-error") && "unit" %in% names(tr)) {
-      u <- safe_chr(tr$unit[1]); if (!is.na(u)) return(u)
-    }
     NA_character_
   }
 
+  # Robust chr/pos annotator: reuse columns if present, else reflookup(), else associations()
   annotate_chrpos <- function(dat) {
+    # 0) Already present from extract_instruments()
+    if (all(c("chr.exposure", "pos.exposure") %in% names(dat))) {
+      return(
+        dat |>
+          dplyr::mutate(
+            Chr = as.character(.data$chr.exposure),
+            Pos = as.numeric(.data$pos.exposure)
+          )
+      )
+    }
+    if (all(c("chr","pos") %in% names(dat))) {
+      return(
+        dat |>
+          dplyr::mutate(
+            Chr = as.character(.data$chr),
+            Pos = as.numeric(.data$pos)
+          )
+      )
+    }
+
     snps <- unique(dat$SNP)
-    anns <- ieugwasr::variants(snps)
-    anns <- dplyr::transmute(anns, SNP = rsid, Chr = as.character(chr), Pos = as.numeric(pos))
-    dplyr::left_join(dat, anns, by = "SNP")
+
+    # 1) Preferred: reflookup()
+    ann <- try(ieugwasr::reflookup(snps), silent = TRUE)
+    if (!inherits(ann, "try-error") && all(c("rsid","chr","pos") %in% names(ann))) {
+      ann <- ann |>
+        dplyr::transmute(SNP = .data$rsid,
+                         Chr = as.character(.data$chr),
+                         Pos = as.numeric(.data$pos))
+      return(dplyr::left_join(dat, ann, by = "SNP"))
+    }
+
+    # 2) Fallback: associations() (per-study; chunk to avoid long URLs)
+    look_one_study <- function(study_id, rs) {
+      out <- ieugwasr::associations(variants = rs, id = study_id)
+      if (!nrow(out)) return(out[0, ])
+      out |>
+        dplyr::select(rsid, chr, pos) |>
+        dplyr::distinct()
+    }
+
+    study_id <- if ("id.exposure" %in% names(dat)) dat$id.exposure[1] else NA_character_
+    if (is.na(study_id)) {
+      warning("No id.exposure in dat; cannot fetch chr/pos. Returning NA Chr/Pos.")
+      return(dat |> dplyr::mutate(Chr = NA_character_, Pos = as.numeric(NA)))
+    }
+
+    chunks <- split(snps, ceiling(seq_along(snps)/500))
+    ann_list <- lapply(chunks, function(rs) try(look_one_study(study_id, rs), silent = TRUE))
+    ann_list <- ann_list[!vapply(ann_list, inherits, logical(1), "try-error")]
+    if (length(ann_list)) {
+      ann2 <- dplyr::bind_rows(ann_list) |>
+        dplyr::transmute(SNP = .data$rsid,
+                         Chr = as.character(.data$chr),
+                         Pos = as.numeric(.data$pos))
+      return(dplyr::left_join(dat, ann2, by = "SNP"))
+    }
+
+    # 3) Last resort: NA columns
+    dat |> dplyr::mutate(Chr = NA_character_, Pos = as.numeric(NA))
   }
 
   build_exposure_snps <- function(raw, exposure_label, ieu_id) {
@@ -125,6 +168,7 @@ run_ieugwasr_ard_compare <- function(
       mutate(
         id.exposure            = ieu_id,
         exposure               = exposure_label,
+        Exposure               = exposure_label,   # optional alias (some consumers expect this)
         effect_allele.exposure = effect_allele,
         other_allele.exposure  = other_allele,
         eaf.exposure           = eaf,
@@ -136,7 +180,7 @@ run_ieugwasr_ard_compare <- function(
         F                      = f_stat(beta.exposure, se.exposure)
       ) %>%
       select(
-        id.exposure, exposure, SNP, Chr, Pos,
+        id.exposure, exposure, Exposure, SNP, Chr, Pos,
         effect_allele.exposure, other_allele.exposure, eaf.exposure,
         beta.exposure, se.exposure, palindromic, pval.exposure,
         mr_keep, F
@@ -151,14 +195,22 @@ run_ieugwasr_ard_compare <- function(
     out
   }
 
-  get_instruments <- function(ieu_id, p1 = p_threshold, r2 = r2, kb = kb) {
-    ins <- TwoSampleMR::extract_instruments(outcomes = ieu_id, p1 = p1, clump = TRUE, r2 = r2, kb = kb)
+  # Current TwoSampleMR::extract_instruments; rely on OPENGWAS_JWT env (no extra arg)
+  get_instruments <- function(ieu_id) {
+    ins <- TwoSampleMR::extract_instruments(
+      outcomes = ieu_id,
+      p1       = p_threshold,
+      clump    = TRUE,
+      r2       = r2,
+      kb       = kb
+    )
     if (!nrow(ins)) return(ins[0, ])
+
     ins <- annotate_chrpos(ins)
-    ins <- ins %>%
-      mutate(F_tmp = f_stat(beta, se)) %>%
-      filter(is.finite(F_tmp), F_tmp >= f_threshold) %>%
-      select(-F_tmp)
+    ins <- ins |>
+      dplyr::mutate(F_tmp = f_stat(beta, se)) |>
+      dplyr::filter(is.finite(F_tmp), F_tmp >= f_threshold) |>
+      dplyr::select(-F_tmp)
     ins
   }
 
@@ -170,9 +222,7 @@ run_ieugwasr_ard_compare <- function(
   )
   miss_cols <- setdiff(req_cols, names(expos))
   if (length(miss_cols)) stop("CSV missing required columns: ", paste(miss_cols, collapse = ", "))
-  if (!"exposure_units" %in% names(expos)) {
-    expos$exposure_units <- NA_character_
-  }
+  if (!"exposure_units" %in% names(expos)) expos$exposure_units <- NA_character_
 
   expos <- expos %>%
     mutate(
@@ -185,9 +235,7 @@ run_ieugwasr_ard_compare <- function(
       confirm = normalize_confirm(confirm)
     )
 
-  if (any(is.na(expos$exposure))) {
-    stop("'exposure' column contains missing values.")
-  }
+  if (any(is.na(expos$exposure))) stop("'exposure' column contains missing values.")
 
   # ---- units (preflight) ----
   unique_ids <- unique(expos$ieu_id)
@@ -196,11 +244,7 @@ run_ieugwasr_ard_compare <- function(
     csv_units <- unique(expos$exposure_units[expos$ieu_id == id])
     csv_units <- csv_units[!is.na(csv_units) & csv_units != ""]
     if (length(csv_units) > 1L) {
-      stop(sprintf(
-        "Exposure units differ for ieu_id '%s' in the CSV: %s",
-        id,
-        paste(csv_units, collapse = " | ")
-      ))
+      stop(sprintf("Exposure units differ for ieu_id '%s' in the CSV: %s", id, paste(csv_units, collapse = " | ")))
     }
     if (length(csv_units) == 1L) {
       units_map[[id]] <- csv_units
@@ -228,7 +272,7 @@ run_ieugwasr_ard_compare <- function(
   message("Fetching & preparing instruments…")
   expos_prepared <- expos %>%
     mutate(.row_id = dplyr::row_number()) %>%
-    group_split(.row_id, keep = TRUE) %>%
+    group_split(.row_id, .keep = TRUE) %>%   # <- .keep (fixes deprecation warning)
     purrr::map(function(rr) {
       r <- dplyr::slice(rr, 1)
       ieu_id   <- r$ieu_id
@@ -285,21 +329,15 @@ run_ieugwasr_ard_compare <- function(
 
     mtc_vals <- unique(vapply(entries, `[[`, "", "multiple_testing_correction"))
     if (length(mtc_vals) > 1L) {
-      stop(sprintf(
-        "multiple_testing_correction values differ within exposure_group '%s': %s",
-        grp_name,
-        paste(mtc_vals, collapse = " | ")
-      ))
+      stop(sprintf("multiple_testing_correction values differ within exposure_group '%s': %s",
+                   grp_name, paste(mtc_vals, collapse = " | ")))
     }
     multiple_testing_correction <- mtc_vals[1]
 
     confirm_vals <- unique(vapply(entries, `[[`, "", "confirm"))
     if (length(confirm_vals) > 1L) {
-      stop(sprintf(
-        "confirm values differ within exposure_group '%s': %s",
-        grp_name,
-        paste(confirm_vals, collapse = " | ")
-      ))
+      stop(sprintf("confirm values differ within exposure_group '%s': %s",
+                   grp_name, paste(confirm_vals, collapse = " | ")))
     }
     confirm_val <- confirm_vals[1]
 
