@@ -29,7 +29,7 @@
 #' @param confirm Character; whether to prompt before downloading required
 #'   resources when using Neale data. One of "ask", "yes", or "no".
 #' @param force_refresh Logical; if `TRUE`, re-download remote resources even if
-#'   they are already cached.
+#'   they are already cached. Defaults to `TRUE`.
 #'
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
@@ -54,7 +54,7 @@ run_phenome_mr <- function(
     logfile = NULL,
     verbose = TRUE,
     confirm = 'ask',
-    force_refresh = FALSE
+    force_refresh = TRUE
 ) {
   # ---- validate args ----
   sex <- match.arg(sex)
