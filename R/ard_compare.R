@@ -2,10 +2,14 @@
 #'
 #' `ard_compare()` orchestrates repeated calls to [run_phenome_mr()] for a
 #' collection of sex/ancestry groups and then assembles beta-scale summary
-#' tables and forests that juxtapose the groups side-by-side. Existing beta
-#' outputs are reused when available.
+#' tables and forests that juxtapose the groups side-by-side. Groups are
+#' recomputed by default; set `force_refresh = FALSE` to reuse existing beta
+#' outputs.
 #'
 #' @inheritParams run_phenome_mr
+#' @param force_refresh Logical; when `TRUE` (default) clear any existing
+#'   outputs for each group before re-running [run_phenome_mr()]. Set to
+#'   `FALSE` to reuse cached results.
 #' @param groups A list of named lists. Each inner list must contain
 #'   `sex`, `ancestry`, and `exposure_snps` entries describing one group. The
 #'   `sex` value must be one of `"both"`, `"male"`, or `"female"`. The
@@ -35,7 +39,7 @@ ard_compare <- function(
     logfile = NULL,
     verbose = TRUE,
     confirm = "yes",
-    force_refresh = FALSE
+    force_refresh = TRUE
 ) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
   if (missing(exposure)) stop("`exposure` is mandatory.")
@@ -253,16 +257,39 @@ ard_compare <- function(
 
   # run or reuse each group
   for (info in groups_info) {
-    if (file.exists(info$global_csv)) {
+    global_exists <- file.exists(info$global_csv)
+    if (!isTRUE(force_refresh) && global_exists) {
       if (isTRUE(verbose)) {
         restore_compare_logging()
         logger::log_info("Reusing existing beta tables for sex={info$sex}, ancestry={info$ancestry} ({info$global_csv}).")
       }
       next
     }
+
+    if (isTRUE(force_refresh)) {
+      beta_dir <- file.path(info$group_dir, "beta")
+      results_rds <- info$results_rds
+      removed_paths <- character()
+      if (dir.exists(beta_dir)) {
+        unlink(beta_dir, recursive = TRUE, force = TRUE)
+        removed_paths <- c(removed_paths, beta_dir)
+      }
+      if (file.exists(results_rds)) {
+        unlink(results_rds, recursive = TRUE, force = TRUE)
+        removed_paths <- c(removed_paths, results_rds)
+      }
+      if (length(removed_paths) && isTRUE(verbose)) {
+        restore_compare_logging()
+        logger::log_info(
+          "Cleared existing outputs before refreshing sex={info$sex}, ancestry={info$ancestry}: {paste(removed_paths, collapse = ', ')}."
+        )
+      }
+    }
+
     if (isTRUE(verbose)) {
       restore_compare_logging()
-      logger::log_info("Launching run_phenome_mr for sex={info$sex}, ancestry={info$ancestry}.")
+      action <- if (isTRUE(force_refresh) && global_exists) "Refreshing" else "Launching"
+      logger::log_info("{action} run_phenome_mr for sex={info$sex}, ancestry={info$ancestry}.")
     }
     run_phenome_mr(
       exposure = exposure,
