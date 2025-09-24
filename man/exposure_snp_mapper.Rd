@@ -4,20 +4,25 @@
 \alias{exposure_snp_mapper}
 \title{Map RSIDs to provider-specific positions and append columns}
 \usage{
-exposure_snp_mapper(exposure_snps, sex, cache_dir = ardmr_cache_dir(), verbose = TRUE)
+exposure_snp_mapper(
+  exposure_snps,
+  sex,
+  cache_dir = ardmr_cache_dir(),
+  verbose = TRUE
+)
 }
 \arguments{
-\item{exposure_snps}{data frame with rsid}
+\item{exposure_snps}{data.frame/tibble with RSIDs (\code{rsid} or \code{SNP})}
 
-\item{sex}{"both" -> panukb mapping; otherwise neale mapping}
+\item{sex}{"both" → Pan-UKB; "male"/"female" → Neale}
 
-\item{cache_dir}{path for crosswalk caches (default
-\code{ardmr_cache_dir()})}
+\item{cache_dir}{cache root holding the downloaded variant manifest
+(default: \code{\link[=ardmr_cache_dir]{ardmr_cache_dir()}})}
 
-\item{verbose}{logical}
+\item{verbose}{logical; log counts}
 }
 \value{
-exposure_snps with new col "panukb_pos" or "neale_pos"
+exposure_snps with \code{panukb_chrom/pos} or \code{neale_chrom/pos}
 }
 \description{
 Map RSIDs to provider-specific positions and append columns

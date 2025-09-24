@@ -2,24 +2,44 @@
 % Please edit documentation in R/provider_neale.R
 \name{neale_snp_grabber}
 \alias{neale_snp_grabber}
-\title{Fetch outcome SNP rows from Neale sumstats for each outcome}
+\title{Fetch outcome SNP rows from Neale sumstats for each outcome (no tabix; exact variant matches)}
 \usage{
-neale_snp_grabber(exposure_snps, MR_df, neale_dir, cache_dir = ardmr_cache_dir(), verbose = TRUE)
+neale_snp_grabber(
+  exposure_snps,
+  MR_df,
+  neale_dir,
+  cache_dir = ardmr_cache_dir(),
+  verbose = TRUE,
+  force_refresh = get0("cfg", inherits = TRUE, ifnotfound = list(force_refresh =
+    FALSE))$force_refresh
+)
 }
 \arguments{
-\item{exposure_snps}{mapped snps (must include neale_pos when implemented)}
+\item{exposure_snps}{MAPPED exposure SNPs. Must include:
+\itemize{
+\item rsid
+\item neale_variant  (string "chr:pos:ref:alt")
+\item effect_allele.exposure (preferred) or effect_allele (for logs / future harmonization)
+}}
 
-\item{MR_df}{tibble (neale rows)}
+\item{MR_df}{Outcome plan (Neale rows). Must include:
+\itemize{
+\item File         (bgz filename in neale_dir)
+\item description  (preferred phenotype label; else ICD10_explo)
+}}
 
-\item{neale_dir}{directory with sumstats}
+\item{neale_dir}{Directory containing Neale .tsv.bgz files}
 
-\item{cache_dir}{path (default \code{ardmr_cache_dir()})}
+\item{cache_dir}{Cache root (default: \code{\link[=ardmr_cache_dir]{ardmr_cache_dir()}}); results cached per outcome}
 
-\item{verbose}{logical}
+\item{verbose}{Logical}
+
+\item{force_refresh}{Logical; if TRUE, delete per-outcome cached RDS before reading
+(default inherits cfg$force_refresh if available, else FALSE).}
 }
 \value{
-MR_df with list-column \code{outcome_snps}
+MR_df with list-column \code{outcome_snps} (TwoSampleMR-formatted if available)
 }
 \description{
-Fetch outcome SNP rows from Neale sumstats for each outcome
+Fetch outcome SNP rows from Neale sumstats for each outcome (no tabix; exact variant matches)
 }

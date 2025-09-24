@@ -22,5 +22,6 @@ ICD-10 and cause levels, then maps the \code{ICD10_explo} column to the relevant
 GWAS manifest. The table contains age-related disease (ARD) and non-ARD
 phenotypes; \code{ARD_selected} marks the ARD subset. Pan-UKB is used when
 \code{sex == "both"}; otherwise Neale manifests are consulted. Phenotypes with no
-available GWAS are dropped.
+available GWAS are dropped and duplicated ICD10 codes are resolved using
+\code{ARD_selected} as a tiebreaker.
 }

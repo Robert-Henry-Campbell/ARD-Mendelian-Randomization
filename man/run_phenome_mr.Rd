@@ -25,12 +25,17 @@ run_phenome_mr(
 )
 }
 \arguments{
-\item{exposure}{Character (mandatory) label for the exposure; used for naming
-output directories and plot titles.}
+\item{exposure}{Character (mandatory) label for the exposure; used for
+naming output directories and plot titles.}
 
-\item{exposure_snps}{Data frame of exposure instruments (TwoSampleMR-like: rsid, beta, se, effect_allele, other_allele, eaf, etc.).}
+\item{exposure_snps}{Data frame of exposure instruments (TwoSampleMR-like). needs cols:
+\link{1} "id.exposure"           "Exposure"                "SNP" (must be rsid format) "Chr"
+\link{5} "Pos"                    "effect_allele.exposure" "other_allele.exposure"  "eaf.exposure"
+\link{9} "beta.exposure"          "se.exposure"            "palindromic"            "pval.exposure"
+\link{13} "mr_keep"                "F"}
 
-\item{exposure_units}{Character (mandatory) description of the exposure units for β-scale plots.}
+\item{exposure_units}{Character (mandatory) description of the exposure
+units for β-scale plots.}
 
 \item{ancestry}{Character (mandatory), e.g. "EUR".}
 
@@ -44,10 +49,8 @@ output directories and plot titles.}
 
 \item{scatterplot, snpforestplot, leaveoneoutplot}{Logical; produce per-outcome diagnostics.}
 
-\item{Neale_GWAS_dir}{Optional path to Neale sumstats; created if missing.}
-
 \item{cache_dir}{Cache directory for temporary files (default:
-\code{ardmr_cache_dir()}).}
+\code{\link[=ardmr_cache_dir]{ardmr_cache_dir()}}).}
 
 \item{logfile}{Optional path to log file. Defaults to a timestamped file in
 \code{cache_dir} if not supplied.}
@@ -59,6 +62,8 @@ resources when using Neale data. One of "ask", "yes", or "no".}
 
 \item{force_refresh}{Logical; if \code{TRUE}, re-download remote resources even if
 they are already cached. Defaults to \code{TRUE}.}
+
+\item{Neale_GWAS_dir}{Optional path to Neale sumstats; created if missing.}
 }
 \value{
 A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)

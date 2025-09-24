@@ -2,7 +2,7 @@
 % Please edit documentation in R/mr_business_logic.R
 \name{mr_business_logic}
 \alias{mr_business_logic}
-\title{Harmonise, run MR methods, sensitivity & QC across outcomes}
+\title{Harmonise, run MR methods, sensitivity & QC across outcomes (no auto-format of exposures)}
 \usage{
 mr_business_logic(
   MR_df,
@@ -14,23 +14,26 @@ mr_business_logic(
   leaveoneoutplot,
   plot_output_dir,
   cache_dir = ardmr_cache_dir(),
-  verbose = TRUE
+  verbose = TRUE,
+  test = FALSE
 )
 }
 \arguments{
-\item{MR_df}{tibble with outcome_snps list-column}
+\item{MR_df}{tibble with \code{outcome_snps} list-column (TwoSampleMR-formatted)}
 
-\item{exposure_snps}{exposure instruments}
+\item{exposure_snps}{exposure instruments (already asserted/validated; must have *.exposure cols)}
 
-\item{sensitivity_enabled}{vector of checks}
+\item{sensitivity_enabled}{character vector in
+c("egger_intercept","egger_slope_agreement","weighted_median","weighted_mode",
+"steiger_direction","leave_one_out","ivw_Q","ivw_I2")}
 
-\item{sensitivity_pass_min}{integer threshold}
+\item{sensitivity_pass_min}{integer; minimum # of checks that must pass}
 
-\item{scatterplot, snpforestplot, leaveoneoutplot}{logical}
+\item{scatterplot, snpforestplot, leaveoneoutplot}{logical; write per-outcome plots if TRUE}
 
-\item{plot_output_dir}{output dir for optional per-outcome plots}
+\item{plot_output_dir}{directory to write plots ("" = off)}
 
-\item{cache_dir}{path (default \code{ardmr_cache_dir()})}
+\item{cache_dir}{path (unused here; kept for parity)}
 
 \item{verbose}{logical}
 }
@@ -38,5 +41,5 @@ mr_business_logic(
 list(MR_df=updated, results_df=tidy summary)
 }
 \description{
-Harmonise, run MR methods, sensitivity & QC across outcomes
+Harmonise, run MR methods, sensitivity & QC across outcomes (no auto-format of exposures)
 }

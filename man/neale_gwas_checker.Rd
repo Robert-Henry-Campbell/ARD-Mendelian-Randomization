@@ -4,14 +4,32 @@
 \alias{neale_gwas_checker}
 \title{Ensure Neale sumstats exist locally (download if needed)}
 \usage{
-neale_gwas_checker(MR_df, neale_dir, verbose = TRUE)
+neale_gwas_checker(
+  MR_df,
+  neale_dir,
+  verbose = TRUE,
+  confirm = c("ask", "yes", "no"),
+  estimate_gb = 500
+)
 }
 \arguments{
-\item{MR_df}{outcomes plan (neale rows)}
+\item{MR_df}{outcomes plan (must include columns "File" and "AWS File")}
 
-\item{neale_dir}{directory with .bgz sumstats}
+\item{neale_dir}{directory where .tsv.bgz files should live}
 
 \item{verbose}{logical}
+
+\item{confirm}{one of "ask", "yes", "no".
+\itemize{
+\item "ask" (default): prompt the user if downloads are needed (interactive only).
+\item "yes": proceed without prompting.
+\item "no": do not download; return immediately.
+}}
+
+\item{estimate_gb}{numeric ~ how much space the full set could take (informational only).}
+}
+\value{
+(invisible) list with counts and \code{aborted} flag
 }
 \description{
 Ensure Neale sumstats exist locally (download if needed)

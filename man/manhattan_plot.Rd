@@ -2,15 +2,57 @@
 % Please edit documentation in R/plots.R
 \name{manhattan_plot}
 \alias{manhattan_plot}
-\title{Manhattan plot over outcomes}
+\title{Manhattan plot over outcomes (IVW p-values on QC-pass outcomes)
+L2-only brackets; right-tip anchored labels; x-axis numbers hidden
+Colors: grey = protective (β<0), black = risk (β≥0)
+Legends:
+\itemize{
+\item Always: Effect direction (grey/black)
+\item BH:     Significance (red ring = BH significant) and colour legend title becomes "FDR < 0.05 significant results:"
+\item Bonf.:  Significance (dashed line = Bonferroni threshold)
+}}
 \usage{
-manhattan_plot(results_df, Multiple_testing_correction = c("BH", "bonferroni"))
+manhattan_plot(
+  results_df,
+  Multiple_testing_correction = c("BH", "bonferroni"),
+  qc_pass_only = TRUE,
+  alpha = 0.05,
+  verbose = TRUE,
+  left_nuge = 1,
+  tree_down = -0.08,
+  label_down = -0.02,
+  dot_names = TRUE,
+  exposure = NULL
+)
 }
 \arguments{
-\item{results_df}{tidy results}
+\item{results_df}{tidy results (must contain results_p_ivw; ideally results_qc_pass)}
 
 \item{Multiple_testing_correction}{"BH" or "bonferroni"}
+
+\item{qc_pass_only}{logical; if TRUE, plot only QC-pass rows}
+
+\item{alpha}{significance level for corrections (default 0.05)}
+
+\item{verbose}{if TRUE, emit step-by-step logs via {logger}}
+
+\item{left_nuge}{numeric; horizontal leftward nudge of L2 labels in x data units (default 1)}
+
+\item{tree_down}{numeric; vertical nudge (down if negative) for L2 bracket + labels (default -0.08)}
+
+\item{label_down}{numeric; extra vertical nudge (down if negative) for labels only (default -0.02)}
+
+\item{dot_names}{logical; if \code{TRUE}, annotate significant points with their
+outcome names (default \code{TRUE}).}
 }
 \description{
-Manhattan plot over outcomes
+Manhattan plot over outcomes (IVW p-values on QC-pass outcomes)
+L2-only brackets; right-tip anchored labels; x-axis numbers hidden
+Colors: grey = protective (β<0), black = risk (β≥0)
+Legends:
+\itemize{
+\item Always: Effect direction (grey/black)
+\item BH:     Significance (red ring = BH significant) and colour legend title becomes "FDR < 0.05 significant results:"
+\item Bonf.:  Significance (dashed line = Bonferroni threshold)
+}
 }

@@ -15,6 +15,6 @@ setup_logging(logfile, level = "INFO")
 Invisibly returns the logfile path.
 }
 \description{
-Configures the \link{logger} package to emit messages to the console and,
+Configures the \link[logger:logger]{logger::logger} package to emit messages to the console and,
 optionally, to a file. The log level controls verbosity.
 }

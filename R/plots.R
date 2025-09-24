@@ -2089,7 +2089,7 @@ plot_beta_mean_global <- function(
   p <- .ardmr_attach_plot_data(p, main = df)
   p
 }
-
+#' plots the mean beta hypothesis tests globally
 #' @keywords internal
 #' @param exposure_units Character string describing the exposure units used
 #'   for the β-scale axis label.
@@ -2258,7 +2258,7 @@ plot_beta_mean_global_compare_wrap_yfloat <- function(
   }
   p_wrapped
 }
-
+#' plots mean beta by cause for ard_compare
 #' @keywords internal
 #' @param exposure_units Character string describing the exposure units used
 #'   for the β-scale axis label.

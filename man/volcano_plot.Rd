@@ -2,15 +2,45 @@
 % Please edit documentation in R/plots.R
 \name{volcano_plot}
 \alias{volcano_plot}
-\title{Volcano plot over outcomes}
+\title{Volcano plot (IVW): effect size vs significance}
 \usage{
-volcano_plot(results_df, Multiple_testing_correction = c("BH", "bonferroni"))
+volcano_plot(
+  results_df,
+  Multiple_testing_correction = c("BH", "bonferroni"),
+  qc_pass_only = TRUE,
+  alpha = 0.05,
+  exposure = NULL,
+  label_top_n = 25,
+  verbose = TRUE,
+  dot_names = TRUE
+)
 }
 \arguments{
-\item{results_df}{tidy results}
+\item{results_df}{Tidy MR results (needs results_beta_ivw and results_p_ivw or results_log10p_ivw).}
 
-\item{Multiple_testing_correction}{"BH" or "bonferroni"}
+\item{Multiple_testing_correction}{"BH" or "bonferroni".}
+
+\item{qc_pass_only}{If TRUE (default), drop non-QC rows if results_qc_pass exists.}
+
+\item{alpha}{Significance level (default 0.05).}
+
+\item{exposure}{Optional exposure label for the title.}
+
+\item{label_top_n}{How many most-significant points to label (default 25). Use Inf to label all significant.}
+
+\item{verbose}{If TRUE, log a few steps via {logger} if available.}
+
+\item{dot_names}{Logical; if TRUE, label significant points with their outcome names.}
 }
 \description{
-Volcano plot over outcomes
+Colours: grey = protective (β<0), black = risk (β≥0).
+Significance legend:
+\itemize{
+\item BH: red ring on significant points (q < alpha).
+\item Bonferroni: dashed horizontal line at alpha/m.
+}
+}
+\details{
+Uses results_log10p_ivw if available (expected to be log10(p), i.e. negative),
+otherwise falls back to -log10(results_p_ivw) with underflow protection.
 }

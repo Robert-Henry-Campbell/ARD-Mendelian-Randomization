@@ -13,31 +13,34 @@ manhattan_plot_recolor(
   left_nuge = 1,
   tree_down = -0.08,
   label_down = -0.02,
+  dot_names = TRUE,
   exposure = NULL
 )
 }
 \arguments{
-\item{results_df}{tidy results}
+\item{results_df}{tidy results (must contain results_p_ivw; ideally results_qc_pass)}
 
 \item{Multiple_testing_correction}{"BH" or "bonferroni"}
 
 \item{qc_pass_only}{logical; if TRUE, plot only QC-pass rows}
 
-\item{alpha}{significance level (default 0.05)}
+\item{alpha}{significance level for corrections (default 0.05)}
 
-\item{verbose}{logical; if TRUE emit logger messages}
+\item{verbose}{if TRUE, emit step-by-step logs via {logger}}
 
-\item{left_nuge}{numeric; leftward nudge for Level 2 labels}
+\item{left_nuge}{numeric; horizontal leftward nudge of L2 labels in x data units (default 1)}
 
-\item{tree_down}{numeric; vertical nudge for Level 2 bracket}
+\item{tree_down}{numeric; vertical nudge (down if negative) for L2 bracket + labels (default -0.08)}
 
-\item{label_down}{numeric; extra vertical nudge for labels}
+\item{label_down}{numeric; extra vertical nudge (down if negative) for labels only (default -0.02)}
 
-\item{exposure}{optional exposure label for the plot title}
+\item{dot_names}{logical; if \code{TRUE}, annotate significant points with their
+outcome names (default \code{TRUE}).}
 }
 \description{
-Generates a Manhattan-style plot ordering outcomes within each cause block by
--log10(p) and colouring points by significance and effect direction. Non-significant
-associations are shown in dark grey, significant protective associations (β < 0) in blue,
-and significant risk associations (β ≥ 0) in red.
+Generates a Manhattan-style plot over outcomes, ordering phenotypes within
+each cause-level-2 block from smallest to largest -log10(p) and colouring
+points by significance and effect direction. Non-significant points are shown
+in dark grey, significant protective associations (β < 0) in blue, and
+significant risk associations (β ≥ 0) in red.
 }

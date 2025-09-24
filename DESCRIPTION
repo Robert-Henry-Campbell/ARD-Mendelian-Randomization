@@ -5,33 +5,34 @@ Authors@R:
     person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
 Description: What the package does (one paragraph).
 License: MIT + file LICENSE
-Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
 Depends:
-    R (>= 4.1)        
+    R (>= 4.1)
 Imports:
     data.table,
+    digest,
     dplyr,
+    GenomicRanges,
     ggplot2,
     ggrepel,
+    ieugwasr,
+    IRanges,
     logger,
     purrr,
     readr,
+    rlang,
+    Rsamtools,
     stringr,
     tibble,
-    TwoSampleMR,
-    Rsamtools,
-    GenomicRanges,
-    IRanges,
-    ieugwasr,
-    digest
+    TwoSampleMR
 Suggests:
-    testthat (>= 3.0.0),
-    BiocManager          
+    BiocManager,
+    testthat (>= 3.0.0)
 Remotes:
-    bioc::Rsamtools,
     bioc::GenomicRanges,
-    bioc::IRanges
-LazyData: true
+    bioc::IRanges,
+    bioc::Rsamtools
 Config/testthat/edition: 3
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3

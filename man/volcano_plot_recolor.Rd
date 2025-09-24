@@ -10,25 +10,32 @@ volcano_plot_recolor(
   qc_pass_only = TRUE,
   alpha = 0.05,
   exposure = NULL,
+  dot_names = TRUE,
   label_top_n = 25,
   verbose = TRUE
 )
 }
 \arguments{
-\item{results_df}{tidy MR results (requires \code{results_beta_ivw} and p-value columns)}
+\item{results_df}{Tidy MR results (needs results_beta_ivw and results_p_ivw or results_log10p_ivw).}
 
-\item{Multiple_testing_correction}{"BH" or "bonferroni"}
+\item{Multiple_testing_correction}{"BH" or "bonferroni".}
 
-\item{qc_pass_only}{logical; if \code{TRUE}, drop non-QC rows when available}
+\item{qc_pass_only}{If TRUE (default), drop non-QC rows if results_qc_pass exists.}
 
-\item{alpha}{significance level (default 0.05)}
+\item{alpha}{Significance level (default 0.05).}
 
-\item{exposure}{optional exposure label for the plot title}
+\item{exposure}{Optional exposure label for the title.}
 
-\item{label_top_n}{number of significant outcomes to label (default 25)}
+\item{dot_names}{Logical; if \code{TRUE}, annotate significant outcomes on the
+plot (default \code{TRUE}).}
 
-\item{verbose}{logical; if \code{TRUE}, emit logger messages when available}
+\item{label_top_n}{How many most-significant points to label (default 25). Use Inf to label all significant.}
+
+\item{verbose}{If TRUE, log a few steps via {logger} if available.}
 }
 \description{
-Generates a volcano plot of MR IVW estimates, colouring points by significance (FDR or Bonferroni) and effect direction. Non-significant points are shown in dark grey, significant protective associations (β < 0) in blue, and significant risk associations (β ≥ 0) in red.
+Generates a volcano plot of MR IVW estimates, colouring each point by
+significance (FDR or Bonferroni) and effect direction. Non-significant points
+are shown in dark grey, significant protective associations (β < 0) in blue,
+and significant risk associations (β ≥ 0) in red.
 }

@@ -8,45 +8,45 @@ run_ieugwasr_ard_compare(
   csv_path,
   cache_dir = ardmr_cache_dir(),
   jwt = {
-    jwt_env <- Sys.getenv("IEU_JWT", unset = "")
-    if (!nzchar(jwt_env)) jwt_env <- Sys.getenv("OPENGWAS_JWT", unset = "")
-    jwt_env
-  },
+     jwt_env <- Sys.getenv("IEU_JWT", unset = "")
+     if (!nzchar(jwt_env)) 
+ 
+           jwt_env <- Sys.getenv("OPENGWAS_JWT", unset = "")
+     jwt_env
+ },
   prompt_for_units = interactive(),
-  p_threshold = 5e-8,
+  p_threshold = 5e-08,
   r2 = 0.001,
   kb = 10000,
   f_threshold = 10,
-  force_refresh = TRUE
+  force_refresh = TRUE,
+  sensitivity_pass_min = 6
 )
 }
 \arguments{
-\item{csv_path}{Path to a CSV with columns: \code{ieu_id}, \code{exposure}, \code{exposure_group},
-\code{sex}, \code{ancestry}, \code{multiple_testing_correction}, \code{confirm}, and optionally
-\code{exposure_units}.}
+\item{csv_path}{Path to a CSV with columns: ieu_id, exposure, exposure_group,
+sex, ancestry, multiple_testing_correction, confirm, and optionally
+exposure_units}
 
-\item{cache_dir}{Output/cache directory used by \code{ard_compare()} and \code{run_phenome_mr()}.}
+\item{cache_dir}{Output/cache directory used by ard_compare/run_phenome_mr}
 
-\item{jwt}{IEU JWT string; defaults to the \code{IEU_JWT} or \code{OPENGWAS_JWT} environment
-variables.}
+\item{jwt}{IEU JWT string; defaults to IEU_JWT/OPENGWAS_JWT env vars}
 
-\item{prompt_for_units}{If \code{TRUE}, interactively prompt for missing units; otherwise stop on
-missing units.}
+\item{prompt_for_units}{If TRUE, interactively prompt for missing units; otherwise stop on missing units}
 
-\item{p_threshold}{Genome-wide significance threshold for instrument extraction (default
-\code{5e-8}).}
+\item{p_threshold}{Genome-wide significance threshold for instrument extraction (default 5e-8)}
 
-\item{r2}{LD clumping \eqn{r^2} threshold (default \code{0.001}).}
+\item{r2}{LD clumping r^2 threshold (default 0.001)}
 
-\item{kb}{Clumping window in kilobases (default \code{10000}).}
+\item{kb}{Clumping window in kb (default 10000)}
 
-\item{f_threshold}{Per-variant F-statistic minimum (default \code{10}).}
+\item{f_threshold}{Per-variant F-stat minimum (default 10)}
 
-\item{force_refresh}{If \code{TRUE}, force \code{ard_compare()} to refresh cached results.}
+\item{force_refresh}{If TRUE, force ard_compare() to refresh cached results}
 }
 \value{
-(invisible) list with the names of processed exposure groups.
+(invisible) list with names of processed exposure_groups
 }
 \description{
-Build instruments from IEU GWAS, validate units, assemble groups, and run \code{ard_compare()}.
+Build instruments from IEU GWAS, validate units, assemble groups, and run ard_compare()
 }
