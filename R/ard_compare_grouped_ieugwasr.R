@@ -516,6 +516,7 @@ run_ieugwasr_ard_compare <- function(
   by_group <- split(expos_prepared, vapply(expos_prepared, `[[`, "", "exposure_group"))
 
   processed <- character(0)
+  failed_records <- list()
 
   for (grp_name in names(by_group)) {
     entries <- by_group[[grp_name]]
@@ -563,30 +564,82 @@ run_ieugwasr_ard_compare <- function(
     message(sprintf("\n=== ard_compare(): group '%s' ===", grp_name))
     message(sprintf("Exposure: %s | Units: %s", exposure_label, exposure_units))
 
-    ard_compare(
-      exposure                    = exposure_label,
-      exposure_units              = exposure_units,
-      groups                      = groups_list,
-      sensitivity_enabled         = c(
-        "egger_intercept","egger_slope_agreement",
-        "weighted_median","weighted_mode",
-        "steiger_direction","leave_one_out",
-        "ivw_Q","ivw_I2"
-      ),
-      sensitivity_pass_min        = sensitivity_pass_min,
-      Multiple_testing_correction = multiple_testing_correction,
-      scatterplot                 = TRUE,
-      snpforestplot               = TRUE,
-      leaveoneoutplot             = TRUE,
-      cache_dir                   = cache_dir,
-      logfile                     = NULL,
-      verbose                     = TRUE,
-      confirm                     = confirm_val,
-      force_refresh               = force_refresh
+    result <- tryCatch(
+      {
+        ard_compare(
+          exposure                    = exposure_label,
+          exposure_units              = exposure_units,
+          groups                      = groups_list,
+          sensitivity_enabled         = c(
+            "egger_intercept","egger_slope_agreement",
+            "weighted_median","weighted_mode",
+            "steiger_direction","leave_one_out",
+            "ivw_Q","ivw_I2"
+          ),
+          sensitivity_pass_min        = sensitivity_pass_min,
+          Multiple_testing_correction = multiple_testing_correction,
+          scatterplot                 = TRUE,
+          snpforestplot               = TRUE,
+          leaveoneoutplot             = TRUE,
+          cache_dir                   = cache_dir,
+          logfile                     = NULL,
+          verbose                     = TRUE,
+          confirm                     = confirm_val,
+          force_refresh               = force_refresh
+        )
+
+        list(ok = TRUE)
+      },
+      error = function(err) {
+        err_msg <- conditionMessage(err)
+        warning(
+          sprintf(
+            "ard_compare() failed for exposure_group '%s' (exposure: %s). Error: %s",
+            grp_name,
+            exposure_label,
+            err_msg
+          ),
+          call. = FALSE
+        )
+
+        list(
+          ok = FALSE,
+          error_message = err_msg
+        )
+      }
     )
 
-    processed <- c(processed, grp_name)
+    if (isTRUE(result$ok)) {
+      processed <- c(processed, grp_name)
+    } else {
+      failed_records <- append(
+        failed_records,
+        list(
+          list(
+            exposure_group = grp_name,
+            exposure = exposure_label,
+            error = result$error_message
+          )
+        )
+      )
+    }
   }
 
-  invisible(list(processed_groups = processed))
+  failure_df <-
+    if (length(failed_records)) {
+      tibble::tibble(
+        exposure_group = vapply(failed_records, `[[`, character(1), "exposure_group"),
+        exposure = vapply(failed_records, `[[`, character(1), "exposure"),
+        error = vapply(failed_records, `[[`, character(1), "error")
+      )
+    } else {
+      tibble::tibble()
+    }
+
+  if (nrow(failure_df)) {
+    message("\n=== ard_compare() failures ===")
+    print(failure_df, n = Inf)
+  }
+
+  invisible(list(processed_groups = processed, failed_groups = failure_df))
 }
