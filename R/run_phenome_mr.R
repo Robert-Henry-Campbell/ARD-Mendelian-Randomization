@@ -277,6 +277,19 @@ run_phenome_mr <- function(
   # manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure)
   # manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure)
 
+  manhattan_with_names <- manhattan_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    dot_names = TRUE
+  )
+  manhattan_without_names <- manhattan_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    dot_names = FALSE
+  )
+
   manhattan_recolor_BH_all   <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
   manhattan_recolor_BH_ARD   <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
   manhattan_recolor_Bonf_all <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
@@ -516,6 +529,10 @@ run_phenome_mr <- function(
 
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- list(
+    manhattan = list(
+      with_names = manhattan_with_names,
+      without_names = manhattan_without_names
+    ),
     # manhattan = list(
     #   BH = list(all = manhattan_BH_all, ARD_only = manhattan_BH_ARD),
     #   bonferroni = list(all = manhattan_Bonf_all, ARD_only = manhattan_Bonf_ARD)
