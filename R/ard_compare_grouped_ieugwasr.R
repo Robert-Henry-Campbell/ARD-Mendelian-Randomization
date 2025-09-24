@@ -29,7 +29,8 @@ run_ieugwasr_ard_compare <- function(
     r2             = 0.001,
     kb             = 10000,
     f_threshold    = 10,
-    force_refresh  = TRUE
+    force_refresh  = TRUE,
+    sensitivity_pass_min = 6
 ) {
   # ---- packages ----
   pkgs <- c("TwoSampleMR","ieugwasr","dplyr","readr","purrr","stringr","tibble")
@@ -572,7 +573,7 @@ run_ieugwasr_ard_compare <- function(
         "steiger_direction","leave_one_out",
         "ivw_Q","ivw_I2"
       ),
-      sensitivity_pass_min        = 6,
+      sensitivity_pass_min        = sensitivity_pass_min,
       Multiple_testing_correction = multiple_testing_correction,
       scatterplot                 = TRUE,
       snpforestplot               = TRUE,
