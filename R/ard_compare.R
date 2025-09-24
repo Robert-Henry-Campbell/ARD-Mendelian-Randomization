@@ -313,8 +313,28 @@ ard_compare <- function(
 
   load_group_tables <- function(info) {
     base <- file.path(info$group_dir, "beta", "tables")
+    global_path <- file.path(base, "global.csv")
+    if (!file.exists(global_path)) {
+      if (isTRUE(verbose)) {
+        restore_compare_logging()
+        logger::log_warn(
+          "Beta summary tables were not found for sex={info$sex}, ancestry={info$ancestry} ({global_path})."
+        )
+      }
+      empty_scope <- list(
+        all_diseases = tibble::tibble(),
+        age_related_diseases = tibble::tibble()
+      )
+      return(list(
+        global = tibble::tibble(),
+        cause_level_1 = empty_scope,
+        cause_level_2 = empty_scope,
+        cause_level_3 = empty_scope
+      ))
+    }
+
     list(
-      global = ensure_tibble(read_table(file.path(base, "global.csv"), required = TRUE)),
+      global = ensure_tibble(read_table(global_path, required = FALSE)),
       cause_level_1 = list(
         all_diseases = ensure_tibble(read_table(file.path(base, "cause_level_1__all_diseases.csv"), required = FALSE)),
         age_related_diseases = ensure_tibble(read_table(file.path(base, "cause_level_1__age_related_diseases.csv"), required = FALSE))
