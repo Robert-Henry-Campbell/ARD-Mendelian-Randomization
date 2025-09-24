@@ -38,6 +38,8 @@
 #' @param left_nuge numeric; horizontal leftward nudge of L2 labels in x data units (default 1)
 #' @param tree_down numeric; vertical nudge (down if negative) for L2 bracket + labels (default -0.08)
 #' @param label_down numeric; extra vertical nudge (down if negative) for labels only (default -0.02)
+#' @param dot_names logical; if `TRUE`, annotate significant points with their
+#'   outcome names (default `TRUE`).
 #' @export
 manhattan_plot <- function(results_df,
                            Multiple_testing_correction = c("BH","bonferroni"),
@@ -47,8 +49,10 @@ manhattan_plot <- function(results_df,
                            left_nuge = 1,
                            tree_down = -0.08,
                            label_down = -0.02,
+                           dot_names = TRUE,
                            exposure = NULL){
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  dot_names <- isTRUE(dot_names)
 
   if (is.null(results_df) || !nrow(results_df)) {
     if (verbose) logger::log_warn("Manhattan: input results_df is NULL or has 0 rows; returning placeholder plot.")
@@ -241,7 +245,7 @@ manhattan_plot <- function(results_df,
     df, .data$sig %in% TRUE, !is.na(.data$results_outcome),
     is.finite(.data$idx), is.finite(.data$logp)
   )
-  if (nrow(sig_df)) {
+  if (dot_names && nrow(sig_df)) {
     if (requireNamespace("ggrepel", quietly = TRUE)) {
       p <- p + ggrepel::geom_text_repel(
         data = sig_df,
