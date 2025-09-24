@@ -207,6 +207,61 @@ run_phenome_mr <- function(
   metrics$results <- nrow(results_df)
   logger::log_info("MR results: {metrics$results} outcomes analysed")
 
+  ard_flags <- if ("ARD_selected" %in% names(MR_df)) {
+    vapply(MR_df$ARD_selected, isTRUE, logical(1))
+  } else {
+    logical(0)
+  }
+  qc_flags <- if ("results_qc_pass" %in% names(MR_df)) {
+    vapply(MR_df$results_qc_pass, isTRUE, logical(1))
+  } else if (length(ard_flags)) {
+    rep(FALSE, length(ard_flags))
+  } else {
+    logical(0)
+  }
+  ard_qc_survivors <- ard_flags & qc_flags
+  has_ard_qc_survivor <- length(ard_qc_survivors) > 0 && any(ard_qc_survivors)
+
+  if (!has_ard_qc_survivor) {
+    n_ard_candidates <- sum(ard_flags)
+    warn_msg <- if (n_ard_candidates > 0) {
+      sprintf(
+        "No age-related diseases passed QC out of %d candidates; skipping downstream analyses.",
+        n_ard_candidates
+      )
+    } else {
+      "No age-related diseases were available for analysis; skipping downstream analyses."
+    }
+    warning(warn_msg, call. = FALSE)
+    logger::log_warn("{warn_msg}")
+
+    summary_tbl <- tibble::tibble(
+      stage = c(
+        "outcomes","outcomes_ARD","outcomes_nonARD",
+        "exposure_in","exposure_mapped","outcome_snps","results"
+      ),
+      count = c(
+        metrics$outcomes, metrics$n_ard, metrics$n_non,
+        metrics$exposure_in, metrics$exposure_mapped, metrics$outcome_snps, metrics$results
+      )
+    )
+    logger::log_info("Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}")
+
+    output <- list(
+      MR_df = MR_df,
+      results_df    = results_df,
+      summary_plots = list(),
+      enrich        = list(
+        global_tbl = tibble::tibble(),
+        by_cause_tbl = tibble::tibble()
+      ),
+      beta          = list()
+    )
+
+    saveRDS(output, file = file.path(cfg$plot_dir, "results.rds"))
+    logger::log_info("Early exit: wrote results.rds to {cfg$plot_dir} after QC filtering.")
+    return(output)
+  }
 
   logger::log_info("5) Build summary plots…")
 
