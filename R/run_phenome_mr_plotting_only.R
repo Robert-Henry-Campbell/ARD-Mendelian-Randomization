@@ -695,7 +695,12 @@ run_phenome_mr_plotting_only <- function(
   }
 
   # Save all plots
-  save_plot_hierarchy(summary_plots, cfg$plot_dir)
+  # save_plot_hierarchy(summary_plots, cfg$plot_dir)
+  plots_to_save <- summary_plots
+  plots_to_save$beta <- NULL
+  plots_to_save$manhattan <- NULL
+  plots_to_save$volcano <- NULL
+  save_plot_hierarchy(plots_to_save, cfg$plot_dir)
 
   # ---- 8b) Export enrichment tables (CSV) + beta-contrast tables ----
   # write_enrichment_tables <- function(enrich, base_dir) {
@@ -788,7 +793,7 @@ run_phenome_mr_plotting_only <- function(
 
   # write_enrichment_tables(enrich, cfg$plot_dir)
   # write_beta_contrast_tables(beta_contrast_tables, cfg$plot_dir)
-  write_beta_tables(beta_tables, cfg$plot_dir)
+  # write_beta_tables(beta_tables, cfg$plot_dir)
 
   # ---- 9) Keep the originals around too (optional) ----
   # manhattan <- manhattan_BH_all
