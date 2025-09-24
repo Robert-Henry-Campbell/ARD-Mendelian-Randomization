@@ -293,8 +293,46 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     }
 
     # query all regions at once; if empty, retry with 'chr' prefix
-    res <- Rsamtools::scanTabix(tf, param = gr_numeric)
-    if (all(lengths(res) == 0L)) res <- Rsamtools::scanTabix(tf, param = gr_chr)
+    res <- tryCatch(
+      Rsamtools::scanTabix(tf, param = gr_numeric),
+      error = function(e) e
+    )
+
+    if (inherits(res, "error")) {
+      if (verbose) {
+        logger::log_warn(
+          "Pan-UKB row {i}: scanTabix failed for numeric seqnames ({err}); skipping phenotype",
+          err = conditionMessage(res)
+        )
+      }
+      MR_df$outcome_snps[[i]] <- tibble::tibble()
+      try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+      .close_tf(tf)
+      next
+    }
+
+    if (!length(res) || all(lengths(res) == 0L)) {
+      res_chr <- tryCatch(
+        Rsamtools::scanTabix(tf, param = gr_chr),
+        error = function(e) e
+      )
+
+      if (inherits(res_chr, "error")) {
+        if (verbose) {
+          logger::log_warn(
+            "Pan-UKB row {i}: scanTabix failed with chr prefix as well ({err}); skipping phenotype",
+            err = conditionMessage(res_chr)
+          )
+        }
+        MR_df$outcome_snps[[i]] <- tibble::tibble()
+        try(saveRDS(MR_df$outcome_snps[[i]], cache_file), silent = TRUE)
+        .close_tf(tf)
+        next
+      } else {
+        res <- res_chr
+      }
+    }
+
     lines <- unlist(res, use.names = FALSE)
 
     if (!length(lines)) {
