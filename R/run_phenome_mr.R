@@ -289,22 +289,201 @@ run_phenome_mr <- function(
   volcano_recolor_Bonf_all <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
   volcano_recolor_Bonf_ARD <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
 
+  summary_plots_core <- list(
+    manhattan_recolor = list(
+      BH = list(all = manhattan_recolor_BH_all, ARD_only = manhattan_recolor_BH_ARD),
+      bonferroni = list(all = manhattan_recolor_Bonf_all, ARD_only = manhattan_recolor_Bonf_ARD)
+    ),
+    volcano_recolor = list(
+      BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
+      bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
+    )
+  )
+
+  save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
+    safe_name <- function(s) {
+      s <- as.character(s)
+      s <- gsub("[/\\?%*:|\"<>]", "_", s)
+      s <- gsub("\\s+", "_", s)
+      s <- gsub("_+", "_", s)
+      s <- sub("^_+", "", s)
+      s <- sub("_+$", "", s)
+      if (!nzchar(s)) "plot" else s
+    }
+
+    if (inherits(x, "ggplot")) {
+      path_labels <- vapply(path_parts, safe_name, character(1))
+      file_stem_override <- NULL
+      if (length(path_labels) >= 1 && identical(path_labels[1], "manhattan_recolor")) {
+        path_labels <- c("manhattan", path_labels[-1])
+        if (length(path_labels) >= 2) {
+          path_labels[length(path_labels)] <- paste0("recolor_", path_labels[length(path_labels)])
+        } else {
+          path_labels <- c("manhattan", "recolor")
+        }
+      }
+      if (length(path_labels) >= 1 && identical(path_labels[1], "volcano_recolor")) {
+        correction <- if (length(path_labels) >= 2) path_labels[2] else "BH"
+        slice      <- if (length(path_labels) >= 3) path_labels[3] else "all"
+        correction <- safe_name(correction)
+        slice      <- safe_name(slice)
+        path_labels <- c("volcano", correction, paste0("recolor_", slice))
+        file_stem_override <- safe_name(paste0("recolor_", correction, "_", slice))
+      }
+      subpath <- paste(path_labels, collapse = "/")
+      width <- 7.2; height <- 6.5
+      plot_data <- attr(x, "ardmr_plot_data", exact = TRUE)
+      yfloat_base <- 1.8 #was 1.2
+      yfloat_coef <- 0.28
+
+      if (grepl("^manhattan", subpath)) {
+        width <- 7.2; height <- 6.5
+      }
+      if (grepl("^enrichment/global", subpath)) {
+        width <- 7.2; height <- 4.0
+      }
+      if (grepl("^enrichment/cause_level_", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
+      is_enrichment_cause_forest <- length(path_parts) >= 3 &&
+        identical(path_parts[1], "enrichment") &&
+        grepl("^cause_level_", path_parts[2]) &&
+        identical(path_parts[3], "violin_forest")
+      if (is_enrichment_cause_forest) {
+        observed_df <- NULL
+        if (is.list(plot_data) && "observed" %in% names(plot_data)) {
+          observed_df <- plot_data$observed
+        }
+        n_rows <- if (is.data.frame(observed_df)) {
+          if ("group_label" %in% names(observed_df)) {
+            groups <- unique(observed_df$group_label)
+            groups <- groups[!is.na(groups)]
+            length(groups)
+          } else {
+            nrow(observed_df)
+          }
+        } else {
+          0L
+        }
+        n_rows <- as.integer(n_rows)
+        if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
+        height <- yfloat_base + (yfloat_coef * 1.3) * n_rows #adjust this coefficient to stretch rows
+      }
+      if (grepl("^volcano", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
+      # NEW: sizes for beta_contrast
+      if (grepl("^beta/global", subpath)) {
+        width <- 3.54; height <- 2.4
+      }
+      if (grepl("^beta/cause_level_", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
+      if (grepl("^beta_contrast/global", subpath)) {
+        width <- 3.54; height <- 2.4
+      }
+      if (grepl("^beta_contrast/cause_level_", subpath)) {
+        width <- 7.2; height <- 5.0
+      }
+
+      dir_path  <- file.path(base_dir, dirname(subpath))
+      if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+      file_stem <- safe_name(basename(subpath))
+      if (!is.null(file_stem_override)) file_stem <- file_stem_override
+      file_name <- paste0(file_stem, ".png")
+      file_path <- file.path(dir_path, file_name)
+      is_yfloat <- length(path_labels) >= 1 && grepl("_wrap_yfloat$", tail(path_labels, 1))
+      if (is_yfloat) {
+        main_df <- NULL
+        if (is.list(plot_data) && "main" %in% names(plot_data)) {
+          main_df <- plot_data$main
+        }
+        n_rows <- if (is.data.frame(main_df)) nrow(main_df) else 0L
+        if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
+        height <- yfloat_base + yfloat_coef * n_rows
+      }
+      if (length(path_labels) >= 1 && identical(path_labels[1], "beta")) {
+        # ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+        # .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
+        return(invisible(NULL))
+      }
+      ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+      .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
+      return(invisible(NULL))
+    }
+
+    if (is.list(x)) {
+      nms <- names(x)
+      for (i in seq_along(x)) {
+        nm <- if (!is.null(nms) && nzchar(nms[i])) nms[i] else paste0("item", i)
+        save_plot_hierarchy(x[[i]], base_dir, c(path_parts, nm))
+      }
+      return(invisible(NULL))
+    }
+
+    invisible(NULL)
+  }
+
   # ---- 6) Signed enrichment analyses ----
   logger::log_info("6) Enrichment analyses…")
-  enrich <- run_enrichment(
-    results_df,
-    exposure = exposure,
-    levels = c("cause_level_1","cause_level_2","cause_level_3"),
-    modes  = c("cause_vs_rest_all"),
-    use_qc_pass = TRUE,
-    min_nsnp    = 2,
-    weight_scheme = "inv_se2",
-    exact_max_combn = 1e5,
-    mc_B = 10000,
-    seed = 1,
-    retain_permutations = TRUE,
-    retain_perm_max = 10000
+  enrichment_error_msg <- NULL
+  enrich <- tryCatch(
+    run_enrichment(
+      results_df,
+      exposure = exposure,
+      levels = c("cause_level_1","cause_level_2","cause_level_3"),
+      modes  = c("cause_vs_rest_all"),
+      use_qc_pass = TRUE,
+      min_nsnp    = 2,
+      weight_scheme = "inv_se2",
+      exact_max_combn = 1e5,
+      mc_B = 10000,
+      seed = 1,
+      retain_permutations = TRUE,
+      retain_perm_max = 10000
+    ),
+    error = function(err) {
+      warn_msg <- sprintf(
+        "Enrichment step failed: %s. Saving partial outputs (Manhattan/volcano only) and returning early.",
+        conditionMessage(err)
+      )
+      enrichment_error_msg <<- warn_msg
+      logger::log_warn("{warn_msg}")
+      warning(warn_msg, call. = FALSE)
+      NULL
+    }
   )
+
+  if (!is.null(enrichment_error_msg)) {
+    summary_plots <- summary_plots_core
+    save_plot_hierarchy(summary_plots, cfg$plot_dir)
+
+    summary_tbl <- tibble::tibble(
+      stage = c(
+        "outcomes","outcomes_ARD","outcomes_nonARD",
+        "exposure_in","exposure_mapped","outcome_snps","results"
+      ),
+      count = c(
+        metrics$outcomes, metrics$n_ard, metrics$n_non,
+        metrics$exposure_in, metrics$exposure_mapped, metrics$outcome_snps, metrics$results
+      )
+    )
+    logger::log_info("Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}")
+
+    output <- list(
+      MR_df = MR_df,
+      results_df    = results_df,
+      summary_plots = summary_plots,
+      enrich        = NULL,
+      beta          = NULL
+    )
+
+    saveRDS(output, file = file.path(cfg$plot_dir, "results.rds"))
+    logger::log_info(
+      "Early exit after enrichment failure: wrote partial results (Manhattan/volcano) to {cfg$plot_dir}."
+    )
+    return(output)
+  }
 
   logger::log_info("6A) Enrichment violin plots…")
   cause_levels  <- c("cause_level_1","cause_level_2","cause_level_3")
@@ -515,50 +694,36 @@ run_phenome_mr <- function(
   }
 
   # ---- 7) Assemble hierarchical summary_plots list ----
-  summary_plots <- list(
-    # manhattan = list(
-    #   BH = list(all = manhattan_BH_all, ARD_only = manhattan_BH_ARD),
-    #   bonferroni = list(all = manhattan_Bonf_all, ARD_only = manhattan_Bonf_ARD)
-    # ),
-    manhattan_recolor = list(
-      BH = list(all = manhattan_recolor_BH_all, ARD_only = manhattan_recolor_BH_ARD),
-      bonferroni = list(all = manhattan_recolor_Bonf_all, ARD_only = manhattan_recolor_Bonf_ARD)
+  summary_plots <- summary_plots_core
+  summary_plots$enrichment <- list(
+    global = list(
+      violin_vertical = enrichment_global_violin_vertical,
+      violin_forest = enrichment_global_violin_forest
     ),
-    # volcano = list(default = volcano_default),
-    volcano_recolor = list(
-      BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
-      bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
-    ),
-    enrichment = list(
-      global = list(
-        violin_vertical = enrichment_global_violin_vertical,
-        violin_forest = enrichment_global_violin_forest
-      ),
-      cause_level_1 = enrichment_cause_violin[["cause_level_1"]],
-      cause_level_2 = enrichment_cause_violin[["cause_level_2"]],
-      cause_level_3 = enrichment_cause_violin[["cause_level_3"]]
-    ),
-    # enrichment = list(
-    #   global = list(
-    #     directional = list(ARD_vs_nonARD = enrichment_global_plot_dir),
-    #     signed      = list(ARD_vs_nonARD = enrichment_global_plot_signed)
-    #   ),
-    #   cause_level_1 = list(
-    #     directional = enrichment_cause_plots_dir[["cause_level_1"]],
-    #     signed      = enrichment_cause_plots_signed[["cause_level_1"]]
-    #   ),
-    #   cause_level_2 = list(
-    #     directional = enrichment_cause_plots_dir[["cause_level_2"]],
-    #     signed      = enrichment_cause_plots_signed[["cause_level_2"]]
-    #   ),
-    #   cause_level_3 = list(
-    #     directional = enrichment_cause_plots_dir[["cause_level_3"]],
-    #     signed      = enrichment_cause_plots_signed[["cause_level_3"]]
-    #   )
-    # ),
-    beta = beta_plots
-    # , beta_contrast = beta_contrast_plots
+    cause_level_1 = enrichment_cause_violin[["cause_level_1"]],
+    cause_level_2 = enrichment_cause_violin[["cause_level_2"]],
+    cause_level_3 = enrichment_cause_violin[["cause_level_3"]]
   )
+  # summary_plots$enrichment <- list(
+  #   global = list(
+  #     directional = list(ARD_vs_nonARD = enrichment_global_plot_dir),
+  #     signed      = list(ARD_vs_nonARD = enrichment_global_plot_signed)
+  #   ),
+  #   cause_level_1 = list(
+  #     directional = enrichment_cause_plots_dir[["cause_level_1"]],
+  #     signed      = enrichment_cause_plots_signed[["cause_level_1"]]
+  #   ),
+  #   cause_level_2 = list(
+  #     directional = enrichment_cause_plots_dir[["cause_level_2"]],
+  #     signed      = enrichment_cause_plots_signed[["cause_level_2"]]
+  #   ),
+  #   cause_level_3 = list(
+  #     directional = enrichment_cause_plots_dir[["cause_level_3"]],
+  #     signed      = enrichment_cause_plots_signed[["cause_level_3"]]
+  #   )
+  # )
+  summary_plots$beta <- beta_plots
+  # summary_plots$beta_contrast <- beta_contrast_plots
 
   # Assert counts
   # n_enrich_cause_plots <- sum(vapply(
@@ -583,130 +748,6 @@ run_phenome_mr <- function(
   logger::log_info("Beta mean cause-level plots generated: {n_beta_mean_plots}")
 
   # ---- 8) Save plots mirroring the list structure under cfg$plot_dir ----
-  save_plot_hierarchy <- function(x, base_dir, path_parts = character(0)) {
-    safe_name <- function(s) {
-      s <- as.character(s)
-      s <- gsub("[/\\?%*:|\"<>]", "_", s)
-      s <- gsub("\\s+", "_", s)
-      s <- gsub("_+", "_", s)
-      s <- sub("^_+", "", s)
-      s <- sub("_+$", "", s)
-      if (!nzchar(s)) "plot" else s
-    }
-
-    if (inherits(x, "ggplot")) {
-      path_labels <- vapply(path_parts, safe_name, character(1))
-      file_stem_override <- NULL
-      if (length(path_labels) >= 1 && identical(path_labels[1], "manhattan_recolor")) {
-        path_labels <- c("manhattan", path_labels[-1])
-        if (length(path_labels) >= 2) {
-          path_labels[length(path_labels)] <- paste0("recolor_", path_labels[length(path_labels)])
-        } else {
-          path_labels <- c("manhattan", "recolor")
-        }
-      }
-      if (length(path_labels) >= 1 && identical(path_labels[1], "volcano_recolor")) {
-        correction <- if (length(path_labels) >= 2) path_labels[2] else "BH"
-        slice      <- if (length(path_labels) >= 3) path_labels[3] else "all"
-        correction <- safe_name(correction)
-        slice      <- safe_name(slice)
-        path_labels <- c("volcano", correction, paste0("recolor_", slice))
-        file_stem_override <- safe_name(paste0("recolor_", correction, "_", slice))
-      }
-      subpath <- paste(path_labels, collapse = "/")
-      width <- 7.2; height <- 6.5
-      plot_data <- attr(x, "ardmr_plot_data", exact = TRUE)
-      yfloat_base <- 1.8 #was 1.2
-      yfloat_coef <- 0.28
-
-      if (grepl("^manhattan", subpath)) {
-        width <- 7.2; height <- 6.5
-      }
-      if (grepl("^enrichment/global", subpath)) {
-        width <- 7.2; height <- 4.0
-      }
-      if (grepl("^enrichment/cause_level_", subpath)) {
-        width <- 7.2; height <- 5.0
-      }
-      is_enrichment_cause_forest <- length(path_parts) >= 3 &&
-        identical(path_parts[1], "enrichment") &&
-        grepl("^cause_level_", path_parts[2]) &&
-        identical(path_parts[3], "violin_forest")
-      if (is_enrichment_cause_forest) {
-        observed_df <- NULL
-        if (is.list(plot_data) && "observed" %in% names(plot_data)) {
-          observed_df <- plot_data$observed
-        }
-        n_rows <- if (is.data.frame(observed_df)) {
-          if ("group_label" %in% names(observed_df)) {
-            groups <- unique(observed_df$group_label)
-            groups <- groups[!is.na(groups)]
-            length(groups)
-          } else {
-            nrow(observed_df)
-          }
-        } else {
-          0L
-        }
-        n_rows <- as.integer(n_rows)
-        if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
-        height <- yfloat_base + (yfloat_coef * 1.3) * n_rows #adjust this coefficient to stretch rows
-      }
-      if (grepl("^volcano", subpath)) {
-        width <- 7.2; height <- 5.0
-      }
-      # NEW: sizes for beta_contrast
-      if (grepl("^beta/global", subpath)) {
-        width <- 3.54; height <- 2.4
-      }
-      if (grepl("^beta/cause_level_", subpath)) {
-        width <- 7.2; height <- 5.0
-      }
-      if (grepl("^beta_contrast/global", subpath)) {
-        width <- 3.54; height <- 2.4
-      }
-      if (grepl("^beta_contrast/cause_level_", subpath)) {
-        width <- 7.2; height <- 5.0
-      }
-
-      dir_path  <- file.path(base_dir, dirname(subpath))
-      if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
-      file_stem <- safe_name(basename(subpath))
-      if (!is.null(file_stem_override)) file_stem <- file_stem_override
-      file_name <- paste0(file_stem, ".png")
-      file_path <- file.path(dir_path, file_name)
-      is_yfloat <- length(path_labels) >= 1 && grepl("_wrap_yfloat$", tail(path_labels, 1))
-      if (is_yfloat) {
-        main_df <- NULL
-        if (is.list(plot_data) && "main" %in% names(plot_data)) {
-          main_df <- plot_data$main
-        }
-        n_rows <- if (is.data.frame(main_df)) nrow(main_df) else 0L
-        if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
-        height <- yfloat_base + yfloat_coef * n_rows
-      }
-      if (length(path_labels) >= 1 && identical(path_labels[1], "beta")) {
-        # ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
-        # .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
-        return(invisible(NULL))
-      }
-      ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
-      .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
-      return(invisible(NULL))
-    }
-
-    if (is.list(x)) {
-      nms <- names(x)
-      for (i in seq_along(x)) {
-        nm <- if (!is.null(nms) && nzchar(nms[i])) nms[i] else paste0("item", i)
-        save_plot_hierarchy(x[[i]], base_dir, c(path_parts, nm))
-      }
-      return(invisible(NULL))
-    }
-
-    invisible(NULL)
-  }
-
   # Save all plots
   save_plot_hierarchy(summary_plots, cfg$plot_dir)
 
