@@ -1499,15 +1499,19 @@ volcano_plot <- function(results_df,
 #' and significant risk associations (β ≥ 0) in red.
 #'
 #' @inheritParams volcano_plot
+#' @param dot_names Logical; if `TRUE`, annotate significant outcomes on the
+#'   plot (default `TRUE`).
 #' @export
 volcano_plot_recolor <- function(results_df,
                                  Multiple_testing_correction = c("BH","bonferroni"),
                                  qc_pass_only = TRUE,
                                  alpha = 0.05,
                                  exposure = NULL,
+                                 dot_names = TRUE,
                                  label_top_n = 25,
                                  verbose = TRUE) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  dot_names <- isTRUE(dot_names)
 
   if (is.null(results_df) || !nrow(results_df)) {
     if (verbose && requireNamespace("logger", quietly = TRUE)) {
@@ -1622,7 +1626,7 @@ volcano_plot_recolor <- function(results_df,
   }
 
   lab_df <- tibble::tibble()
-  if ("results_outcome" %in% names(df)) {
+  if (isTRUE(dot_names) && "results_outcome" %in% names(df)) {
     lab_df <- dplyr::filter(df, .data$sig %in% TRUE & !is.na(.data$results_outcome))
     if (nrow(lab_df)) {
       lab_df <- lab_df[order(lab_df$logp, decreasing = TRUE), , drop = FALSE]
