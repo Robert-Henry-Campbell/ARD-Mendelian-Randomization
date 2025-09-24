@@ -1337,6 +1337,7 @@ plot_enrichment_group_heatmap <- function(
 #' @param exposure Optional exposure label for the title.
 #' @param label_top_n How many most-significant points to label (default 25). Use Inf to label all significant.
 #' @param verbose If TRUE, log a few steps via {logger} if available.
+#' @param dot_names Logical; if TRUE, label significant points with their outcome names.
 #' @export
 volcano_plot <- function(results_df,
                          Multiple_testing_correction = c("BH","bonferroni"),
@@ -1344,7 +1345,8 @@ volcano_plot <- function(results_df,
                          alpha = 0.05,
                          exposure = NULL,
                          label_top_n = 25,
-                         verbose = TRUE) {
+                         verbose = TRUE,
+                         dot_names = TRUE) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
 
   if (is.null(results_df) || !nrow(results_df)) {
@@ -1460,7 +1462,7 @@ volcano_plot <- function(results_df,
 
   # Labels for most significant points (if results_outcome exists)
   lab_df <- tibble::tibble()
-  if ("results_outcome" %in% names(df)) {
+  if (isTRUE(dot_names) && "results_outcome" %in% names(df)) {
     lab_df <- dplyr::filter(df, .data$sig %in% TRUE & !is.na(.data$results_outcome))
     if (nrow(lab_df)) {
       # rank by significance (higher -log10 p first)

@@ -296,6 +296,20 @@ run_phenome_mr <- function(
   manhattan_recolor_Bonf_ARD <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
 
   # ---- 5B. VOLCANO ----
+  volcano_with_dot_names <- volcano_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    verbose = cfg$verbose,
+    dot_names = TRUE
+  )
+  volcano_without_dot_names <- volcano_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    verbose = cfg$verbose,
+    dot_names = FALSE
+  )
   # volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
   volcano_recolor_BH_all   <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
   volcano_recolor_BH_ARD   <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
@@ -542,6 +556,10 @@ run_phenome_mr <- function(
       bonferroni = list(all = manhattan_recolor_Bonf_all, ARD_only = manhattan_recolor_Bonf_ARD)
     ),
     # volcano = list(default = volcano_default),
+    volcano = list(
+      with_dot_names = volcano_with_dot_names,
+      without_dot_names = volcano_without_dot_names
+    ),
     volcano_recolor = list(
       BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
       bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
