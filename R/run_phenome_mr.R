@@ -290,10 +290,62 @@ run_phenome_mr <- function(
     dot_names = FALSE
   )
 
-  manhattan_recolor_BH_all   <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
-  manhattan_recolor_BH_ARD   <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
-  manhattan_recolor_Bonf_all <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
-  manhattan_recolor_Bonf_ARD <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
+  manhattan_recolor_BH_all <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
+  manhattan_recolor_BH_ARD <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
+  manhattan_recolor_Bonf_all <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
+  manhattan_recolor_Bonf_ARD <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
 
   # ---- 5B. VOLCANO ----
   volcano_with_dot_names <- volcano_plot(

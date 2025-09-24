@@ -305,8 +305,10 @@ manhattan_plot_recolor <- function(results_df,
                                    left_nuge = 1,
                                    tree_down = -0.08,
                                    label_down = -0.02,
+                                   dot_names = TRUE,
                                    exposure = NULL) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
+  dot_names <- isTRUE(dot_names)
 
   if (is.null(results_df) || !nrow(results_df)) {
     if (verbose) logger::log_warn("Manhattan (recolor): input results_df is NULL or has 0 rows; returning placeholder plot.")
@@ -461,28 +463,31 @@ manhattan_plot_recolor <- function(results_df,
       )
   }
 
-  if (!"results_outcome" %in% names(df)) {
-    stop("manhattan_plot_recolor(): 'results_outcome' column is required to label significant points.", call. = FALSE)
-  }
-  sig_df <- dplyr::filter(
-    df, .data$sig %in% TRUE, !is.na(.data$results_outcome),
-    is.finite(.data$idx), is.finite(.data$logp)
-  )
-  if (nrow(sig_df)) {
-    if (requireNamespace("ggrepel", quietly = TRUE)) {
-      p <- p + ggrepel::geom_text_repel(
-        data = sig_df,
-        ggplot2::aes(x = .data$idx, y = .data$logp, label = .data$results_outcome),
-        max.overlaps = Inf, box.padding = 0.25, point.padding = 0.15,
-        min.segment.length = 0, size = 2.7, seed = 123,
-        segment.size = 0.2
-      )
-    } else {
-      p <- p + ggplot2::geom_text(
-        data = sig_df,
-        ggplot2::aes(x = .data$idx, y = .data$logp, label = .data$results_outcome),
-        size = 2.7, vjust = -0.25, check_overlap = TRUE
-      )
+  sig_df <- df[FALSE, , drop = FALSE]
+  if (isTRUE(dot_names)) {
+    if (!"results_outcome" %in% names(df)) {
+      stop("manhattan_plot_recolor(): 'results_outcome' column is required to label significant points.", call. = FALSE)
+    }
+    sig_df <- dplyr::filter(
+      df, .data$sig %in% TRUE, !is.na(.data$results_outcome),
+      is.finite(.data$idx), is.finite(.data$logp)
+    )
+    if (nrow(sig_df)) {
+      if (requireNamespace("ggrepel", quietly = TRUE)) {
+        p <- p + ggrepel::geom_text_repel(
+          data = sig_df,
+          ggplot2::aes(x = .data$idx, y = .data$logp, label = .data$results_outcome),
+          max.overlaps = Inf, box.padding = 0.25, point.padding = 0.15,
+          min.segment.length = 0, size = 2.7, seed = 123,
+          segment.size = 0.2
+        )
+      } else {
+        p <- p + ggplot2::geom_text(
+          data = sig_df,
+          ggplot2::aes(x = .data$idx, y = .data$logp, label = .data$results_outcome),
+          size = 2.7, vjust = -0.25, check_overlap = TRUE
+        )
+      }
     }
   }
 
