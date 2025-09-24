@@ -158,17 +158,118 @@ run_phenome_mr_plotting_only <- function(
   # manhattan_Bonf_all <- manhattan_plot(results_df,        Multiple_testing_correction = "bonferroni", exposure = exposure)
   # manhattan_Bonf_ARD <- manhattan_plot(results_ard_only,  Multiple_testing_correction = "bonferroni", exposure = exposure)
 
-  manhattan_recolor_BH_all   <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
-  manhattan_recolor_BH_ARD   <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
-  manhattan_recolor_Bonf_all <- manhattan_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
-  manhattan_recolor_Bonf_ARD <- manhattan_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
+  manhattan_with_names <- manhattan_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    dot_names = TRUE
+  )
+  manhattan_without_names <- manhattan_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    dot_names = FALSE
+  )
+
+  manhattan_recolor_BH_all <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
+  manhattan_recolor_BH_ARD <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "BH",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
+  manhattan_recolor_Bonf_all <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_df,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
+  manhattan_recolor_Bonf_ARD <- list(
+    with_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = TRUE
+    ),
+    without_dot_names = manhattan_plot_recolor(
+      results_ard_only,
+      Multiple_testing_correction = "bonferroni",
+      exposure = exposure,
+      dot_names = FALSE
+    )
+  )
 
   # ---- 5B. VOLCANO ----
+  volcano_with_dot_names <- volcano_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    verbose = cfg$verbose,
+    dot_names = TRUE
+  )
+  volcano_without_dot_names <- volcano_plot(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    verbose = cfg$verbose,
+    dot_names = FALSE
+  )
   # volcano_default <- volcano_plot(results_df, Multiple_testing_correction = cfg$mtc)
   volcano_recolor_BH_all   <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "BH",         exposure = exposure)
   volcano_recolor_BH_ARD   <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "BH",         exposure = exposure)
   volcano_recolor_Bonf_all <- volcano_plot_recolor(results_df,       Multiple_testing_correction = "bonferroni", exposure = exposure)
   volcano_recolor_Bonf_ARD <- volcano_plot_recolor(results_ard_only, Multiple_testing_correction = "bonferroni", exposure = exposure)
+
+  volcano_recolor_with_dot_names <- volcano_plot_recolor(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    verbose = cfg$verbose,
+    dot_names = TRUE
+  )
+  volcano_recolor_without_dot_names <- volcano_plot_recolor(
+    results_df,
+    Multiple_testing_correction = cfg$mtc,
+    exposure = exposure,
+    verbose = cfg$verbose,
+    dot_names = FALSE
+  )
+
+  volcano_recolor_plot_list <- list(
+    BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
+    bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
+  )
+  volcano_recolor_plot_list[[cfg$mtc]][["with_dot_names"]] <- volcano_recolor_with_dot_names
+  volcano_recolor_plot_list[[cfg$mtc]][["without_dot_names"]] <- volcano_recolor_without_dot_names
 
   # ---- 6) Signed enrichment analyses ----
   logger::log_info("6) Enrichment analyses…")
@@ -397,6 +498,10 @@ run_phenome_mr_plotting_only <- function(
 
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- list(
+    manhattan = list(
+      with_names = manhattan_with_names,
+      without_names = manhattan_without_names
+    ),
     # manhattan = list(
     #   BH = list(all = manhattan_BH_all, ARD_only = manhattan_BH_ARD),
     #   bonferroni = list(all = manhattan_Bonf_all, ARD_only = manhattan_Bonf_ARD)
@@ -406,10 +511,11 @@ run_phenome_mr_plotting_only <- function(
       bonferroni = list(all = manhattan_recolor_Bonf_all, ARD_only = manhattan_recolor_Bonf_ARD)
     ),
     # volcano = list(default = volcano_default),
-    volcano_recolor = list(
-      BH = list(all = volcano_recolor_BH_all, ARD_only = volcano_recolor_BH_ARD),
-      bonferroni = list(all = volcano_recolor_Bonf_all, ARD_only = volcano_recolor_Bonf_ARD)
+    volcano = list(
+      with_dot_names = volcano_with_dot_names,
+      without_dot_names = volcano_without_dot_names
     ),
+    volcano_recolor = volcano_recolor_plot_list,
     enrichment = list(
       global = list(
         violin_vertical = enrichment_global_violin_vertical,
@@ -565,6 +671,11 @@ run_phenome_mr_plotting_only <- function(
         n_rows <- if (is.data.frame(main_df)) nrow(main_df) else 0L
         if (!is.finite(n_rows) || n_rows <= 0) n_rows <- 1L
         height <- yfloat_base + yfloat_coef * n_rows
+      }
+      if (length(path_labels) >= 1 && identical(path_labels[1], "beta")) {
+        # ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
+        # .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
+        return(invisible(NULL))
       }
       ggplot2::ggsave(filename = file_path, plot = x, width = width, height = height, dpi = 300)
       .ardmr_write_plot_data(x, dir_path = dir_path, base_name = file_stem)
