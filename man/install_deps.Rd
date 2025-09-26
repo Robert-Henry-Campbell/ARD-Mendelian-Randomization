@@ -8,6 +8,8 @@ install_deps()
 }
 \description{
 Ensures the required packages for this project are installed.
+This includes core MR libraries such as \code{MendelianRandomization}
+and support tooling like \code{jsonlite} as declared in \code{DESCRIPTION}.
 If the \code{remotes} package is missing, it will be installed first.
 }
 \keyword{internal}

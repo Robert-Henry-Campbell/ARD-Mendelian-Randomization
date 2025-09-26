@@ -57,7 +57,8 @@ The primary entry point is [`run_phenome_mr()`](./R/run_phenome_mr.R), which:
 ### Install package dependencies
 
 The repository ships with an installer helper. Run it once after cloning to
-install CRAN and Bioconductor dependencies listed in `DESCRIPTION`:
+install CRAN and Bioconductor dependencies listed in `DESCRIPTION`, including
+`MendelianRandomization`, `jsonlite`, and other core tooling:
 
 ```bash
 Rscript -e "source('R/install_deps.R'); install_deps()"
