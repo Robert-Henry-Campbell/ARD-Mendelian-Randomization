@@ -36,7 +36,10 @@ run_ieugwasr_ard_compare <- function(
     sensitivity_pass_min = 6
 ) {
   # ---- packages ----
-  pkgs <- c("TwoSampleMR","ieugwasr","dplyr","readr","purrr","stringr","tibble")
+  pkgs <- c(
+    "TwoSampleMR","ieugwasr","dplyr","readr","purrr",
+    "stringr","tibble","MendelianRandomization","jsonlite"
+  )
   miss <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss)) stop("Please install required packages: ", paste(miss, collapse = ", "))
 
@@ -58,6 +61,352 @@ run_ieugwasr_ard_compare <- function(
     x <- trimws(as.character(x))
     x[!nzchar(x) | is.na(x)] <- NA_character_
     x
+  }
+
+  slugify <- function(x) {
+    x <- as.character(x)
+    x[is.na(x) | !nzchar(x)] <- "NA"
+    x <- gsub("[^[:alnum:]]+", "-", x)
+    x <- gsub("-+", "-", x)
+    x <- gsub("^-|-$", "", x)
+    tolower(x)
+  }
+
+  parse_phenoscanner_patterns <- function(val) {
+    val <- safe_chr(val)
+    val <- val[!is.na(val) & nzchar(val)]
+    if (!length(val)) {
+      return(list(skip = TRUE, patterns = list(), raw = character(0)))
+    }
+    val <- val[1]
+    parts <- unlist(strsplit(val, ","), use.names = FALSE)
+    parts <- stringr::str_trim(parts)
+    parts <- unique(parts[nzchar(parts)])
+    if (!length(parts)) {
+      return(list(skip = TRUE, patterns = list(), raw = character(0)))
+    }
+    list(
+      skip = FALSE,
+      patterns = lapply(parts, function(p) stringr::regex(p, ignore_case = TRUE)),
+      raw = parts
+    )
+  }
+
+  match_ci_col <- function(df, choices) {
+    if (!is.data.frame(df) || !ncol(df)) return(NA_character_)
+    nm <- names(df)
+    nm_lower <- tolower(nm)
+    for (choice in choices) {
+      idx <- which(nm_lower == tolower(choice))[1]
+      if (length(idx) && !is.na(idx)) {
+        return(nm[idx])
+      }
+    }
+    NA_character_
+  }
+
+  phenoscanner_query_batches <- function(rsids, pval, exposure_label, ieu_id, max_attempts = 3, base_sleep = 1) {
+    rsids <- safe_chr(rsids)
+    rsids <- unique(rsids[!is.na(rsids)])
+    if (!length(rsids)) {
+      return(list(per_snp = list(), errors = list()))
+    }
+
+    chunks <- split(rsids, ceiling(seq_along(rsids) / 100))
+    per_snp <- stats::setNames(vector("list", length(rsids)), rsids)
+    errors <- list()
+
+    for (i in seq_along(chunks)) {
+      chunk <- chunks[[i]]
+      attempt <- 1L
+      success <- FALSE
+      last_error <- NULL
+
+      while (attempt <= max_attempts && !success) {
+        res <- try(
+          MendelianRandomization::phenoscanner(
+            snpquery = chunk,
+            catalogue = "GWAS",
+            pvalue = pval,
+            proxies = "None"
+          ),
+          silent = TRUE
+        )
+
+        if (!inherits(res, "try-error")) {
+          success <- TRUE
+          assoc_tbl <- tryCatch(
+            tibble::as_tibble(res$results),
+            error = function(e) tibble::tibble()
+          )
+          snp_col <- match_ci_col(assoc_tbl, c("snp", "rsid", "rs"))
+          if (is.na(snp_col) && ncol(assoc_tbl) >= 1) {
+            snp_col <- names(assoc_tbl)[1]
+          }
+
+          if (nrow(assoc_tbl) > 0) {
+            message(sprintf(
+              "[PhenoScanner][%s|%s] Chunk %d/%d returned %d association rows.",
+              exposure_label, ieu_id, i, length(chunks), nrow(assoc_tbl)
+            ))
+          } else {
+            message(sprintf(
+              "[PhenoScanner][%s|%s] Chunk %d/%d returned no hits.",
+              exposure_label, ieu_id, i, length(chunks)
+            ))
+          }
+
+          split_tbl <- if (!is.na(snp_col) && nrow(assoc_tbl)) {
+            split(assoc_tbl, assoc_tbl[[snp_col]])
+          } else {
+            list()
+          }
+
+          for (snp in chunk) {
+            if (length(split_tbl)) {
+              tbl <- split_tbl[[snp]]
+              if (!is.null(tbl)) {
+                per_snp[[snp]] <- list(status = "ok", table = tibble::as_tibble(tbl))
+              } else {
+                per_snp[[snp]] <- list(status = "no_hits", table = tibble::tibble())
+              }
+            } else {
+              per_snp[[snp]] <- list(status = "no_hits", table = tibble::tibble())
+            }
+          }
+        } else {
+          err_cond <- attr(res, "condition")
+          if (inherits(err_cond, "condition")) {
+            last_error <- conditionMessage(err_cond)
+          } else {
+            last_error <- as.character(res)
+          }
+          message(sprintf(
+            "[PhenoScanner][%s|%s] Chunk %d/%d attempt %d failed: %s",
+            exposure_label, ieu_id, i, length(chunks), attempt, last_error
+          ))
+          if (attempt < max_attempts) {
+            Sys.sleep(base_sleep * 2^(attempt - 1))
+          }
+          attempt <- attempt + 1L
+        }
+      }
+
+      if (!success) {
+        message(sprintf(
+          "[PhenoScanner][%s|%s] Chunk %d/%d failed after %d attempts.",
+          exposure_label, ieu_id, i, length(chunks), max_attempts
+        ))
+        for (snp in chunk) {
+          per_snp[[snp]] <- list(status = "failed", table = NULL, error = last_error)
+          errors[[snp]] <- last_error
+        }
+      }
+    }
+
+    list(per_snp = per_snp, errors = errors)
+  }
+
+  write_phenoscanner_report <- function(path, tbl) {
+    dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+    readr::write_csv(tbl, path)
+    path
+  }
+
+  apply_phenoscanner_filters <- function(snps_df, exposure_label, ieu_id, sex, ancestry,
+                                         patterns_info, phenoscanner_pval, cache_dir) {
+    total_snps <- nrow(snps_df)
+    summary <- list(
+      ieu_id = ieu_id,
+      exposure = exposure_label,
+      sex = as.character(sex),
+      ancestry = as.character(ancestry),
+      total_snps = total_snps,
+      matches_removed = 0L,
+      failures = 0L,
+      survivors = total_snps,
+      patterns = if (length(patterns_info$raw)) paste(patterns_info$raw, collapse = ", ") else NA_character_
+    )
+
+    if (!total_snps || isTRUE(patterns_info$skip)) {
+      if (isTRUE(patterns_info$skip)) {
+        message(sprintf(
+          "[PhenoScanner][%s|%s] No exclusion patterns supplied; skipping PhenoScanner filter.",
+          exposure_label, ieu_id
+        ))
+      }
+      summary$report_path <- NA_character_
+      return(list(snps = snps_df, summary = summary, report_path = NA_character_))
+    }
+
+    query_res <- phenoscanner_query_batches(snps_df$SNP, phenoscanner_pval, exposure_label, ieu_id)
+    per_snp <- query_res$per_snp
+    if (!length(per_snp)) {
+      per_snp <- stats::setNames(vector("list", length(snps_df$SNP)), snps_df$SNP)
+      for (snp in snps_df$SNP) {
+        per_snp[[snp]] <- list(status = "no_hits", table = tibble::tibble())
+      }
+    }
+
+    snp_order <- snps_df$SNP
+    status_vec <- character(length(snp_order))
+    remove_vec <- logical(length(snp_order))
+    matched_pattern_vec <- rep(NA_character_, length(snp_order))
+    assoc_json_vec <- rep(NA_character_, length(snp_order))
+
+    failures <- character(0)
+
+    for (idx in seq_along(snp_order)) {
+      snp <- snp_order[idx]
+      info <- per_snp[[snp]]
+      if (is.null(info)) {
+        info <- list(status = "no_hits", table = tibble::tibble())
+      }
+      status <- info$status
+      if (length(status) > 1) status <- status[1]
+      if (is.null(status) || !nzchar(status)) status <- "no_hits"
+      status_vec[idx] <- status
+
+      if (identical(status, "failed")) {
+        failures <- c(failures, snp)
+        message(sprintf(
+          "[PhenoScanner][%s|%s] Query failed for %s after retries.",
+          exposure_label, ieu_id, snp
+        ))
+        assoc_json_vec[idx] <- NA_character_
+        next
+      }
+
+      tbl <- info$table
+      if (!inherits(tbl, "tbl_df")) {
+        tbl <- tryCatch(tibble::as_tibble(tbl), error = function(e) tibble::tibble())
+      }
+
+      p_col <- match_ci_col(tbl, c("p", "pvalue", "p_gwas"))
+      if (!is.na(p_col)) {
+        pvals <- suppressWarnings(as.numeric(tbl[[p_col]]))
+        keep_idx <- is.na(pvals) | pvals <= phenoscanner_pval
+        tbl <- tbl[keep_idx, , drop = FALSE]
+      }
+
+      trait_col <- match_ci_col(tbl, c("trait", "phenotype", "outcome"))
+      traits <- if (!is.na(trait_col)) safe_chr(tbl[[trait_col]]) else character(0)
+      traits <- traits[!is.na(traits)]
+
+      matched_flags <- if (length(traits) && length(patterns_info$patterns)) {
+        vapply(seq_along(patterns_info$patterns), function(j) {
+          any(stringr::str_detect(traits, patterns_info$patterns[[j]]), na.rm = TRUE)
+        }, logical(1))
+      } else {
+        rep(FALSE, length(patterns_info$patterns))
+      }
+
+      if (length(traits) == 0 && !identical(status, "no_hits")) {
+        message(sprintf(
+          "[PhenoScanner][%s|%s] %s returned associations but no trait column detected.",
+          exposure_label, ieu_id, snp
+        ))
+      }
+
+      if (any(matched_flags)) {
+        first_match <- patterns_info$raw[which(matched_flags)[1]]
+        matched_pattern_vec[idx] <- first_match
+        remove_vec[idx] <- TRUE
+        message(sprintf(
+          "[PhenoScanner][%s|%s] Forbidden trait match (%s) detected for %s — marked for removal.",
+          exposure_label, ieu_id, first_match, snp
+        ))
+      } else if (identical(status, "no_hits") || !nrow(tbl)) {
+        message(sprintf(
+          "[PhenoScanner][%s|%s] %s has no forbidden traits (no hits).",
+          exposure_label, ieu_id, snp
+        ))
+      } else {
+        message(sprintf(
+          "[PhenoScanner][%s|%s] %s has no forbidden traits; keeping.",
+          exposure_label, ieu_id, snp
+        ))
+      }
+
+      assoc_json_vec[idx] <- jsonlite::toJSON(tbl, dataframe = "rows", auto_unbox = TRUE, na = "null")
+    }
+
+    summary$failures <- length(unique(failures))
+
+    if (length(failures)) {
+      for (snp in failures) {
+        decision <- "keep"
+        if (interactive()) {
+          repeat {
+            ans <- readline(sprintf(
+              "PhenoScanner query failed for %s. Keep (k), drop (d), or abort (a)? ",
+              snp
+            ))
+            ans <- tolower(trimws(ans))
+            if (!nzchar(ans) || ans %in% c("k", "keep")) {
+              decision <- "keep"
+              break
+            }
+            if (ans %in% c("d", "drop")) {
+              decision <- "drop"
+              break
+            }
+            if (ans %in% c("a", "abort")) {
+              stop("User aborted due to PhenoScanner query failure.")
+            }
+            message("Please enter 'k', 'd', or 'a'.")
+          }
+        } else {
+          message(sprintf(
+            "[PhenoScanner][%s|%s] Non-interactive mode; keeping %s despite failed query.",
+            exposure_label, ieu_id, snp
+          ))
+        }
+
+        idx <- match(snp, snp_order)
+        status_vec[idx] <- "failed"
+        assoc_json_vec[idx] <- NA_character_
+
+        if (identical(decision, "drop")) {
+          remove_vec[idx] <- TRUE
+          message(sprintf(
+            "[PhenoScanner][%s|%s] %s dropped after user confirmation despite query failure.",
+            exposure_label, ieu_id, snp
+          ))
+        } else {
+          remove_vec[idx] <- FALSE
+          message(sprintf(
+            "[PhenoScanner][%s|%s] %s retained after query failure.",
+            exposure_label, ieu_id, snp
+          ))
+        }
+      }
+    }
+
+    survivors <- snps_df[!snps_df$SNP %in% snp_order[remove_vec], , drop = FALSE]
+
+    summary$matches_removed <- sum(remove_vec)
+    summary$survivors <- nrow(survivors)
+
+    output_dir <- file.path(cache_dir, "output", slugify(exposure_label), sex, ancestry)
+    report_tbl <- tibble::tibble(
+      SNP = snp_order,
+      query_status = status_vec,
+      matched_pattern = matched_pattern_vec,
+      associations_json = assoc_json_vec,
+      remove = remove_vec
+    )
+    report_path <- write_phenoscanner_report(
+      file.path(output_dir, "phenoscanner_review.csv"),
+      report_tbl
+    )
+    message(sprintf(
+      "[PhenoScanner][%s|%s] Review saved to %s",
+      exposure_label, ieu_id, report_path
+    ))
+    summary$report_path <- report_path
+
+    list(snps = survivors, summary = summary, report_path = report_path)
   }
 
   # pick first existing column name from a list
@@ -432,6 +781,7 @@ run_ieugwasr_ard_compare <- function(
   # ---- build per-row instrument tables + collect meta ----
   message("Fetching & preparing instruments…")
   extraction_meta <- list()  # one entry per attempted row
+  phenoscanner_summaries <- list()
 
   expos_prepared <- expos |>
     dplyr::mutate(.row_id = dplyr::row_number()) |>
@@ -445,7 +795,7 @@ run_ieugwasr_ard_compare <- function(
       p_used <- attr(ins, "p_used")
       status <- if (nrow(ins)) "success" else "fail"
 
-      extraction_meta[[length(extraction_meta)+1]] <<- list(
+      meta_entry <- list(
         ieu_id   = ieu_id,
         exposure = exp_name,
         p_used   = if (length(p_used)) p_used else NA_real_,
@@ -453,14 +803,46 @@ run_ieugwasr_ard_compare <- function(
       )
 
       if (!nrow(ins)) {
+        extraction_meta[[length(extraction_meta)+1]] <<- meta_entry
         warning(sprintf("No instruments retained for %s; skipping.", ieu_id))
         return(NULL)
       }
 
       snps_df <- build_exposure_snps(ins, exposure_label = exp_name, ieu_id = ieu_id)
 
+      patterns_info <- parse_phenoscanner_patterns(r$phenoscanner_exclusions)
+      filter_res <- apply_phenoscanner_filters(
+        snps_df,
+        exposure_label = exp_name,
+        ieu_id = ieu_id,
+        sex = r$sex,
+        ancestry = r$ancestry,
+        patterns_info = patterns_info,
+        phenoscanner_pval = phenoscanner_pval,
+        cache_dir = cache_dir
+      )
+
+      snps_df <- filter_res$snps
+      phenoscanner_summaries[[length(phenoscanner_summaries)+1]] <<- filter_res$summary
+
+      meta_entry$phenoscanner_total <- filter_res$summary$total_snps
+      meta_entry$phenoscanner_removed <- filter_res$summary$matches_removed
+      meta_entry$phenoscanner_failures <- filter_res$summary$failures
+      meta_entry$phenoscanner_survivors <- filter_res$summary$survivors
+
       mtc_val     <- normalize_mtc(r$multiple_testing_correction)[1]
       confirm_val <- normalize_confirm(r$confirm)[1]
+
+      if (!nrow(snps_df)) {
+        extraction_meta[[length(extraction_meta)+1]] <<- meta_entry
+        warning(sprintf(
+          "All instruments removed for %s after PhenoScanner filtering; skipping exposure.",
+          ieu_id
+        ))
+        return(NULL)
+      }
+
+      extraction_meta[[length(extraction_meta)+1]] <<- meta_entry
 
       list(
         exposure_group = r$exposure_group,
@@ -477,6 +859,13 @@ run_ieugwasr_ard_compare <- function(
     }) |>
     purrr::compact()
 
+  phenoscanner_summary_df <-
+    if (length(phenoscanner_summaries)) {
+      dplyr::bind_rows(phenoscanner_summaries)
+    } else {
+      tibble::tibble()
+    }
+
   # ---- summary + user interrupt BEFORE ard_compare() ----
   meta_df <- dplyr::bind_rows(extraction_meta)
   if (is.null(meta_df) || !nrow(meta_df)) stop("No exposure rows were attempted; nothing to do.")
@@ -484,7 +873,11 @@ run_ieugwasr_ard_compare <- function(
   meta_df <- meta_df |>
     dplyr::mutate(
       status = as.character(.data$status),
-      p_used = suppressWarnings(as.numeric(.data$p_used))
+      p_used = suppressWarnings(as.numeric(.data$p_used)),
+      phenoscanner_total = suppressWarnings(as.integer(.data$phenoscanner_total)),
+      phenoscanner_removed = suppressWarnings(as.integer(.data$phenoscanner_removed)),
+      phenoscanner_failures = suppressWarnings(as.integer(.data$phenoscanner_failures)),
+      phenoscanner_survivors = suppressWarnings(as.integer(.data$phenoscanner_survivors))
     )
 
   tried_n <- nrow(meta_df)
@@ -510,6 +903,11 @@ run_ieugwasr_ard_compare <- function(
   if (failed_n) {
     message("\nFailed studies (no instruments after backoff):")
     print(failed_wh, n = Inf)
+  }
+
+  if (nrow(phenoscanner_summary_df)) {
+    message("\n=== PhenoScanner Filter Summary ===")
+    print(phenoscanner_summary_df, n = Inf)
   }
 
   # user interrupt (interactive sessions only)
@@ -658,5 +1056,9 @@ run_ieugwasr_ard_compare <- function(
     print(failure_df, n = Inf)
   }
 
-  invisible(list(processed_groups = processed, failed_groups = failure_df))
+  invisible(list(
+    processed_groups = processed,
+    failed_groups = failure_df,
+    phenoscanner_summary = phenoscanner_summary_df
+  ))
 }
