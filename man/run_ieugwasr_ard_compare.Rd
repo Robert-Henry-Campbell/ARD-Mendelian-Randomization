@@ -48,7 +48,9 @@ exposure_units and phenoscanner_exclusions}
 \item{force_refresh}{If TRUE, force ard_compare() to refresh cached results}
 }
 \value{
-(invisible) list with names of processed exposure_groups
+(invisible) list containing the processed exposure group names, failure
+details, the combined PhenoScanner summary tibble, and the written
+PhenoScanner summary file paths.
 }
 \description{
 Build instruments from IEU GWAS, validate units, assemble groups, and run ard_compare()

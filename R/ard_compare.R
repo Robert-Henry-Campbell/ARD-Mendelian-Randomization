@@ -17,8 +17,8 @@
 #'   [run_phenome_mr()]. `exposure_snps` should contain the TwoSampleMR-style
 #'   instrument data for that group.
 #'
-#' @return Invisibly returns `NULL` after writing the combined compare outputs
-#'   to disk.
+#' @return Invisibly returns a list containing the compare output directory
+#'   (`compare_root`) and compare log file path (`compare_logfile`).
 #' @export
 ard_compare <- function(
     exposure,
@@ -790,5 +790,8 @@ ard_compare <- function(
     logger::log_warn("No enrichment data available for compare violin forest plot.")
   }
 
-  invisible(NULL)
+  invisible(list(
+    compare_root = compare_root,
+    compare_logfile = compare_logfile
+  ))
 }

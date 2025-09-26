@@ -14,7 +14,9 @@
 #' @param f_threshold Per-variant F-stat minimum (default 10)
 #' @param force_refresh If TRUE, force ard_compare() to refresh cached results
 #'
-#' @return (invisible) list with names of processed exposure_groups
+#' @return (invisible) list with the processed exposure group names, any
+#'   failures, the combined PhenoScanner summary tibble, and the written
+#'   PhenoScanner summary file paths.
 #' @export
 run_ieugwasr_ard_compare <- function(
     csv_path,
@@ -213,6 +215,15 @@ run_ieugwasr_ard_compare <- function(
     path
   }
 
+  collapse_unique <- function(x, sep = " | ") {
+    vals <- safe_chr(x)
+    vals <- unique(vals[!is.na(vals) & nzchar(vals)])
+    if (!length(vals)) {
+      return(NA_character_)
+    }
+    paste(vals, collapse = sep)
+  }
+
   apply_phenoscanner_filters <- function(snps_df, exposure_label, ieu_id, sex, ancestry,
                                          patterns_info, phenoscanner_pval, cache_dir) {
     total_snps <- nrow(snps_df)
@@ -228,7 +239,22 @@ run_ieugwasr_ard_compare <- function(
       patterns = if (length(patterns_info$raw)) paste(patterns_info$raw, collapse = ", ") else NA_character_
     )
 
+    summary$phenoscanner_skipped <- FALSE
+    summary$skip_reason <- NA_character_
+
+    output_dir <- file.path(cache_dir, "output", slugify(exposure_label), sex, ancestry)
+    pre_snapshot_path <- write_phenoscanner_report(
+      file.path(output_dir, "phenoscanner_pre_filter.csv"),
+      snps_df
+    )
+    summary$pre_filter_snapshot <- pre_snapshot_path
+
     if (!total_snps || isTRUE(patterns_info$skip)) {
+      reasons <- character(0)
+      if (!total_snps) reasons <- c(reasons, "no_snps")
+      if (isTRUE(patterns_info$skip)) reasons <- c(reasons, "no_patterns")
+      if (length(reasons)) summary$skip_reason <- paste(reasons, collapse = "; ")
+      summary$phenoscanner_skipped <- TRUE
       if (isTRUE(patterns_info$skip)) {
         message(sprintf(
           "[PhenoScanner][%s|%s] No exclusion patterns supplied; skipping PhenoScanner filter.",
@@ -823,12 +849,14 @@ run_ieugwasr_ard_compare <- function(
       )
 
       snps_df <- filter_res$snps
-      phenoscanner_summaries[[length(phenoscanner_summaries)+1]] <<- filter_res$summary
+      filter_summary <- filter_res$summary
+      filter_summary$exposure_group <- r$exposure_group
+      phenoscanner_summaries[[length(phenoscanner_summaries)+1]] <<- filter_summary
 
-      meta_entry$phenoscanner_total <- filter_res$summary$total_snps
-      meta_entry$phenoscanner_removed <- filter_res$summary$matches_removed
-      meta_entry$phenoscanner_failures <- filter_res$summary$failures
-      meta_entry$phenoscanner_survivors <- filter_res$summary$survivors
+      meta_entry$phenoscanner_total <- filter_summary$total_snps
+      meta_entry$phenoscanner_removed <- filter_summary$matches_removed
+      meta_entry$phenoscanner_failures <- filter_summary$failures
+      meta_entry$phenoscanner_survivors <- filter_summary$survivors
 
       mtc_val     <- normalize_mtc(r$multiple_testing_correction)[1]
       confirm_val <- normalize_confirm(r$confirm)[1]
@@ -861,7 +889,17 @@ run_ieugwasr_ard_compare <- function(
 
   phenoscanner_summary_df <-
     if (length(phenoscanner_summaries)) {
-      dplyr::bind_rows(phenoscanner_summaries)
+      dplyr::bind_rows(phenoscanner_summaries) |>
+        dplyr::mutate(
+          total_snps = suppressWarnings(as.integer(.data$total_snps)),
+          matches_removed = suppressWarnings(as.integer(.data$matches_removed)),
+          failures = suppressWarnings(as.integer(.data$failures)),
+          survivors = suppressWarnings(as.integer(.data$survivors)),
+          phenoscanner_skipped = as.logical(.data$phenoscanner_skipped),
+          skip_reason = safe_chr(.data$skip_reason),
+          pre_filter_snapshot = safe_chr(.data$pre_filter_snapshot),
+          report_path = safe_chr(.data$report_path)
+        )
     } else {
       tibble::tibble()
     }
@@ -930,6 +968,7 @@ run_ieugwasr_ard_compare <- function(
 
   processed <- character(0)
   failed_records <- list()
+  phenoscanner_summary_paths <- list()
 
   for (grp_name in names(by_group)) {
     entries <- by_group[[grp_name]]
@@ -981,7 +1020,7 @@ run_ieugwasr_ard_compare <- function(
 
     result <- tryCatch(
       {
-        ard_compare(
+        compare_info <- ard_compare(
           exposure                    = exposure_label,
           exposure_units              = exposure_units,
           groups                      = groups_list,
@@ -1003,7 +1042,7 @@ run_ieugwasr_ard_compare <- function(
           force_refresh               = force_refresh
         )
 
-        list(ok = TRUE)
+        list(ok = TRUE, compare = compare_info)
       },
       error = function(err) {
         err_msg <- conditionMessage(err)
@@ -1026,6 +1065,103 @@ run_ieugwasr_ard_compare <- function(
 
     if (isTRUE(result$ok)) {
       processed <- c(processed, grp_name)
+
+      compare_root <- NA_character_
+      compare_logfile <- NA_character_
+      if (is.list(result$compare)) {
+        cr <- safe_chr(result$compare$compare_root)
+        if (length(cr)) compare_root <- cr[1]
+        cl <- safe_chr(result$compare$compare_logfile)
+        if (length(cl)) compare_logfile <- cl[1]
+      }
+
+      group_summary <-
+        if (nrow(phenoscanner_summary_df)) {
+          phenoscanner_summary_df |>
+            dplyr::filter(.data$exposure_group == grp_name)
+        } else {
+          tibble::tibble()
+        }
+
+      if (nrow(group_summary)) {
+        stratum_rows <- group_summary |>
+          dplyr::mutate(
+            level = "stratum",
+            sex_ancestry = paste(.data$sex, .data$ancestry, sep = ":"),
+            skipped_queries = dplyr::if_else(
+              dplyr::coalesce(.data$phenoscanner_skipped, FALSE),
+              1L,
+              0L
+            ),
+            compare_root = compare_root,
+            compare_logfile = compare_logfile
+          )
+
+        total_row <- tibble::tibble(
+          level = "group_total",
+          exposure_group = grp_name,
+          exposure = collapse_unique(group_summary$exposure),
+          sex = NA_character_,
+          ancestry = NA_character_,
+          sex_ancestry = collapse_unique(stratum_rows$sex_ancestry),
+          total_snps = sum(group_summary$total_snps, na.rm = TRUE),
+          matches_removed = sum(group_summary$matches_removed, na.rm = TRUE),
+          failures = sum(group_summary$failures, na.rm = TRUE),
+          survivors = sum(group_summary$survivors, na.rm = TRUE),
+          phenoscanner_skipped = any(dplyr::coalesce(group_summary$phenoscanner_skipped, FALSE)),
+          skipped_queries = sum(stratum_rows$skipped_queries, na.rm = TRUE),
+          skip_reason = collapse_unique(group_summary$skip_reason[dplyr::coalesce(group_summary$phenoscanner_skipped, FALSE)]),
+          patterns = collapse_unique(group_summary$patterns),
+          pre_filter_snapshot = collapse_unique(group_summary$pre_filter_snapshot),
+          report_path = collapse_unique(group_summary$report_path),
+          compare_root = compare_root,
+          compare_logfile = compare_logfile
+        )
+
+        summary_cols <- c(
+          "level","exposure_group","exposure","sex","ancestry","sex_ancestry",
+          "total_snps","matches_removed","failures","survivors",
+          "phenoscanner_skipped","skipped_queries","skip_reason","patterns",
+          "pre_filter_snapshot","report_path","compare_root","compare_logfile"
+        )
+
+        stratum_rows <- stratum_rows |>
+          dplyr::select(dplyr::all_of(summary_cols))
+
+        total_row <- total_row |>
+          dplyr::select(dplyr::all_of(summary_cols))
+
+        summary_to_write <- dplyr::bind_rows(total_row, stratum_rows)
+
+        summary_dir <- compare_root
+        if (is.na(summary_dir) || !nzchar(summary_dir)) {
+          summary_dir <- file.path(cache_dir, "output", slugify(exposure_label), "compare", "summary_fallback")
+          dir.create(summary_dir, recursive = TRUE, showWarnings = FALSE)
+          warning(sprintf(
+            "compare_root missing for exposure_group '%s'; saving PhenoScanner summary to %s.",
+            grp_name, summary_dir
+          ), call. = FALSE)
+        } else {
+          dir.create(summary_dir, recursive = TRUE, showWarnings = FALSE)
+        }
+
+        summary_path <- file.path(
+          summary_dir,
+          sprintf("phenoscanner_summary_%s.csv", slugify(grp_name))
+        )
+        readr::write_csv(summary_to_write, summary_path)
+        message(sprintf(
+          "[PhenoScanner][%s] Summary saved to %s",
+          grp_name,
+          summary_path
+        ))
+        phenoscanner_summary_paths[[grp_name]] <- summary_path
+      } else {
+        message(sprintf(
+          "[PhenoScanner][%s] No PhenoScanner summary rows available; skipping summary file.",
+          grp_name
+        ))
+      }
     } else {
       failed_records <- append(
         failed_records,
@@ -1059,6 +1195,11 @@ run_ieugwasr_ard_compare <- function(
   invisible(list(
     processed_groups = processed,
     failed_groups = failure_df,
-    phenoscanner_summary = phenoscanner_summary_df
+    phenoscanner_summary = phenoscanner_summary_df,
+    phenoscanner_summary_paths = if (length(phenoscanner_summary_paths)) {
+      unlist(phenoscanner_summary_paths, use.names = TRUE)
+    } else {
+      character(0)
+    }
   ))
 }
