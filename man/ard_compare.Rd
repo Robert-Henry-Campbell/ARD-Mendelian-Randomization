@@ -60,8 +60,8 @@ outputs for each group before re-running \code{\link[=run_phenome_mr]{run_phenom
 \code{FALSE} to reuse cached results.}
 }
 \value{
-Invisibly returns \code{NULL} after writing the combined compare outputs
-to disk.
+Invisibly returns a list containing the compare output directory
+\code{compare_root} and compare log file path \code{compare_logfile}.
 }
 \description{
 \code{ard_compare()} orchestrates repeated calls to \code{\link[=run_phenome_mr]{run_phenome_mr()}} for a
