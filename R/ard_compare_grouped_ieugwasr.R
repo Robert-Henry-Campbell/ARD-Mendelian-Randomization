@@ -2,11 +2,13 @@
 #'
 #' @param csv_path Path to a CSV with columns: ieu_id, exposure, exposure_group,
 #'   sex, ancestry, multiple_testing_correction, confirm, and optionally
-#'   exposure_units
+#'   exposure_units and phenoscanner_exclusions
 #' @param cache_dir Output/cache directory used by ard_compare/run_phenome_mr
 #' @param jwt IEU JWT string; defaults to IEU_JWT/OPENGWAS_JWT env vars
 #' @param prompt_for_units If TRUE, interactively prompt for missing units; otherwise stop on missing units
 #' @param p_threshold Genome-wide significance threshold for instrument extraction (default 5e-8)
+#' @param phenoscanner_pval P-value threshold used when querying Phenoscanner for
+#'   exclusion filtering (default 5e-8)
 #' @param r2 LD clumping r^2 threshold (default 0.001)
 #' @param kb Clumping window in kb (default 10000)
 #' @param f_threshold Per-variant F-stat minimum (default 10)
@@ -26,6 +28,7 @@ run_ieugwasr_ard_compare <- function(
 
     prompt_for_units = interactive(),
     p_threshold    = 5e-8,
+    phenoscanner_pval = 5e-8,
     r2             = 0.001,
     kb             = 10000,
     f_threshold    = 10,
@@ -371,6 +374,7 @@ run_ieugwasr_ard_compare <- function(
   miss_cols <- setdiff(req_cols, names(expos))
   if (length(miss_cols)) stop("CSV missing required columns: ", paste(miss_cols, collapse = ", "))
   if (!"exposure_units" %in% names(expos)) expos$exposure_units <- NA_character_
+  if (!"phenoscanner_exclusions" %in% names(expos)) expos$phenoscanner_exclusions <- NA_character_
 
   expos <- expos |>
     dplyr::mutate(
@@ -379,6 +383,15 @@ run_ieugwasr_ard_compare <- function(
       sex = safe_chr(sex),
       ancestry = safe_chr(ancestry),
       exposure_units = safe_chr(exposure_units),
+      phenoscanner_exclusions = {
+        val <- safe_chr(phenoscanner_exclusions)
+        if (length(val)) {
+          idx <- !is.na(val)
+          val[idx] <- stringr::str_squish(val[idx])
+          val[!is.na(val) & !nzchar(val)] <- NA_character_
+        }
+        val
+      },
       multiple_testing_correction = normalize_mtc(multiple_testing_correction),
       confirm = normalize_confirm(confirm)
     )
@@ -456,6 +469,8 @@ run_ieugwasr_ard_compare <- function(
         exposure       = exp_name,
         exposure_units = units_map[[ieu_id]],
         exposure_snps  = snps_df,
+        phenoscanner_exclusions = r$phenoscanner_exclusions,
+        phenoscanner_pval = phenoscanner_pval,
         multiple_testing_correction = mtc_val,
         confirm        = confirm_val
       )
@@ -554,7 +569,9 @@ run_ieugwasr_ard_compare <- function(
       list(
         sex = e$sex,
         ancestry = e$ancestry,
-        exposure_snps = e$exposure_snps
+        exposure_snps = e$exposure_snps,
+        phenoscanner_exclusions = e$phenoscanner_exclusions,
+        phenoscanner_pval = e$phenoscanner_pval
       )
     })
     names(groups_list) <- paste0(
