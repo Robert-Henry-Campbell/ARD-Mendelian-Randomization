@@ -16,6 +16,7 @@ run_ieugwasr_ard_compare(
  },
   prompt_for_units = interactive(),
   p_threshold = 5e-08,
+  phenoscanner_pval = 5e-08,
   r2 = 0.001,
   kb = 10000,
   f_threshold = 10,
@@ -26,7 +27,7 @@ run_ieugwasr_ard_compare(
 \arguments{
 \item{csv_path}{Path to a CSV with columns: ieu_id, exposure, exposure_group,
 sex, ancestry, multiple_testing_correction, confirm, and optionally
-exposure_units}
+exposure_units and phenoscanner_exclusions}
 
 \item{cache_dir}{Output/cache directory used by ard_compare/run_phenome_mr}
 
@@ -35,6 +36,8 @@ exposure_units}
 \item{prompt_for_units}{If TRUE, interactively prompt for missing units; otherwise stop on missing units}
 
 \item{p_threshold}{Genome-wide significance threshold for instrument extraction (default 5e-8)}
+
+\item{phenoscanner_pval}{P-value threshold used when querying Phenoscanner for exclusion filtering (default 5e-8)}
 
 \item{r2}{LD clumping r^2 threshold (default 0.001)}
 
