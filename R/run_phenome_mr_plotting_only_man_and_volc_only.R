@@ -29,7 +29,7 @@
 #'
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
-run_phenome_mr_plotting_only <- function(
+run_phenome_mr_plotting_only_man_and_volc_only <- function(
     run_output,
     exposure,
     exposure_units,
@@ -409,31 +409,6 @@ run_phenome_mr_plotting_only <- function(
     volcano_recolor = volcano_recolor_plot_list
   )
 
-  # ---- 6) Signed enrichment analyses ----
-  logger::log_info("6) Enrichment analyses…")
-  enrich_try <- tryCatch(
-    run_enrichment(
-      results_df,
-      exposure = exposure,
-      levels = c("cause_level_1","cause_level_2","cause_level_3"),
-      modes  = c("cause_vs_rest_all"),
-      use_qc_pass = TRUE,
-      min_nsnp    = 2,
-      weight_scheme = "inv_se2",
-      exact_max_combn = 1e5,
-      mc_B = 10000,
-      seed = 1,
-      retain_permutations = TRUE,
-      retain_perm_max = 10000
-    ),
-    error = function(e) e
-  )
-
-  if (inherits(enrich_try, "error")) {
-    err_msg <- conditionMessage(enrich_try)
-    warn_msg <- sprintf("Enrichment failed: %s", err_msg)
-    warning(warn_msg, call. = FALSE)
-    logger::log_error("{warn_msg}")
 
     summary_plots <- summary_plots_base
     plots_to_save <- list(
@@ -454,263 +429,12 @@ run_phenome_mr_plotting_only <- function(
     )
     logger::log_info("Summary counts:\n{paste(capture.output(print(summary_tbl)), collapse = '\n')}")
 
-    output <- list(
-      MR_df = MR_df,
-      results_df    = results_df,
-      summary_plots = summary_plots,
-      enrich        = NULL,
-      beta          = NULL
-    )
 
-    saveRDS(output, file = file.path(cfg$plot_dir, "results.rds"))
-    logger::log_info("Early exit: wrote results.rds to {cfg$plot_dir} after enrichment failure.")
-    return(output)
-  }
-
-  enrich <- enrich_try
-
-  logger::log_info("6A) Enrichment violin plots…")
-  cause_levels  <- c("cause_level_1","cause_level_2","cause_level_3")
-  compare_mode  <- "cause_vs_rest_all"
-
-  enrichment_global_violin_vertical <- plot_enrichment_signed_violin_global(
-    enrich$global_tbl,
-    orientation = "vertical",
-    alpha = 0.05
-  )
-  enrichment_global_violin_forest <- plot_enrichment_signed_violin_global(
-    enrich$global_tbl,
-    orientation = "forest",
-    alpha = 0.05
-  )
-
-  enrichment_cause_violin <- lapply(cause_levels, function(lv) {
-    list(
-      violin_vertical = plot_enrichment_signed_violin_by_cause(
-        enrich$by_cause_tbl,
-        level = lv,
-        compare_mode = compare_mode,
-        orientation = "vertical",
-        alpha = 0.05
-      ),
-      violin_forest = plot_enrichment_signed_violin_by_cause(
-        enrich$by_cause_tbl,
-        level = lv,
-        compare_mode = compare_mode,
-        orientation = "forest",
-        alpha = 0.05
-      )
-    )
-  })
-  names(enrichment_cause_violin) <- cause_levels
-
-  n_enrichment_cause_plots <- sum(vapply(enrichment_cause_violin, length, integer(1)))
-  logger::log_info("Enrichment cause-level plots generated: {n_enrichment_cause_plots}")
-
-  # ---- 6C) β-scale contrasts (Δβ) analyses + plots ----
-  # logger::log_info("6C) Beta-scale contrasts (Δβ)…")
-
-  # Containers for tables & plots
-  # beta_contrast_tables <- list()
-  # beta_contrast_plots  <- list()
-
-  # Global ARD vs non-ARD
-  # tbl_global_bc <- beta_contrast_global_ARD(
-  #   results_df,
-  #   use_qc_pass = TRUE, min_nsnp = 2,
-  #   exposure = exposure,
-  #   Multiple_testing_correction = cfg$mtc, alpha = 0.05
-  # )
-  # beta_contrast_tables$global <- list(ARD_vs_nonARD = tbl_global_bc)
-  # beta_contrast_plots$global  <- list(
-  #   ARD_vs_nonARD = plot_beta_contrast_forest(
-  #     tbl_global_bc,
-  #     title = sprintf("Global Δβ: ARD vs non-ARD (%s)", exposure),
-  #     Multiple_testing_correction = cfg$mtc, alpha = 0.05
-  #   )
-  # )
-
-  # Cause-levels × modes: cause_vs_rest_all + ARD-based modes
-  # for (lv in cause_levels) {
-  #   beta_contrast_tables[[lv]] <- list()
-  #   beta_contrast_plots[[lv]]  <- list()
-
-  #   for (md in compare_modes) {
-  #     tbl <- if (md == "cause_vs_rest_all") {
-  #       # all phenotypes: inside cause vs outside
-  #       beta_contrast_by_cause(
-  #         results_df,
-  #         level = lv,
-  #         use_qc_pass = TRUE, min_nsnp = 2,
-  #         exposure = exposure,
-  #         Multiple_testing_correction = cfg$mtc, alpha = 0.05
-  #       )
-  #     } else {
-  #       # ARD-based scopes mirroring SES contexts
-  #       beta_contrast_by_cause_mode(
-  #         results_df,
-  #         level = lv, compare_mode = md,
-  #         use_qc_pass = TRUE, min_nsnp = 2,
-  #         exposure = exposure,
-  #         Multiple_testing_correction = cfg$mtc, alpha = 0.05
-  #       )
-  #     }
-
-  #     beta_contrast_tables[[lv]][[md]] <- tbl
-  #     beta_contrast_plots[[lv]][[md]]  <- plot_beta_contrast_forest(
-  #       tbl,
-  #       title = sprintf("Δβ by %s — %s (%s)",
-  #                       gsub("_"," ", lv),
-  #                       .pretty_compare(md),
-  #                       exposure),
-  #       Multiple_testing_correction = cfg$mtc, alpha = 0.05
-  #     )
-  #     beta_contrast_plots[[lv]][[paste0(md, "_wrap")]] <- plot_beta_contrast_forest_wrap(
-  #       tbl,
-  #       title = sprintf("Δβ by %s — %s (%s)",
-  #                       gsub("_"," ", lv),
-  #                       .pretty_compare(md),
-  #                       exposure),
-  #       Multiple_testing_correction = cfg$mtc, alpha = 0.05
-  #     )
-  #   }
-  # }
-
-  # ---- 6D) β-scale IVW means ("beta" analysis) ----
-  logger::log_info("6D) Beta analysis (IVW mean MR β)…")
-
-  beta_tables <- list()
-  beta_plots  <- list()
-
-  tbl_beta_global <- beta_mean_global(
-    results_df,
-    use_qc_pass = TRUE, min_nsnp = 2,
-    exposure = exposure
-  )
-  beta_tables$global <- tbl_beta_global
-
-  beta_effect_scale <- if (identical(cfg$sex, "both")) "odds_ratio" else "absolute_risk"
-
-  beta_plots$global  <- list(
-    mean_effect = plot_beta_mean_global(
-      tbl_beta_global,
-      title = sprintf("Global Mean Effect of %s", exposure),
-      exposure_units = exposure_units,
-      effect_scale = beta_effect_scale
-    )
-  )
-
-
-  pretty_level <- function(lv) {
-    pretty <- switch(
-      lv,
-      cause_level_1 = "cause level 1",
-      cause_level_2 = "cause level 2",
-      cause_level_3 = "cause level 3",
-      gsub("_", " ", lv, fixed = TRUE)
-    )
-    tolower(pretty)
-  }
-
-  for (lv in cause_levels) {
-    tbl_all <- beta_mean_by_cause(
-      results_df,
-      level = lv,
-      use_qc_pass = TRUE, min_nsnp = 2,
-      exposure = exposure,
-      ard_only = FALSE,
-      drop_empty = TRUE
-    )
-    tbl_ard <- beta_mean_by_cause(
-      results_df,
-      level = lv,
-      use_qc_pass = TRUE, min_nsnp = 2,
-      exposure = exposure,
-      ard_only = TRUE,
-      drop_empty = TRUE
-    )
-
-    beta_tables[[lv]] <- list(
-      all_diseases = tbl_all,
-      age_related_diseases = tbl_ard
-    )
-
-
-    beta_plots[[lv]] <- list(
-      all_diseases = plot_beta_mean_forest(
-        tbl_all,
-        title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units,
-        effect_scale = beta_effect_scale
-      ),
-      age_related_diseases = plot_beta_mean_forest(
-        tbl_ard,
-        title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-        exposure_units = exposure_units,
-        effect_scale = beta_effect_scale
-      )
-    )
-
-    beta_plots[[lv]][["all_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
-      tbl_all,
-      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units,
-      effect_scale = beta_effect_scale
-    )
-    beta_plots[[lv]][["all_diseases_wrap_yfloat"]] <- plot_beta_mean_forest_wrap_yfloat(
-      tbl_all,
-      title = sprintf("Mean effect of %s on all disease by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units,
-      effect_scale = beta_effect_scale
-    )
-    beta_plots[[lv]][["age_related_diseases_wrap"]] <- plot_beta_mean_forest_wrap(
-      tbl_ard,
-      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units,
-      effect_scale = beta_effect_scale
-    )
-    beta_plots[[lv]][["age_related_diseases_wrap_yfloat"]] <- plot_beta_mean_forest_wrap_yfloat(
-      tbl_ard,
-      title = sprintf("Mean effect of %s on ARDs by %s", exposure, pretty_level(lv)),
-      exposure_units = exposure_units,
-      effect_scale = beta_effect_scale
-    )
-  }
 
   # ---- 7) Assemble hierarchical summary_plots list ----
   summary_plots <- summary_plots_base
-  summary_plots$enrichment <- list(
-    global = list(
-      violin_vertical = enrichment_global_violin_vertical,
-      violin_forest = enrichment_global_violin_forest
-    ),
-    cause_level_1 = enrichment_cause_violin[["cause_level_1"]],
-    cause_level_2 = enrichment_cause_violin[["cause_level_2"]],
-    cause_level_3 = enrichment_cause_violin[["cause_level_3"]]
-  )
-  summary_plots$beta <- beta_plots
 
-  # Assert counts
-  # n_enrich_cause_plots <- sum(vapply(
-  #   summary_plots$enrichment[c("cause_level_1","cause_level_2","cause_level_3")],
-  #   function(l) if (!is.null(l$directional)) length(l$directional) else 0L,
-  #   integer(1)
-  # ))
-  # logger::log_info("Enrichment cause-level plots generated: {n_enrich_cause_plots}")
 
-  # n_beta_cause_plots <- sum(vapply(
-  #   summary_plots$beta_contrast[cause_levels],
-  #   length,
-  #   integer(1)
-  # ))
-  # logger::log_info("β-contrast cause-level plots generated: {n_beta_cause_plots}")
-
-  n_beta_mean_plots <- sum(vapply(
-    summary_plots$beta[cause_levels],
-    function(l) if (is.list(l)) length(l) else 0L,
-    integer(1)
-  ))
-  logger::log_info("Beta mean cause-level plots generated: {n_beta_mean_plots}")
 
   # ---- 8) Save plots mirroring the list structure under cfg$plot_dir ----
   # save_plot_hierarchy(summary_plots, cfg$plot_dir)
@@ -719,103 +443,6 @@ run_phenome_mr_plotting_only <- function(
   plots_to_save$manhattan <- NULL
   plots_to_save$volcano <- NULL
   save_plot_hierarchy(plots_to_save, cfg$plot_dir)
-
-  # ---- 8b) Export enrichment tables (CSV) + beta-contrast tables ----
-  # write_enrichment_tables <- function(enrich, base_dir) {
-  #   out_dir <- file.path(base_dir, "enrichment", "tables")
-  #   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-  #   global_csv   <- file.path(out_dir, "global.csv")
-  #   by_cause_csv <- file.path(out_dir, "by_cause.csv")
-  #   if (requireNamespace("readr", quietly = TRUE)) {
-  #     readr::write_csv(enrich$global_tbl,   global_csv)
-  #     readr::write_csv(enrich$by_cause_tbl, by_cause_csv)
-  #   } else {
-  #     utils::write.csv(enrich$global_tbl,   global_csv,   row.names = FALSE)
-  #     utils::write.csv(enrich$by_cause_tbl, by_cause_csv, row.names = FALSE)
-  #   }
-  #   logger::log_info("Enrichment tables written to {out_dir}")
-  # }
-
-  # write_beta_contrast_tables <- function(beta_tables, base_dir) {
-  #   out_dir <- file.path(base_dir, "beta_contrast", "tables")
-  #   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-  #   safe_name <- function(s) {
-  #     s <- as.character(s)
-  #     s <- gsub("[/\\?%*:|\"<>]", "_", s)
-  #     s <- gsub("\\s+", "_", s)
-  #     s <- gsub("_+", "_", s)
-  #     s <- sub("^_+", "", s)
-  #     s <- sub("_+$", "", s)
-  #     if (!nzchar(s)) "table" else s
-  #   }
-  #   wcsv <- function(df, path) {
-  #     if (!nrow(df)) return(invisible(NULL))
-  #     if (requireNamespace("readr", quietly = TRUE)) readr::write_csv(df, path)
-  #     else utils::write.csv(df, path, row.names = FALSE)
-  #   }
-  #   # Global
-  #   if (!is.null(beta_tables$global$ARD_vs_nonARD)) {
-  #     wcsv(beta_tables$global$ARD_vs_nonARD, file.path(out_dir, "global_ARD_vs_nonARD.csv"))
-  #   }
-  #   # Cause levels × modes
-  #   clv <- c("cause_level_1","cause_level_2","cause_level_3")
-  #   md  <- c("cause_vs_rest_all","ARD_vs_nonARD_within_cause","ARD_in_cause_vs_ARD_elsewhere")
-  #   for (lv in clv) {
-  #     if (!lv %in% names(beta_tables)) next
-  #     for (m in md) {
-  #       if (!m %in% names(beta_tables[[lv]])) next
-  #       fn <- sprintf("%s__%s.csv", safe_name(lv), safe_name(m))
-  #       wcsv(beta_tables[[lv]][[m]], file.path(out_dir, fn))
-  #     }
-  #   }
-  #   logger::log_info("β-contrast tables written to {out_dir}")
-  # }
-
-  write_beta_tables <- function(beta_tables, base_dir) {
-    out_dir <- file.path(base_dir, "beta", "tables")
-    if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-    safe_name <- function(s) {
-      s <- as.character(s)
-      s <- gsub("[/\\?%*:|\"<>]", "_", s)
-      s <- gsub("\\s+", "_", s)
-      s <- gsub("_+", "_", s)
-      s <- sub("^_+", "", s)
-      s <- sub("_+$", "", s)
-      if (!nzchar(s)) "table" else s
-    }
-    wcsv <- function(df, path) {
-      if (!nrow(df)) return(invisible(NULL))
-      if (requireNamespace("readr", quietly = TRUE)) readr::write_csv(df, path)
-      else utils::write.csv(df, path, row.names = FALSE)
-    }
-
-    if (!is.null(beta_tables$global)) {
-      wcsv(beta_tables$global, file.path(out_dir, "global.csv"))
-    }
-
-    clv <- c("cause_level_1","cause_level_2","cause_level_3")
-    scopes <- c("all_diseases", "age_related_diseases")
-    for (lv in clv) {
-      if (!lv %in% names(beta_tables)) next
-      for (sc in scopes) {
-        if (!sc %in% names(beta_tables[[lv]])) next
-        tbl <- beta_tables[[lv]][[sc]]
-        if (!nrow(tbl)) next
-        fn <- sprintf("%s__%s.csv", safe_name(lv), safe_name(sc))
-        wcsv(tbl, file.path(out_dir, fn))
-      }
-    }
-
-    logger::log_info("Beta tables written to {out_dir}")
-  }
-
-  # write_enrichment_tables(enrich, cfg$plot_dir)
-  # write_beta_contrast_tables(beta_contrast_tables, cfg$plot_dir)
-  # write_beta_tables(beta_tables, cfg$plot_dir)
-
-  # ---- 9) Keep the originals around too (optional) ----
-  # manhattan <- manhattan_BH_all
-  # volcano   <- volcano_default
 
   # ---- 10) Summary counts (unchanged placeholder) ----
   summary_tbl <- tibble::tibble(
@@ -833,10 +460,10 @@ run_phenome_mr_plotting_only <- function(
   output <- list(
     MR_df = MR_df,
     results_df    = results_df,
-    summary_plots = summary_plots,
+    summary_plots = summary_plots
 
-    enrich        = enrich,
-    beta          = beta_tables
+    #enrich        = enrich,
+    #beta          = beta_tables
     #    beta_contrast = beta_contrast_tables,
     #    exposure_units = exposure_units
   )

@@ -40,6 +40,7 @@
 #' @param label_down numeric; extra vertical nudge (down if negative) for labels only (default -0.02)
 #' @param dot_names logical; if `TRUE`, annotate significant points with their
 #'   outcome names (default `TRUE`).
+#' @param exposure name of the exposure for the title of the plot
 #' @export
 manhattan_plot <- function(results_df,
                            Multiple_testing_correction = c("BH","bonferroni"),

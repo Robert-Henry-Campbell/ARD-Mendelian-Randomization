@@ -29,10 +29,10 @@ run_phenome_mr(
 naming output directories and plot titles.}
 
 \item{exposure_snps}{Data frame of exposure instruments (TwoSampleMR-like). needs cols:
-\link{1} "id.exposure"           "Exposure"                "SNP" (must be rsid format) "Chr"
-\link{5} "Pos"                    "effect_allele.exposure" "other_allele.exposure"  "eaf.exposure"
-\link{9} "beta.exposure"          "se.exposure"            "palindromic"            "pval.exposure"
-\link{13} "mr_keep"                "F"}
+"id.exposure"           "Exposure"                "SNP" (must be rsid format) "Chr"
+"Pos"                    "effect_allele.exposure" "other_allele.exposure"  "eaf.exposure"
+"beta.exposure"          "se.exposure"            "palindromic"            "pval.exposure"
+"mr_keep"                "F"}
 
 \item{exposure_units}{Character (mandatory) description of the exposure
 units for β-scale plots.}
