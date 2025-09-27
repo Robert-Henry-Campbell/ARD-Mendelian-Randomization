@@ -289,7 +289,7 @@ run_ieugwasr_ard_compare <- function(
     }
 
     query_res <- tryCatch(
-      ieugwasr::phewas(rsid = snp_order, pval = phewas_pval),
+      ieugwasr::phewas(variants = snp_order, pval = phewas_pval),
       error = identity
     )
 
