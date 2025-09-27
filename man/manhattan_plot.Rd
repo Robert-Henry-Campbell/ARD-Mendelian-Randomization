@@ -44,6 +44,8 @@ manhattan_plot(
 
 \item{dot_names}{logical; if \code{TRUE}, annotate significant points with their
 outcome names (default \code{TRUE}).}
+
+\item{exposure}{name of the exposure for the title of the plot}
 }
 \description{
 Manhattan plot over outcomes (IVW p-values on QC-pass outcomes)

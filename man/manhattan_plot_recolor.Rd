@@ -36,6 +36,8 @@ manhattan_plot_recolor(
 
 \item{dot_names}{logical; if \code{TRUE}, annotate significant points with their
 outcome names (default \code{TRUE}).}
+
+\item{exposure}{name of the exposure for the title of the plot}
 }
 \description{
 Generates a Manhattan-style plot over outcomes, ordering phenotypes within

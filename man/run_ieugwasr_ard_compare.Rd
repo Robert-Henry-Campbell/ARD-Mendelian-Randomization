@@ -37,7 +37,8 @@ exposure_units and phenoscanner_exclusions}
 
 \item{p_threshold}{Genome-wide significance threshold for instrument extraction (default 5e-8)}
 
-\item{phenoscanner_pval}{P-value threshold used when querying Phenoscanner for exclusion filtering (default 5e-8)}
+\item{phenoscanner_pval}{P-value threshold used when querying Phenoscanner for
+exclusion filtering (default 5e-8)}
 
 \item{r2}{LD clumping r^2 threshold (default 0.001)}
 
@@ -48,8 +49,8 @@ exposure_units and phenoscanner_exclusions}
 \item{force_refresh}{If TRUE, force ard_compare() to refresh cached results}
 }
 \value{
-(invisible) list containing the processed exposure group names, failure
-details, the combined PhenoScanner summary tibble, and the written
+(invisible) list with the processed exposure group names, any
+failures, the combined PhenoScanner summary tibble, and the written
 PhenoScanner summary file paths.
 }
 \description{
