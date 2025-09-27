@@ -203,6 +203,8 @@ run_ieugwasr_ard_compare <- function(
           per_snp[[snp]] <- list(status = "failed", table = NULL, error = last_error)
           errors[[snp]] <- last_error
         }
+      } else if (i < length(chunks)) {
+        Sys.sleep(base_sleep)
       }
     }
 
