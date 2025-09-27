@@ -223,6 +223,20 @@ inspected with `utils::data()` or `get_pkg_obj()`:
 - `logging.R` sets up structured logging via the `logger` package so runs can be
   audited later.
 
+### Phenoscanner deprecation and IEU OpenGWAS PheWAS support
+
+The optional Phenoscanner lookups used for post-hoc instrument screening are now
+**deprecated** because the public Phenoscanner v2 API is no longer maintained
+reliably. Calls remain available for backward compatibility via
+`phenoscanner = TRUE`, but new workflows should avoid the dependency and rely on
+locally documented exclusion patterns instead.
+
+`run_ieugwasr_ard_compare()` now bundles a PheWAS helper that queries
+`ieugwasr::phewas()` to screen instruments across the IEU OpenGWAS catalogue.
+This integrates with the existing grouped comparison pipeline so that exposure
+CSV manifests can automatically record PheWAS hits, filter variants, and write
+audit trails alongside the MR outputs.
+
 ## Development and testing
 
 Run the unit test suite after making changes:
