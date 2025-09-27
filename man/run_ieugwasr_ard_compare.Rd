@@ -16,7 +16,9 @@ run_ieugwasr_ard_compare(
  },
   prompt_for_units = interactive(),
   p_threshold = 5e-08,
+  phenoscanner = FALSE,
   phenoscanner_pval = 5e-08,
+  phewas_pval = 5e-08,
   r2 = 0.001,
   kb = 10000,
   f_threshold = 10,
@@ -37,7 +39,11 @@ exposure_units and phenoscanner_exclusions}
 
 \item{p_threshold}{Genome-wide significance threshold for instrument extraction (default 5e-8)}
 
+\item{phenoscanner}{Logical; if TRUE, run a Phenoscanner lookup after the PheWAS filter for additional exclusion screening (default FALSE)}
+
 \item{phenoscanner_pval}{P-value threshold used when querying Phenoscanner for exclusion filtering (default 5e-8)}
+
+\item{phewas_pval}{P-value threshold used when querying ieugwasr::phewas for exclusion filtering (default 5e-8)}
 
 \item{r2}{LD clumping r^2 threshold (default 0.001)}
 
@@ -49,7 +55,7 @@ exposure_units and phenoscanner_exclusions}
 }
 \value{
 (invisible) list containing the processed exposure group names, failure
-details, the combined PhenoScanner summary tibble, and the written
+details, the combined PheWAS and PhenoScanner summary tibbles, and the written
 PhenoScanner summary file paths.
 }
 \description{
