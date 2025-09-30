@@ -210,7 +210,6 @@ ard_compare <- function(
     assert_exposure(exposure_snps)
     display <- ancestry_label(sex, ancestry)
     group_dir <- file.path(cache_dir, "output", exposure_slug, sex, ancestry)
-    global_csv <- file.path(group_dir, "beta", "tables", "global.csv")
     groups_info[[i]] <- list(
       index = i,
       sex = sex,
@@ -218,7 +217,6 @@ ard_compare <- function(
       exposure_snps = exposure_snps,
       display = display,
       group_dir = group_dir,
-      global_csv = global_csv,
       results_rds = file.path(group_dir, "results.rds"),
       label = display,
       id = sprintf("group_%02d", i),
@@ -256,12 +254,27 @@ ard_compare <- function(
   }
 
   # run or reuse each group
+  has_cached_enrichment <- function(info) {
+    results_path <- info$results_rds
+    if (!file.exists(results_path)) {
+      return(FALSE)
+    }
+    enr <- tryCatch(readRDS(results_path), error = function(e) NULL)
+    if (!is.list(enr) || !"enrich" %in% names(enr)) {
+      return(FALSE)
+    }
+    global_tbl <- tryCatch(enr$enrich$global_tbl, error = function(e) NULL)
+    is.data.frame(global_tbl)
+  }
+
   for (info in groups_info) {
-    global_exists <- file.exists(info$global_csv)
-    if (!isTRUE(force_refresh) && global_exists) {
+    has_enrichment <- has_cached_enrichment(info)
+    if (!isTRUE(force_refresh) && has_enrichment) {
       if (isTRUE(verbose)) {
         restore_compare_logging()
-        logger::log_info("Reusing existing beta tables for sex={info$sex}, ancestry={info$ancestry} ({info$global_csv}).")
+        logger::log_info(
+          "Reusing existing enrichment results for sex={info$sex}, ancestry={info$ancestry} ({info$results_rds})."
+        )
       }
       next
     }
@@ -288,7 +301,7 @@ ard_compare <- function(
 
     if (isTRUE(verbose)) {
       restore_compare_logging()
-      action <- if (isTRUE(force_refresh) && global_exists) "Refreshing" else "Launching"
+      action <- if (isTRUE(force_refresh) && has_enrichment) "Refreshing" else "Launching"
       logger::log_info("{action} run_phenome_mr for sex={info$sex}, ancestry={info$ancestry}.")
     }
     run_phenome_mr(
