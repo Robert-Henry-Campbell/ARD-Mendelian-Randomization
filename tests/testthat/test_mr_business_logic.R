@@ -15,7 +15,7 @@ skip_if_not_installed("TwoSampleMR")
 
 fixture_path <- testthat::test_path("fixtures", "mr_business_logic_golden.rds")
 
-test_that("golden fixture exists (run data-raw/regenerate_mr_business_logic_golden.R if missing)", {
+test_that("golden fixture exists (run tests/testthat/fixtures/regenerate_mr_business_logic_golden.R if missing)", {
   expect_true(
     file.exists(fixture_path),
     info = paste0("Missing fixture: ", fixture_path,

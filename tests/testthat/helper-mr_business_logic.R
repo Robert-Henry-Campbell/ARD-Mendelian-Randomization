@@ -103,7 +103,7 @@ SYNTH_SENSITIVITY_ENABLED <- c(
   "ivw_Q", "ivw_I2"
 )
 SYNTH_SENSITIVITY_PASS_MIN <- 4L
-SYNTH_SEED <- 20260501L
+# SYNTH_SEED is defined in helper-synthetic-data.R (shared across tests).
 
 run_synthetic_mr_business_logic <- function(inputs = make_synthetic_mr_inputs()) {
   set.seed(SYNTH_SEED)

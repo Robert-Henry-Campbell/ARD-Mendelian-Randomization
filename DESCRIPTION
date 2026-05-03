@@ -28,7 +28,8 @@ Imports:
     TwoSampleMR
 Suggests:
     BiocManager,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 Remotes:
     bioc::GenomicRanges,
     bioc::IRanges,
