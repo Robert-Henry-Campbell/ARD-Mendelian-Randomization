@@ -5,11 +5,17 @@
 
 #' Ensure a 1000G LD reference panel exists locally (download if needed)
 #'
-#' Downloads and extracts a single MRC-IEU 1000G PLINK reference panel
-#' (`.bed`/`.bim`/`.fam`) for the requested superpopulation. Mirrors the
-#' download pattern used by [neale_gwas_checker()]: bumps the download
-#' timeout, prompts the user before fetching anything large, retries with
-#' exponential backoff, and removes partial files on failure.
+#' Checks for `<ld_ref_dir>/<POP>.bed/.bim/.fam` for the requested
+#' superpopulation. If they are missing, downloads the MRC-IEU 1000G
+#' reference *bundle* (`http://fileserve.mrcieu.ac.uk/ld/1kg.v3.tgz`,
+#' ~1.5 GB compressed; ~5 GB extracted) which contains all five
+#' superpopulations (EUR, AFR, EAS, SAS, AMR) and extracts them in place.
+#' Subsequent calls for any other population in the bundle reuse the
+#' already-extracted files without re-downloading.
+#'
+#' Mirrors the download pattern used by [neale_gwas_checker()]: bumps the
+#' download timeout, prompts the user before fetching anything large,
+#' retries with exponential backoff, and removes partial files on failure.
 #'
 #' @param pop One of `"EUR"`, `"AFR"`, `"EAS"`, `"SAS"`.
 #' @param ld_ref_dir Directory to hold the panel files. Created if missing.
@@ -18,14 +24,14 @@
 #'   interactively; `"yes"` proceeds silently; `"no"` aborts if the panel is
 #'   missing.
 #' @param estimate_mb Approximate compressed download size for the user
-#'   prompt (informational; defaults to 280).
+#'   prompt (informational; defaults to 1500, the full 1kg.v3 bundle size).
 #' @return Invisibly, a list with `bfile_prefix`, `present`, `downloaded`,
 #'   `aborted`.
 #' @export
 ld_reference_checker <- function(pop, ld_ref_dir,
                                  verbose = TRUE,
                                  confirm = c("ask", "yes", "no"),
-                                 estimate_mb = 280) {
+                                 estimate_mb = 1500) {
   confirm <- match.arg(confirm)
   pop <- toupper(trimws(as.character(pop)))
   if (!pop %in% c("EUR", "AFR", "EAS", "SAS")) {
@@ -42,24 +48,23 @@ ld_reference_checker <- function(pop, ld_ref_dir,
 
   bfile_prefix <- file.path(ld_ref_dir, pop)
   parts <- paste0(bfile_prefix, c(".bed", ".bim", ".fam"))
-  have_all <- all(file.exists(parts))
   min_bed <- 50 * 1024 * 1024  # 50 MB sanity for .bed
-  if (have_all) {
+  if (all(file.exists(parts))) {
     bed_sz <- suppressWarnings(file.info(parts[1])$size)
     if (!is.na(bed_sz) && bed_sz >= min_bed) {
       if (verbose) logger::log_info("LD reference present for {pop} at '{normalizePath(bfile_prefix, mustWork = FALSE)}'")
       return(invisible(list(bfile_prefix = bfile_prefix, present = TRUE,
                             downloaded = FALSE, aborted = FALSE)))
     }
-    if (verbose) logger::log_warn("LD reference for {pop} looks truncated (.bed = {format(bed_sz, big.mark = ',')} bytes); will redownload.")
+    if (verbose) logger::log_warn("LD reference for {pop} looks truncated (.bed = {format(bed_sz, big.mark = ',')} bytes); will redownload bundle.")
     try(unlink(parts, force = TRUE), silent = TRUE)
   }
 
-  url  <- sprintf("http://fileserve.mrcieu.ac.uk/ld/%s.tgz", pop)
-  dest <- file.path(ld_ref_dir, paste0(pop, ".tgz"))
+  url  <- "http://fileserve.mrcieu.ac.uk/ld/1kg.v3.tgz"
+  dest <- file.path(ld_ref_dir, "1kg.v3.tgz")
 
   logger::log_warn(
-    "LD reference panel for {pop} is missing; downloading ~{estimate_mb} MB from MRC-IEU."
+    "LD reference panel for {pop} is missing; downloading ~{estimate_mb} MB MRC-IEU 1kg.v3 bundle (covers all 5 superpopulations)."
   )
 
   proceed <- FALSE
@@ -70,7 +75,7 @@ ld_reference_checker <- function(pop, ld_ref_dir,
   } else {
     if (interactive()) {
       ans <- readline(prompt = sprintf(
-        "About to download ~%d MB (%s) into '%s'. Proceed? [y/N]: ",
+        "About to download ~%d MB (%s, contains EUR/AFR/EAS/SAS/AMR) into '%s'. Proceed? [y/N]: ",
         as.integer(estimate_mb), basename(url), normalizePath(ld_ref_dir, mustWork = FALSE)
       ))
       proceed <- grepl("^[Yy]", ans)
@@ -86,14 +91,14 @@ ld_reference_checker <- function(pop, ld_ref_dir,
   }
 
   retries <- 3L
-  min_tgz <- 50 * 1024 * 1024  # 50 MB compressed sanity
+  min_tgz <- 500 * 1024 * 1024  # 500 MB compressed sanity (bundle is ~1.5 GB)
   ok <- FALSE
   for (r in seq_len(retries)) {
     ok <- tryCatch({
       utils::download.file(url, destfile = dest, mode = "wb", quiet = !verbose)
       TRUE
     }, error = function(e) {
-      logger::log_warn("LD download attempt {r}/{retries} failed for {pop}: {conditionMessage(e)}")
+      logger::log_warn("LD bundle download attempt {r}/{retries} failed: {conditionMessage(e)}")
       FALSE
     })
     if (ok && file.exists(dest)) {
@@ -106,7 +111,7 @@ ld_reference_checker <- function(pop, ld_ref_dir,
   }
   if (!ok || !file.exists(dest)) {
     if (file.exists(dest)) try(unlink(dest, force = TRUE), silent = TRUE)
-    stop(sprintf("Failed to download LD reference panel for %s from %s", pop, url), call. = FALSE)
+    stop(sprintf("Failed to download LD reference bundle from %s", url), call. = FALSE)
   }
 
   ext_ok <- tryCatch({
@@ -118,13 +123,27 @@ ld_reference_checker <- function(pop, ld_ref_dir,
   })
   try(unlink(dest, force = TRUE), silent = TRUE)  # remove .tgz after extract
 
-  if (!ext_ok || !all(file.exists(parts))) {
-    found <- list.files(ld_ref_dir, pattern = sprintf("^%s\\.(bed|bim|fam)$", pop),
-                        recursive = TRUE, full.names = TRUE)
-    if (length(found) == 3L) {
-      src_dir <- unique(dirname(found))
-      if (length(src_dir) == 1L && !identical(normalizePath(src_dir), normalizePath(ld_ref_dir))) {
-        for (f in found) file.rename(f, file.path(ld_ref_dir, basename(f)))
+  # The 1kg.v3 bundle may extract files either flat (<ld_ref_dir>/EUR.bed)
+  # or nested under a top-level directory (<ld_ref_dir>/1kg.v3/EUR.bed).
+  # Normalise to flat layout so bfile_prefix is stable.
+  if (!all(file.exists(parts))) {
+    found <- list.files(
+      ld_ref_dir,
+      pattern = "^(EUR|AFR|EAS|SAS|AMR)\\.(bed|bim|fam)$",
+      recursive = TRUE, full.names = TRUE
+    )
+    for (f in found) {
+      target <- file.path(ld_ref_dir, basename(f))
+      if (!identical(normalizePath(f, mustWork = FALSE),
+                     normalizePath(target, mustWork = FALSE))) {
+        try(file.rename(f, target), silent = TRUE)
+      }
+    }
+    # Clean up any now-empty extraction subdirectory.
+    sub_dirs <- setdiff(list.dirs(ld_ref_dir, recursive = FALSE), ld_ref_dir)
+    for (d in sub_dirs) {
+      if (length(list.files(d, recursive = TRUE)) == 0L) {
+        try(unlink(d, recursive = TRUE, force = TRUE), silent = TRUE)
       }
     }
   }

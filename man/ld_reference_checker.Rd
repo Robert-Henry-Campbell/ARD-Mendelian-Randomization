@@ -9,7 +9,7 @@ ld_reference_checker(
   ld_ref_dir,
   verbose = TRUE,
   confirm = c("ask", "yes", "no"),
-  estimate_mb = 280
+  estimate_mb = 1500
 )
 }
 \arguments{
@@ -24,16 +24,23 @@ interactively; \code{"yes"} proceeds silently; \code{"no"} aborts if the panel i
 missing.}
 
 \item{estimate_mb}{Approximate compressed download size for the user
-prompt (informational; defaults to 280).}
+prompt (informational; defaults to 1500, the full 1kg.v3 bundle size).}
 }
 \value{
 Invisibly, a list with \code{bfile_prefix}, \code{present}, \code{downloaded},
 \code{aborted}.
 }
 \description{
-Downloads and extracts a single MRC-IEU 1000G PLINK reference panel
-(\code{.bed}/\code{.bim}/\code{.fam}) for the requested superpopulation. Mirrors the
-download pattern used by \code{\link[=neale_gwas_checker]{neale_gwas_checker()}}: bumps the download
-timeout, prompts the user before fetching anything large, retries with
-exponential backoff, and removes partial files on failure.
+Checks for \verb{<ld_ref_dir>/<POP>.bed/.bim/.fam} for the requested
+superpopulation. If they are missing, downloads the MRC-IEU 1000G
+reference \emph{bundle} (\verb{http://fileserve.mrcieu.ac.uk/ld/1kg.v3.tgz},
+~1.5 GB compressed; ~5 GB extracted) which contains all five
+superpopulations (EUR, AFR, EAS, SAS, AMR) and extracts them in place.
+Subsequent calls for any other population in the bundle reuse the
+already-extracted files without re-downloading.
+}
+\details{
+Mirrors the download pattern used by \code{\link[=neale_gwas_checker]{neale_gwas_checker()}}: bumps the
+download timeout, prompts the user before fetching anything large,
+retries with exponential backoff, and removes partial files on failure.
 }
