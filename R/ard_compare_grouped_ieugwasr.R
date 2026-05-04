@@ -660,16 +660,8 @@ run_ieugwasr_ard_compare <- function(
     unname(out)
   }
 
-  # LD-pop mapping for clumping
-  ld_pop_from_ancestry <- function(anc) {
-    anc0 <- toupper(trimws(ifelse(is.null(anc) || is.na(anc), "", as.character(anc))))
-    if (anc0 %in% c("EUR","EUROPEAN")) return("EUR")
-    if (anc0 %in% c("AFR","AFRICAN","AFRICAN-UKB")) return("AFR")
-    if (anc0 %in% c("EAS","EAST_ASIAN","EAST-ASIAN","EAST ASIAN")) return("EAS")
-    if (anc0 %in% c("CSA","SAS","SOUTH_ASIAN","CENTRAL_SOUTH_ASIAN","SOUTH ASIAN")) return("SAS")
-    warning(sprintf("Unknown ancestry '%s'; defaulting LD pop to EUR for clumping.", anc))
-    "EUR"
-  }
+  # LD-pop mapping for clumping is provided by the package-level
+  # ld_pop_from_ancestry() (see R/utils-ld.R).
 
   # light retry/backoff for flaky API calls
   with_backoff <- function(expr, tries = 3, base_sleep = 0.5) {

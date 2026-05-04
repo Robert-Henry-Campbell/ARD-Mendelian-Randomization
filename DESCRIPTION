@@ -28,12 +28,16 @@ Imports:
     TwoSampleMR
 Suggests:
     BiocManager,
+    genetics.binaRies,
+    mockery,
     testthat (>= 3.0.0),
     withr
 Remotes:
     bioc::GenomicRanges,
     bioc::IRanges,
-    bioc::Rsamtools
+    bioc::Rsamtools,
+    mrcieu/genetics.binaRies
+SystemRequirements: PLINK 1.9 or 2.0 (https://www.cog-genomics.org/plink/) for LD matrix computation
 Config/testthat/edition: 3
 Encoding: UTF-8
 LazyData: true

@@ -284,6 +284,26 @@ run_phenome_mr <- function(
   metrics$exposure_mapped <- nrow(exposure_snps2)
   logger::log_info("Exposure mapping: {metrics$exposure_in - metrics$exposure_mapped} filtered; {metrics$exposure_mapped} remain")
 
+  logger::log_info("2.5) Compute LD matrix for exposure SNPs…")
+  ld_csv_path <- file.path(cfg$plot_dir, "exposure_snps_ld_matrix.csv")
+  ld_try <- tryCatch(
+    compute_ld_matrix(
+      exposure_snps = exposure_snps2,
+      ancestry      = cfg$ancestry,
+      cache_dir     = cfg$cache_dir,
+      out_csv       = ld_csv_path,
+      confirm       = cfg$confirm,
+      force_refresh = cfg$force_refresh,
+      verbose       = cfg$verbose
+    ),
+    error = function(e) e
+  )
+  if (inherits(ld_try, "error")) {
+    logger::log_warn("LD matrix computation failed (non-fatal): {conditionMessage(ld_try)}")
+  } else {
+    metrics$ld_snps_used <- length(ld_try$snps_used)
+  }
+
   if (cfg$sex == "both") {
     logger::log_info("3) Pull Pan-UKB outcome SNP rows…")
     MR_df <- panukb_snp_grabber(
