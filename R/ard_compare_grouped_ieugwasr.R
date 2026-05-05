@@ -17,6 +17,10 @@
 #' @param kb Clumping window in kb (default 10000)
 #' @param f_threshold Per-variant F-stat minimum (default 10)
 #' @param force_refresh If TRUE, force ard_compare() to refresh cached results
+#' @param n_pheno_limit Optional positive integer passed through to
+#'   [run_phenome_mr()]. If supplied, truncates the outcome phenotype list to
+#'   the first N rows for fast end-to-end integration tests. Default `NULL`
+#'   (no truncation). Results from a truncated run are NOT scientifically valid.
 #'
 #' @return (invisible) list with the processed exposure group names, any
 #'   failures, the combined PhenoScanner summary tibble, and the written
@@ -41,7 +45,8 @@ run_ieugwasr_ard_compare <- function(
     kb             = 10000,
     f_threshold    = 10,
     force_refresh  = TRUE,
-    sensitivity_pass_min = 6
+    sensitivity_pass_min = 6,
+    n_pheno_limit  = NULL
 ) {
   # ---- packages ----
   pkgs <- c(
@@ -1298,7 +1303,8 @@ run_ieugwasr_ard_compare <- function(
           logfile                     = NULL,
           verbose                     = TRUE,
           confirm                     = confirm_val,
-          force_refresh               = force_refresh
+          force_refresh               = force_refresh,
+          n_pheno_limit               = n_pheno_limit
         )
 
         list(ok = TRUE, compare = compare_info)

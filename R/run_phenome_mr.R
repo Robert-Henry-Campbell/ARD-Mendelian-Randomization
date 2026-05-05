@@ -30,6 +30,11 @@
 #'   resources when using Neale data. One of "ask", "yes", or "no".
 #' @param force_refresh Logical; if `TRUE`, re-download remote resources even if
 #'   they are already cached. Defaults to `TRUE`.
+#' @param n_pheno_limit Optional positive integer. If supplied, truncate the
+#'   outcome phenotype list to the first N rows immediately after
+#'   [Outcome_setup()]. Intended for fast end-to-end integration tests; the
+#'   resulting multiple-testing thresholds, p-values, and enrichment p-values
+#'   are NOT scientifically valid. Default `NULL` (no truncation).
 #'
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
@@ -54,7 +59,8 @@ run_phenome_mr <- function(
     logfile = NULL,
     verbose = TRUE,
     confirm = 'ask',
-    force_refresh = TRUE
+    force_refresh = TRUE,
+    n_pheno_limit = NULL
 ) {
   # ---- validate args ----
   sex <- match.arg(sex)
@@ -268,6 +274,19 @@ run_phenome_mr <- function(
 
   logger::log_info("1) Outcome setup…")
   MR_df <- Outcome_setup(sex = cfg$sex, ancestry = cfg$ancestry)
+
+  if (!is.null(n_pheno_limit)) {
+    n_pheno_limit <- suppressWarnings(as.integer(n_pheno_limit))
+    if (length(n_pheno_limit) != 1L || is.na(n_pheno_limit) || n_pheno_limit < 1L) {
+      stop("`n_pheno_limit` must be a single positive integer or NULL.")
+    }
+    n_before <- nrow(MR_df)
+    MR_df <- head(MR_df, n_pheno_limit)
+    logger::log_warn(
+      "n_pheno_limit set: truncated outcome list from {n_before} to {nrow(MR_df)} phenotypes. Multiple-testing thresholds and enrichment p-values from this run are NOT scientifically valid."
+    )
+  }
+
   metrics$outcomes <- nrow(MR_df)
 
   metrics$n_ard <- sum(MR_df$ARD_selected)

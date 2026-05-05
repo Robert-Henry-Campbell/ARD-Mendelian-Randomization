@@ -39,7 +39,8 @@ ard_compare <- function(
     logfile = NULL,
     verbose = TRUE,
     confirm = "yes",
-    force_refresh = TRUE
+    force_refresh = TRUE,
+    n_pheno_limit = NULL
 ) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
   if (missing(exposure)) stop("`exposure` is mandatory.")
@@ -320,7 +321,8 @@ ard_compare <- function(
       logfile = logfile,
       verbose = verbose,
       confirm = confirm,
-      force_refresh = force_refresh
+      force_refresh = force_refresh,
+      n_pheno_limit = n_pheno_limit
     )
   }
 
