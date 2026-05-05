@@ -178,21 +178,25 @@ test_that("coloc artefacts are written to plot_dir", {
               file.exists(file.path(locus_dir, "stacked_manhattan.pdf")))
 })
 
+.simple_console_appender <- function(lines) {
+  cat(lines, sep = "\n", file = stderr())
+}
+
 .run_mr_with_coloc <- function(coloc_opts) {
   inputs <- make_synthetic_mr_inputs()
+  captured <- character()
+  logger::log_appender(function(lines) captured <<- c(captured, lines))
+  on.exit(logger::log_appender(.simple_console_appender), add = TRUE)
   set.seed(SYNTH_SEED)
-  cap <- capture.output(
-    out <- mr_business_logic(
-      MR_df = inputs$MR_df, exposure_snps = inputs$exposure_snps,
-      sensitivity_enabled = c(SYNTH_SENSITIVITY_ENABLED, "coloc"),
-      sensitivity_pass_min = SYNTH_SENSITIVITY_PASS_MIN,
-      scatterplot = FALSE, snpforestplot = FALSE, leaveoneoutplot = FALSE,
-      plot_output_dir = "", cache_dir = tempdir(),
-      coloc_opts = coloc_opts, verbose = TRUE
-    ),
-    type = "message"
+  out <- mr_business_logic(
+    MR_df = inputs$MR_df, exposure_snps = inputs$exposure_snps,
+    sensitivity_enabled = c(SYNTH_SENSITIVITY_ENABLED, "coloc"),
+    sensitivity_pass_min = SYNTH_SENSITIVITY_PASS_MIN,
+    scatterplot = FALSE, snpforestplot = FALSE, leaveoneoutplot = FALSE,
+    plot_output_dir = "", cache_dir = tempdir(),
+    coloc_opts = coloc_opts, verbose = TRUE
   )
-  list(out = out, log = paste(cap, collapse = "\n"))
+  list(out = out, log = paste(captured, collapse = "\n"))
 }
 
 test_that("mr_business_logic warns when outcome N is NA (no silent skip)", {
