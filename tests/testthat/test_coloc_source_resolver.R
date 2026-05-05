@@ -110,7 +110,7 @@ test_that("snps + id -> mode='snps_id' with ieugwasr fetcher", {
   )
   r <- ardmr:::.resolve_coloc_source(
     exposure_snps = mk_snps(), exposure_id = "ieu-b-38",
-    ancestry = "EUR", verbose = FALSE
+    ancestry = "EUR", cache_dir = tempdir(), verbose = FALSE
   )
   expect_equal(r$mode, "snps_id")
   expect_true(is.function(r$coloc_fetcher))
@@ -130,7 +130,8 @@ test_that("ieugwasr (id only) -> extracts instruments + sets up coloc", {
     }
   )
   r <- ardmr:::.resolve_coloc_source(
-    exposure_id = "ieu-b-38", ancestry = "EUR", verbose = FALSE
+    exposure_id = "ieu-b-38", ancestry = "EUR",
+    cache_dir = tempdir(), verbose = FALSE
   )
   expect_equal(r$mode, "ieugwasr")
   expect_true(is.function(r$coloc_fetcher))
