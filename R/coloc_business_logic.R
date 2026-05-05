@@ -43,14 +43,25 @@ coloc_business_logic <- function(hdat_use,
   if (!requireNamespace("coloc", quietly = TRUE)) {
     stop("coloc_business_logic(): requires the coloc package.", call. = FALSE)
   }
+  if (verbose) logger::log_info(
+    "coloc_business_logic: ENTER (window_kb={window_kb}, plot_dir={plot_dir}, skip_mhc={skip_mhc})"
+  )
+  on.exit({
+    if (verbose) logger::log_info("coloc_business_logic: RETURN")
+  }, add = TRUE)
   if (is.null(exposure_region_fetcher) || is.null(exposure_metadata)) {
     if (verbose) logger::log_warn("coloc: exposure fetcher/metadata missing; skipping")
     return(.coloc_empty_result_tbl())
   }
 
   iv_pos <- .coloc_iv_positions(hdat_use, exposure_snps)
+  if (verbose) {
+    logger::log_info(
+      "coloc: iv_pos rows={nrow(iv_pos)} (hdat_use rows={NROW(hdat_use)}, hdat_use cols={paste(head(names(hdat_use),12), collapse=',')})"
+    )
+  }
   if (nrow(iv_pos) == 0) {
-    if (verbose) logger::log_warn("coloc: no IV positions available; skipping")
+    if (verbose) logger::log_warn("coloc: no IV positions available; skipping (check hdat_use has chr.outcome/pos.outcome or exposure_snps has Chr/Pos)")
     return(.coloc_empty_result_tbl())
   }
 

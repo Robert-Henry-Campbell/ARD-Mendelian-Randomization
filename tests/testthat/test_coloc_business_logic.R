@@ -224,6 +224,120 @@ test_that("mr_business_logic warns when outcome fetcher returns NULL", {
   expect_match(r$log, "outcome fetcher unavailable")
 })
 
+test_that("coloc gating: non-significant outcomes skipped, first analysed outcome runs as smoke test", {
+  exposure_snps <- make_synthetic_exposure()
+  # Three outcomes, all designed to give VERY non-significant IVW (large SEs).
+  out1 <- make_synthetic_outcome(
+    snps     = c("rs1", "rs2", "rs3"),
+    beta_out = c(0.001, -0.001, 0.001),
+    se_out   = c(0.50,  0.50,   0.50),
+    label    = "OutNullA"
+  )
+  out2 <- make_synthetic_outcome(
+    snps     = c("rs1", "rs2", "rs3"),
+    beta_out = c(0.0005, -0.0005, 0.0005),
+    se_out   = c(0.50,   0.50,    0.50),
+    label    = "OutNullB"
+  )
+  out3 <- make_synthetic_outcome(
+    snps     = c("rs1", "rs2", "rs3"),
+    beta_out = c(0.0008, -0.0009, 0.0007),
+    se_out   = c(0.50,   0.50,    0.50),
+    label    = "OutNullC"
+  )
+  MR_df <- tibble::tibble(
+    description  = c("OutNullA", "OutNullB", "OutNullC"),
+    outcome_snps = list(out1, out2, out3)
+  )
+  call_log <- character()
+  testthat::local_mocked_bindings(
+    coloc_business_logic = function(hdat_use, ...) {
+      out_label <- if ("outcome" %in% names(hdat_use)) hdat_use$outcome[1] else "?"
+      call_log <<- c(call_log, as.character(out_label))
+      tibble::tibble(
+        locus_id = "chr1_x", chr = "1", start = 1L, end = 1L,
+        n_ivs_in_locus = 1L, n_snps_used = 5L,
+        pp_h4_abf = 0.5, pp_h4_susie_max = NA_real_,
+        method_passed = "none", coloc_dir = NA_character_
+      )
+    }
+  )
+  set.seed(SYNTH_SEED)
+  out <- mr_business_logic(
+    MR_df = MR_df, exposure_snps = exposure_snps,
+    sensitivity_enabled = c(SYNTH_SENSITIVITY_ENABLED, "coloc"),
+    sensitivity_pass_min = SYNTH_SENSITIVITY_PASS_MIN,
+    scatterplot = FALSE, snpforestplot = FALSE, leaveoneoutplot = FALSE,
+    plot_output_dir = "", cache_dir = tempdir(),
+    coloc_opts = list(
+      exposure_region_fetcher = function(chr, start, end) tibble::tibble(),
+      exposure_metadata = QUANT_META(100000L),
+      ancestry = "EUR",
+      outcome_fetcher_factory = function(rec) function(chr, start, end) tibble::tibble(),
+      outcome_metadata_fn     = function(rec) QUANT_META(50000L)
+    ),
+    verbose = FALSE
+  )
+  expect_equal(length(call_log), 1L)
+  expect_equal(call_log[1], "OutNullA")
+  # Smoke-test outcome has coloc-tbl populated; later outcomes do not.
+  expect_false(is.na(out$MR_df$results_coloc_max_PPH4[1]))
+  expect_true(is.na(out$MR_df$results_coloc_max_PPH4[2]))
+  expect_true(is.na(out$MR_df$results_coloc_max_PPH4[3]))
+})
+
+test_that("coloc gating: nominally significant outcomes also trigger coloc", {
+  exposure_snps <- make_synthetic_exposure()
+  out_null <- make_synthetic_outcome(
+    snps     = c("rs1", "rs2", "rs3"),
+    beta_out = c(0.001, -0.001, 0.001),
+    se_out   = c(0.50,  0.50,   0.50),
+    label    = "OutNull"
+  )
+  out_sig <- make_synthetic_outcome(
+    snps     = c("rs1", "rs2", "rs3"),
+    beta_out = c(0.080, -0.060, 0.150),
+    se_out   = c(0.012, 0.018,  0.010),
+    label    = "OutSig"
+  )
+  MR_df <- tibble::tibble(
+    description  = c("OutNull", "OutSig"),
+    outcome_snps = list(out_null, out_sig)
+  )
+  call_log <- character()
+  testthat::local_mocked_bindings(
+    coloc_business_logic = function(hdat_use, ...) {
+      out_label <- if ("outcome" %in% names(hdat_use)) hdat_use$outcome[1] else "?"
+      call_log <<- c(call_log, as.character(out_label))
+      tibble::tibble(
+        locus_id = "chr1_x", chr = "1", start = 1L, end = 1L,
+        n_ivs_in_locus = 1L, n_snps_used = 5L,
+        pp_h4_abf = 0.5, pp_h4_susie_max = NA_real_,
+        method_passed = "none", coloc_dir = NA_character_
+      )
+    }
+  )
+  set.seed(SYNTH_SEED)
+  out <- mr_business_logic(
+    MR_df = MR_df, exposure_snps = exposure_snps,
+    sensitivity_enabled = c(SYNTH_SENSITIVITY_ENABLED, "coloc"),
+    sensitivity_pass_min = SYNTH_SENSITIVITY_PASS_MIN,
+    scatterplot = FALSE, snpforestplot = FALSE, leaveoneoutplot = FALSE,
+    plot_output_dir = "", cache_dir = tempdir(),
+    coloc_opts = list(
+      exposure_region_fetcher = function(chr, start, end) tibble::tibble(),
+      exposure_metadata = QUANT_META(100000L),
+      ancestry = "EUR",
+      outcome_fetcher_factory = function(rec) function(chr, start, end) tibble::tibble(),
+      outcome_metadata_fn     = function(rec) QUANT_META(50000L)
+    ),
+    verbose = FALSE
+  )
+  # Both should run: first (smoke) + significant
+  expect_equal(length(call_log), 2L)
+  expect_setequal(call_log, c("OutNull", "OutSig"))
+})
+
 test_that("skip_mhc drops chr6:25-35Mb loci by default", {
   iv_snp_mhc <- "rs_mhc"; iv_snp_chr1 <- "rs_chr1"
   hdat_use <- dplyr::bind_rows(
