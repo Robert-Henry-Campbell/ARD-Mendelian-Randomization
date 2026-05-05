@@ -7,17 +7,34 @@
 #'
 #' @param exposure Character (mandatory) label for the exposure; used for
 #'   naming output directories and plot titles.
-#' @param exposure_snps Data frame of exposure instruments (TwoSampleMR-like). needs cols:
-#'  "id.exposure"           "Exposure"                "SNP" (must be rsid format) "Chr"
-#' "Pos"                    "effect_allele.exposure" "other_allele.exposure"  "eaf.exposure"
-#' "beta.exposure"          "se.exposure"            "palindromic"            "pval.exposure"
-#' "mr_keep"                "F"
+#' @param exposure_snps Optional data frame of pre-filtered exposure instruments
+#'   (TwoSampleMR-like). Required columns include `id.exposure`, `SNP`,
+#'   `effect_allele.exposure`, `other_allele.exposure`, `beta.exposure`,
+#'   `se.exposure`, `pval.exposure`. May be combined with `exposure_sumstats`
+#'   (snps used as IVs, sumstats used for coloc).
+#' @param exposure_sumstats Optional path to a tabix-indexed GWAS-VCF (MRC IEU
+#'   spec) for the exposure. Used as the regional summary-statistics source
+#'   for colocalization. Cannot be combined with `exposure_id`.
+#' @param exposure_id Optional OpenGWAS study id (e.g. `"ieu-b-38"`). When
+#'   supplied alone, IVs are extracted via `TwoSampleMR::extract_instruments`
+#'   and the same id is used for coloc.
 #' @param exposure_units Character (mandatory) description of the exposure
 #'   units for β-scale plots.
 #' @param ancestry Character (mandatory), e.g. "EUR".
 #' @param sex One of "both","male","female". If not "both", you likely use Neale.
-#' @param sensitivity_enabled Character vector of checks (default = all 8).
+#' @param sensitivity_enabled Character vector of checks (default = all 9 incl. coloc).
 #' @param sensitivity_pass_min Integer threshold to pass QC (default 6).
+#' @param genome_build Genome build of `exposure_sumstats` (default `"GRCh37"`;
+#'   anything else triggers a hard error).
+#' @param acknowledge_no_coloc Set to `TRUE` to acknowledge that supplying
+#'   `exposure_snps` alone disables coloc. Required in that case.
+#' @param clump_opts Named list of preprocessing parameters (used in
+#'   `vcf_only` and `ieugwasr` modes): `p_threshold` (5e-8), `r2` (0.001),
+#'   `kb` (10000), `f_threshold` (10).
+#' @param coloc_window_kb Half-window (kb) around each IV used to build coloc
+#'   regions; overlapping windows are merged (default 500).
+#' @param coloc_priors Coloc priors `list(p1, p2, p12)` (defaults match coloc).
+#' @param coloc_skip_mhc Skip loci overlapping chr6:25-35Mb (default `TRUE`).
 #' @param Multiple_testing_correction "BH" or "bonferroni" (default "BH").
 #' @param scatterplot,snpforestplot,leaveoneoutplot Logical; produce per-outcome diagnostics.
 #' @param Neale_GWAS_dir Optional path to Neale sumstats; created if missing.
@@ -29,32 +46,43 @@
 #' @param confirm Character; whether to prompt before downloading required
 #'   resources when using Neale data. One of "ask", "yes", or "no".
 #' @param force_refresh Logical; if `TRUE`, re-download remote resources even if
-#'   they are already cached. Defaults to `TRUE`.
+#'   they are already cached. Defaults to `FALSE` — caches are now keyed by
+#'   IV-set hash + run-input hash so cross-run collisions are impossible.
+#'   When `TRUE`, only entries matching the current run's keys are deleted
+#'   (other exposures' caches and other runs' outputs are preserved).
 #'
 #' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
 #' @export
 run_phenome_mr <- function(
     exposure,
-    exposure_snps,
     exposure_units,
     ancestry,
+    exposure_snps = NULL,
+    exposure_sumstats = NULL,
+    exposure_id = NULL,
     sex = c("both","male","female"),
     sensitivity_enabled = c(
       "egger_intercept","egger_slope_agreement",
       "weighted_median","weighted_mode",
       "steiger_direction","leave_one_out",
-      "ivw_Q","ivw_I2"
+      "ivw_Q","ivw_I2","coloc"
     ),
     sensitivity_pass_min = 6,
     Multiple_testing_correction = c("BH","bonferroni"),
     scatterplot = TRUE,
     snpforestplot = TRUE,
     leaveoneoutplot = TRUE,
+    genome_build = "GRCh37",
+    acknowledge_no_coloc = FALSE,
+    clump_opts = list(),
+    coloc_window_kb = 500L,
+    coloc_priors = list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-5),
+    coloc_skip_mhc = TRUE,
     cache_dir = ardmr_cache_dir(),
     logfile = NULL,
     verbose = TRUE,
     confirm = 'ask',
-    force_refresh = TRUE
+    force_refresh = FALSE
 ) {
   # ---- validate args ----
   sex <- match.arg(sex)
@@ -74,8 +102,28 @@ run_phenome_mr <- function(
   exposure_units <- trimws(exposure_units)
   if (!nzchar(exposure_units)) stop("`exposure_units` is mandatory.")
   if (missing(ancestry) || !nzchar(ancestry)) stop("`ancestry` is mandatory.")
-  assert_exposure(exposure_snps)
   if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+
+  # ---- resolve coloc source / IV source ----
+  resolved <- .resolve_coloc_source(
+    exposure_snps      = exposure_snps,
+    exposure_sumstats  = exposure_sumstats,
+    exposure_id        = exposure_id,
+    ancestry           = ancestry,
+    genome_build       = genome_build,
+    acknowledge_no_coloc = acknowledge_no_coloc,
+    clump_opts         = clump_opts,
+    cache_dir          = cache_dir,
+    verbose            = verbose
+  )
+  exposure_snps <- resolved$exposure_snps
+  assert_exposure(exposure_snps)
+  if (resolved$mode == "snps_only") {
+    sensitivity_enabled <- setdiff(sensitivity_enabled, "coloc")
+    if (verbose) logger::log_info("coloc-source: mode='snps_only'; coloc disabled for this run")
+  } else if (verbose) {
+    logger::log_info("coloc-source: mode='{resolved$mode}'")
+  }
 
   # Always derive standard subfolders inside cache_dir
   .slug <- function(x) {
@@ -87,7 +135,19 @@ run_phenome_mr <- function(
     tolower(x)
   }
 
-  plot_output_dir <- file.path(cache_dir, "output", .slug(exposure), sex, ancestry)
+  run_hash <- .run_input_hash(
+    exposure_snps               = exposure_snps,
+    exposure_id                 = exposure_id,
+    exposure_sumstats           = exposure_sumstats,
+    sensitivity_enabled         = sensitivity_enabled,
+    sensitivity_pass_min        = sensitivity_pass_min,
+    clump_opts                  = clump_opts,
+    coloc_window_kb             = coloc_window_kb,
+    coloc_priors                = coloc_priors,
+    coloc_skip_mhc              = coloc_skip_mhc,
+    multiple_testing_correction = Multiple_testing_correction
+  )
+  plot_output_dir <- ardmr_run_dir(cache_dir, .slug(exposure), sex, ancestry, run_hash)
   Neale_GWAS_dir  <- file.path(cache_dir, "neale_sumstats")
   purged_plot_dir <- FALSE
   if (isTRUE(force_refresh) && dir.exists(plot_output_dir)) {
@@ -96,6 +156,36 @@ run_phenome_mr <- function(
   }
   dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(Neale_GWAS_dir,  recursive = TRUE, showWarnings = FALSE)
+
+  # ---- write run_manifest.json ----
+  iv_hash <- .iv_set_hash(exposure_snps, n = 16L)
+  run_manifest <- list(
+    run_hash             = run_hash,
+    started_at           = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+    exposure             = exposure,
+    exposure_units       = exposure_units,
+    ancestry             = ancestry,
+    sex                  = sex,
+    n_ivs                = NROW(exposure_snps),
+    iv_hash              = iv_hash,
+    coloc_source_mode    = resolved$mode,
+    exposure_id          = exposure_id,
+    exposure_sumstats    = if (is.null(exposure_sumstats)) NULL else basename(as.character(exposure_sumstats)),
+    sensitivity_enabled  = sensitivity_enabled,
+    sensitivity_pass_min = sensitivity_pass_min,
+    clump_opts           = clump_opts,
+    coloc                = list(window_kb = coloc_window_kb, priors = coloc_priors,
+                                skip_mhc = coloc_skip_mhc),
+    multiple_testing_correction = Multiple_testing_correction,
+    force_refresh        = force_refresh,
+    genome_build         = genome_build
+  )
+  tryCatch(
+    jsonlite::write_json(run_manifest,
+                         file.path(plot_output_dir, "run_manifest.json"),
+                         pretty = TRUE, auto_unbox = TRUE, null = "null"),
+    error = function(e) logger::log_warn("Could not write run_manifest.json: {conditionMessage(e)}")
+  )
 
 
   # ---- choose catalog ----
@@ -331,6 +421,38 @@ run_phenome_mr <- function(
   logger::log_info("Outcome SNPs: {metrics$outcome_snps} rows fetched")
 
   logger::log_info("4) Run MR + sensitivity/QC…")
+  coloc_opts <- list()
+  if ("coloc" %in% cfg$checks_enabled) {
+    if (cfg$catalog == "panukb") {
+      fetcher_factory <- function(rec) {
+        function(chr, start, end) {
+          coloc_fetch_outcome_panukb_region(
+            rec = rec, ancestry = cfg$ancestry,
+            chr = chr, start = start, end = end,
+            cache_dir = cfg$cache_dir, verbose = cfg$verbose
+          )
+        }
+      }
+      meta_fn <- function(rec) coloc_panukb_outcome_metadata(rec, ancestry = cfg$ancestry)
+    } else {
+      logger::log_warn("coloc: catalog '{cfg$catalog}' not yet supported; coloc will be skipped per outcome")
+      fetcher_factory <- function(rec) NULL
+      meta_fn <- function(rec) NULL
+    }
+    coloc_opts <- list(
+      exposure_region_fetcher = resolved$coloc_fetcher,
+      exposure_metadata       = resolved$coloc_metadata,
+      ancestry                = cfg$ancestry,
+      window_kb               = coloc_window_kb,
+      priors                  = coloc_priors,
+      skip_mhc                = coloc_skip_mhc,
+      outcome_fetcher_factory = fetcher_factory,
+      outcome_metadata_fn     = meta_fn
+    )
+    if (is.null(resolved$coloc_fetcher) || is.null(resolved$coloc_metadata)) {
+      logger::log_warn("coloc enabled but no exposure source available; coloc will be skipped at runtime")
+    }
+  }
   mr_out <- mr_business_logic(
     MR_df = MR_df,
     exposure_snps = exposure_snps2,
@@ -341,6 +463,7 @@ run_phenome_mr <- function(
     leaveoneoutplot = cfg$diag_loo,
     plot_output_dir = cfg$plot_dir,
     cache_dir = cfg$cache_dir,
+    coloc_opts = coloc_opts,
     verbose = cfg$verbose
   )
   MR_df <- mr_out$MR_df

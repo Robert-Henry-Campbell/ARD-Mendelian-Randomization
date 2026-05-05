@@ -40,7 +40,7 @@ run_ieugwasr_ard_compare <- function(
     r2             = 0.001,
     kb             = 10000,
     f_threshold    = 10,
-    force_refresh  = TRUE,
+    force_refresh  = FALSE,
     sensitivity_pass_min = 6
 ) {
   # ---- packages ----
@@ -1111,6 +1111,7 @@ run_ieugwasr_ard_compare <- function(
         exposure       = exp_name,
         exposure_units = units_map[[ieu_id]],
         exposure_snps  = snps_df,
+        ieu_id         = ieu_id,
         phenoscanner_exclusions = r$phenoscanner_exclusions,
         phenoscanner_pval = phenoscanner_pval,
         multiple_testing_correction = mtc_val,
@@ -1266,6 +1267,7 @@ run_ieugwasr_ard_compare <- function(
         sex = e$sex,
         ancestry = e$ancestry,
         exposure_snps = e$exposure_snps,
+        ieu_id = e$ieu_id,
         phenoscanner_exclusions = e$phenoscanner_exclusions,
         phenoscanner_pval = e$phenoscanner_pval
       )
@@ -1287,7 +1289,7 @@ run_ieugwasr_ard_compare <- function(
             "egger_intercept","egger_slope_agreement",
             "weighted_median","weighted_mode",
             "steiger_direction","leave_one_out",
-            "ivw_Q","ivw_I2"
+            "ivw_Q","ivw_I2","coloc"
           ),
           sensitivity_pass_min        = sensitivity_pass_min,
           Multiple_testing_correction = multiple_testing_correction,
