@@ -47,8 +47,9 @@ coloc_fetch_exposure_region <- function(exposure_id, chr, start, end,
       NULL
     }
   )
+  fetch_failed <- is.null(res)
   out <- .coloc_standardise_exposure(res)
-  saveRDS(out, cache_path)
+  if (!fetch_failed && nrow(out) > 0) saveRDS(out, cache_path)
   out
 }
 
@@ -113,7 +114,7 @@ coloc_fetch_metadata <- function(exposure_id, cache_dir = ardmr_cache_dir(), ver
     out$N <- if (is.na(n_total) && !is.na(ncase) && !is.na(ncontrol)) ncase + ncontrol else n_total
     out$s <- if (!is.na(ncase) && !is.na(ncontrol) && (ncase + ncontrol) > 0) ncase / (ncase + ncontrol) else NA_real_
   }
-  saveRDS(out, cache_path)
+  if (is.finite(out$N)) saveRDS(out, cache_path)
   out
 }
 
@@ -169,9 +170,13 @@ coloc_fetch_outcome_panukb_region <- function(rec, ancestry, chr, start, end,
 
   gr_num <- GenomicRanges::GRanges(as.character(chr), IRanges::IRanges(start = as.integer(start), end = as.integer(end)))
   gr_chr <- GenomicRanges::GRanges(paste0("chr", chr), IRanges::IRanges(start = as.integer(start), end = as.integer(end)))
-  res <- tryCatch(Rsamtools::scanTabix(tf, param = gr_num), error = function(e) NULL)
+  scan_ok <- FALSE
+  res <- tryCatch({ x <- Rsamtools::scanTabix(tf, param = gr_num); scan_ok <- TRUE; x },
+                  error = function(e) NULL)
   if (is.null(res) || !length(res) || all(lengths(res) == 0)) {
-    res <- tryCatch(Rsamtools::scanTabix(tf, param = gr_chr), error = function(e) NULL)
+    res2 <- tryCatch({ x <- Rsamtools::scanTabix(tf, param = gr_chr); scan_ok <- TRUE; x },
+                     error = function(e) NULL)
+    if (!is.null(res2)) res <- res2
   }
   lines <- if (!is.null(res)) unlist(res, use.names = FALSE) else character()
 
@@ -179,7 +184,8 @@ coloc_fetch_outcome_panukb_region <- function(rec, ancestry, chr, start, end,
                           effect_allele = character(), other_allele = character(),
                           beta = double(), se = double(), eaf = double(), pval = double())
   if (!length(lines)) {
-    saveRDS(empty, cache_path); return(empty)
+    if (scan_ok) saveRDS(empty, cache_path)
+    return(empty)
   }
 
   hdr <- tryCatch(Rsamtools::headerTabix(tf), error = function(e) NULL)
@@ -242,8 +248,16 @@ coloc_panukb_outcome_metadata <- function(rec, ancestry) {
   ncase <- pull(c(paste0("n_cases_", ancestry), "n_cases", "ncase"))
   ncontrol <- pull(c(paste0("n_controls_", ancestry), "n_controls", "ncontrol"))
   N <- pull(c(paste0("n_samples_", ancestry), "n_samples", "sample_size"))
-  if (is.na(N) && !is.na(ncase) && !is.na(ncontrol)) N <- ncase + ncontrol
-  type <- if (!is.na(ncase) && ncase > 0) "cc" else "quant"
-  s <- if (!is.na(ncase) && !is.na(ncontrol) && (ncase + ncontrol) > 0) ncase / (ncase + ncontrol) else NA_real_
+  trait_type <- if ("trait_type" %in% names(rec)) tolower(as.character(rec$trait_type[[1]])) else NA_character_
+  is_quant <- !is.na(trait_type) && trait_type %in% c("continuous", "biomarkers")
+  if (is_quant) {
+    if (is.na(N)) N <- ncase
+    type <- "quant"
+    ncase <- NA_real_; ncontrol <- NA_real_; s <- NA_real_
+  } else {
+    if (is.na(N) && !is.na(ncase) && !is.na(ncontrol)) N <- ncase + ncontrol
+    type <- if (!is.na(ncase) && ncase > 0) "cc" else "quant"
+    s <- if (!is.na(ncase) && !is.na(ncontrol) && (ncase + ncontrol) > 0) ncase / (ncase + ncontrol) else NA_real_
+  }
   list(N = N, type = type, ncase = ncase, ncontrol = ncontrol, s = s)
 }
