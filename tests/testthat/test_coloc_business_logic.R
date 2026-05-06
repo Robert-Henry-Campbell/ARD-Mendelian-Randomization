@@ -200,6 +200,130 @@ test_that("coloc artefacts are written to plot_dir", {
               file.exists(file.path(locus_dir, "stacked_manhattan.pdf")))
 })
 
+test_that("single locus folder is prefixed with 1-LEAD-", {
+  exp_region <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 8, N = 100000L, seed = 1L)
+  out_region <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 6, N = 50000L, seed = 1L)
+  iv_snp <- exp_region$SNP[which.min(abs(exp_region$pos - 100000L))]
+  iv_p   <- exp_region$pos[which.min(abs(exp_region$pos - 100000L))]
+  hdat_use <- make_coloc_synthetic_iv_hdat(iv_snp, 1L, iv_p, 0.08, 0.01, 0.06, 0.01)
+  exposure_snps <- make_coloc_synthetic_exposure_snps(iv_snp, 1L, iv_p)
+  plot_root <- file.path(tempdir(), paste0("ardmr_coloc_lead1_", as.integer(Sys.time())))
+  res <- coloc_business_logic(
+    hdat_use = hdat_use, exposure_snps = exposure_snps,
+    exposure_region_fetcher = function(chr, start, end) exp_region,
+    exposure_metadata = QUANT_META(100000L),
+    ancestry = "EUR",
+    outcome_region_fetcher = function(chr, start, end) out_region,
+    outcome_metadata = QUANT_META(50000L),
+    window_kb = 200L, plot_dir = plot_root,
+    cache_dir = cache_dir_test(), verbose = FALSE
+  )
+  expect_equal(nrow(res), 1)
+  dirs <- list.dirs(plot_root, recursive = FALSE, full.names = FALSE)
+  expect_equal(length(dirs), 1L)
+  expect_match(dirs[1], "^1-LEAD-chr1_")
+  expect_false(grepl("^1-LEAD-", res$locus_id[1]))
+  expect_match(basename(res$coloc_dir[1]), "^1-LEAD-")
+})
+
+test_that("multi-locus run prefixes only the lead-IV locus folder", {
+  shared_exp <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 8, seed = 4L)
+  shared_out <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 6, seed = 4L)
+  null_exp   <- make_coloc_synthetic_region(2L, 1L, 200000L, 60L, 100000L, 8, seed = 5L)
+  null_out   <- make_coloc_synthetic_region(2L, 1L, 200000L, 60L,  30000L, 8, seed = 6L)
+  iv1 <- shared_exp$SNP[which.min(abs(shared_exp$pos - 100000L))]
+  iv2 <-   null_exp$SNP[which.min(abs(null_exp$pos   - 100000L))]
+  hdat_use <- dplyr::bind_rows(
+    make_coloc_synthetic_iv_hdat(iv1, 1L, 100000L, 0.20, 0.01, 0.06, 0.01),
+    make_coloc_synthetic_iv_hdat(iv2, 2L, 100000L, 0.05, 0.02, 0.005, 0.01)
+  )
+  exposure_snps <- make_coloc_synthetic_exposure_snps(c(iv1, iv2), c(1L, 2L),
+                                                     c(100000L, 100000L))
+  exp_fetcher <- function(chr, start, end) if (as.character(chr) == "1") shared_exp else null_exp
+  out_fetcher <- function(chr, start, end) if (as.character(chr) == "1") shared_out else null_out
+  plot_root <- file.path(tempdir(), paste0("ardmr_coloc_lead2_", as.integer(Sys.time())))
+  res <- coloc_business_logic(
+    hdat_use = hdat_use, exposure_snps = exposure_snps,
+    exposure_region_fetcher = exp_fetcher,
+    exposure_metadata = QUANT_META(100000L),
+    ancestry = "EUR",
+    outcome_region_fetcher = out_fetcher,
+    outcome_metadata = QUANT_META(50000L),
+    window_kb = 200L, plot_dir = plot_root,
+    cache_dir = cache_dir_test(), verbose = FALSE
+  )
+  expect_equal(nrow(res), 2)
+  dirs <- list.dirs(plot_root, recursive = FALSE, full.names = FALSE)
+  lead_dirs <- grep("^1-LEAD-", dirs, value = TRUE)
+  expect_equal(length(lead_dirs), 1L)
+  expect_match(lead_dirs[1], "^1-LEAD-chr1_")
+  expect_false(any(grepl("^1-LEAD-", res$locus_id)))
+  lead_row  <- res[res$chr == "1", , drop = FALSE]
+  other_row <- res[res$chr == "2", , drop = FALSE]
+  expect_match(basename(lead_row$coloc_dir[1]), "^1-LEAD-")
+  expect_false(grepl("^1-LEAD-", basename(other_row$coloc_dir[1])))
+})
+
+test_that("plot_dir = '' leaves locus_id unprefixed and coloc_dir NA", {
+  exp_region <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 8, seed = 1L)
+  out_region <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 6, seed = 1L)
+  iv_snp <- exp_region$SNP[which.min(abs(exp_region$pos - 100000L))]
+  iv_p   <- exp_region$pos[which.min(abs(exp_region$pos - 100000L))]
+  hdat_use <- make_coloc_synthetic_iv_hdat(iv_snp, 1L, iv_p, 0.08, 0.01, 0.06, 0.01)
+  exposure_snps <- make_coloc_synthetic_exposure_snps(iv_snp, 1L, iv_p)
+  res <- coloc_business_logic(
+    hdat_use = hdat_use, exposure_snps = exposure_snps,
+    exposure_region_fetcher = function(chr, start, end) exp_region,
+    exposure_metadata = QUANT_META(100000L),
+    ancestry = "EUR",
+    outcome_region_fetcher = function(chr, start, end) out_region,
+    outcome_metadata = QUANT_META(50000L),
+    window_kb = 200L, plot_dir = "",
+    cache_dir = cache_dir_test(), verbose = FALSE
+  )
+  expect_equal(nrow(res), 1)
+  expect_false(grepl("^1-LEAD-", res$locus_id[1]))
+  expect_true(is.na(res$coloc_dir[1]))
+})
+
+test_that("MHC removal reassigns 1-LEAD- to next-lowest-p-value surviving locus", {
+  iv_mhc  <- "rs_mhc"
+  iv_chr1 <- "rs_chr1"
+  iv_chr3 <- "rs_chr3"
+  hdat_use <- dplyr::bind_rows(
+    make_coloc_synthetic_iv_hdat(iv_mhc,  6L, 30000000L, 0.30, 0.01, 0.06, 0.01),
+    make_coloc_synthetic_iv_hdat(iv_chr1, 1L,   100000L, 0.20, 0.01, 0.06, 0.01),
+    make_coloc_synthetic_iv_hdat(iv_chr3, 3L,   100000L, 0.05, 0.02, 0.06, 0.01)
+  )
+  exposure_snps <- make_coloc_synthetic_exposure_snps(
+    c(iv_mhc, iv_chr1, iv_chr3), c(6L, 1L, 3L),
+    c(30000000L, 100000L, 100000L)
+  )
+  region_chr1 <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 8, seed = 11L)
+  region_chr3 <- make_coloc_synthetic_region(3L, 1L, 200000L, 60L, 100000L, 8, seed = 12L)
+  out_chr1    <- make_coloc_synthetic_region(1L, 1L, 200000L, 60L, 100000L, 6, seed = 11L)
+  out_chr3    <- make_coloc_synthetic_region(3L, 1L, 200000L, 60L,  30000L, 8, seed = 13L)
+  exp_fetcher <- function(chr, start, end) if (as.character(chr) == "1") region_chr1 else region_chr3
+  out_fetcher <- function(chr, start, end) if (as.character(chr) == "1") out_chr1    else out_chr3
+  plot_root <- file.path(tempdir(), paste0("ardmr_coloc_mhc_lead_", as.integer(Sys.time())))
+  res <- coloc_business_logic(
+    hdat_use = hdat_use, exposure_snps = exposure_snps,
+    exposure_region_fetcher = exp_fetcher,
+    exposure_metadata = QUANT_META(100000L),
+    ancestry = "EUR",
+    outcome_region_fetcher = out_fetcher,
+    outcome_metadata = QUANT_META(50000L),
+    window_kb = 200L, plot_dir = plot_root,
+    cache_dir = cache_dir_test(), verbose = FALSE,
+    skip_mhc = TRUE
+  )
+  expect_equal(nrow(res), 2)
+  dirs <- list.dirs(plot_root, recursive = FALSE, full.names = FALSE)
+  lead_dirs <- grep("^1-LEAD-", dirs, value = TRUE)
+  expect_equal(length(lead_dirs), 1L)
+  expect_match(lead_dirs[1], "^1-LEAD-chr1_")
+})
+
 .simple_console_appender <- function(lines) {
   cat(lines, sep = "\n", file = stderr())
 }

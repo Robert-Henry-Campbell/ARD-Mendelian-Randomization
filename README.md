@@ -272,7 +272,11 @@ design — empty folders are not "missing artefacts".
 ### Per-locus artefacts
 
 For every outcome that passes the gate, a `coloc/<chrX_start_end>/`
-subfolder is written for each merged locus, containing:
+subfolder is written for each merged locus. The locus containing the
+IV with the lowest exposure p-value (computed after MHC removal) is
+prefixed `1-LEAD-` (e.g. `coloc/1-LEAD-chr5_1234567_1244567/`) so it
+sorts to the top and is easy to spot when reviewing a run. Each folder
+contains:
 
 - `coloc_abf_summary.csv` — PP.H0 through PP.H4 plus the top SNP
 - `coloc_susie_summary.csv` — SuSiE credible-set table (when `coloc.susie` ran)

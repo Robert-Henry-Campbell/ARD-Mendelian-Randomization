@@ -25,7 +25,7 @@ if (!nzchar(jwt)) {
 
 devtools::load_all(".", quiet = TRUE)
 
-csv_path  <- "G:\\My Drive\\Documents\\0Oxford_main\\ARD paper\\3_ARD_MR\\exposures to run on\\test_phenos\\BMI_only_goodtest.csv"
+csv_path <- "G:\\My Drive\\Documents\\0Oxford_main\\ARD paper\\3_ARD_MR\\exposures to run on\\test_phenos\\tnfA_goodtests.csv"
 Sys.setenv(ARDMR_CACHE_DIR = 'C:\\Users\\Robert\\Downloads\\ardmr')
 
 
@@ -42,7 +42,7 @@ out <- run_ieugwasr_ard_compare(
   prompt_for_units = FALSE,
   phenoscanner     = FALSE,
   force_refresh    = FALSE,
-  n_pheno_limit    = 5
+  n_pheno_limit    = 3
 )
 t1 <- Sys.time()
 elapsed <- difftime(t1, t0, units = "mins")
