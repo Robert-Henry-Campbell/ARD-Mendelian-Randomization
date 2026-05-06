@@ -62,14 +62,8 @@ run_ieugwasr_ard_compare <- function(
   Sys.setenv(OPENGWAS_JWT = jwt)
 
   # ---- helpers ----
-  is_rsid <- function(x) !is.na(x) & grepl("^rs\\d+$", x)
-
-  palindrome_flag <- function(a1, a2) {
-    a1 <- toupper(a1); a2 <- toupper(a2)
-    (a1=="A"&a2=="T")|(a1=="T"&a2=="A")|(a1=="C"&a2=="G")|(a1=="G"&a2=="C")
-  }
-
-  f_stat <- function(beta, se) (beta/se)^2
+  # is_rsid, palindrome_flag, f_stat now live in R/utils-snp.R; calls below
+  # resolve to the package-level versions via lexical scoping.
 
   safe_chr <- function(x) {
     x <- trimws(as.character(x))
@@ -848,17 +842,8 @@ run_ieugwasr_ard_compare <- function(
   get_instruments <- function(ieu_id, ancestry) {
     ld_pop <- ld_pop_from_ancestry(ancestry)
 
-    # helper: robust tophits across ieugwasr versions (p vs pval)
-    safe_tophits <- function(id, thr) {
-      th <- try(ieugwasr::tophits(id = id, p = thr), silent = TRUE)
-      if (inherits(th, "try-error") || !is.data.frame(th)) {
-        th <- try(ieugwasr::tophits(id = id, pval = thr), silent = TRUE)
-      }
-      if (inherits(th, "try-error") || !is.data.frame(th)) return(NULL)
-      if (!nrow(th)) return(th[0, ])
-      if (!"p" %in% names(th) && "pval" %in% names(th)) th$p <- th$pval
-      th
-    }
+    # safe_tophits now lives in R/utils-snp.R; calls below resolve to the
+    # package-level version via lexical scoping.
 
     # helper: self-clump a table that has rsids + p-values, then subset original
     # helper: self-clump a table that has rsids + p-values, then subset original
