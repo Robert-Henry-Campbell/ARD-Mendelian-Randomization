@@ -55,9 +55,9 @@ test_that(".iv_set_hash returns short hex of configurable length", {
 
 test_that(".iv_set_hash handles empty input safely", {
   h <- ardmr:::.iv_set_hash(NULL)
-  expect_equal(nchar(h), 10L)
+  expect_equal(nchar(h), 5L)
   h2 <- ardmr:::.iv_set_hash(data.frame())
-  expect_equal(nchar(h2), 10L)
+  expect_equal(nchar(h2), 5L)
 })
 
 test_that(".run_input_hash is deterministic for identical inputs", {
@@ -102,7 +102,13 @@ test_that(".run_input_hash differs when exposure_id changes", {
 
 test_that(".run_input_hash is NULL-safe", {
   h <- ardmr:::.run_input_hash()
-  expect_match(h, "^[0-9a-f]{10}$")
+  expect_match(h, "^[0-9a-f]{5}__[0-9a-f]{5}$")
+})
+
+test_that(".run_input_hash prefix matches .iv_set_hash for the same IVs", {
+  iv <- mk_iv()
+  rh <- ardmr:::.run_input_hash(exposure_snps = iv, exposure_id = "x")
+  expect_equal(substr(rh, 1L, 5L), ardmr:::.iv_set_hash(iv))
 })
 
 test_that("ardmr_run_dir composes the expected path", {

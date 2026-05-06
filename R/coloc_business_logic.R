@@ -77,6 +77,13 @@ coloc_business_logic <- function(hdat_use,
   if (verbose) logger::log_info("coloc: {nrow(loci)} merged loci across {nrow(iv_pos)} IVs (window={window_kb} kb)")
   if (!nrow(loci)) return(.coloc_empty_result_tbl())
 
+  loci$is_lead <- FALSE
+  ord <- order(loci$min_pval_exp,
+               suppressWarnings(as.integer(loci$chr)),
+               loci$start,
+               na.last = TRUE)
+  loci$is_lead[ord[1]] <- TRUE
+
   # Pull human-readable trait names from the harmonised data so per-locus
   # sensitivity plots can replace coloc's default "trait 1" / "trait 2".
   exp_name <- if ("exposure" %in% names(hdat_use)) {
@@ -119,6 +126,7 @@ coloc_business_logic <- function(hdat_use,
         susie_always = susie_always,
         exp_name = exp_name,
         out_name = out_name,
+        is_lead = isTRUE(loci$is_lead[i]),
         verbose = verbose
       ),
       error = function(e) {
@@ -149,14 +157,19 @@ coloc_business_logic <- function(hdat_use,
 }
 
 .coloc_iv_positions <- function(hdat_use, exposure_snps) {
-  empty <- tibble::tibble(SNP = character(), chr = character(), pos = integer())
+  empty <- tibble::tibble(SNP = character(), chr = character(),
+                          pos = integer(), pval = double())
   if (is.null(hdat_use) || NROW(hdat_use) == 0) return(empty)
+  pval_all <- if ("pval.exposure" %in% names(hdat_use)) {
+    suppressWarnings(as.numeric(hdat_use$pval.exposure))
+  } else rep(NA_real_, NROW(hdat_use))
   out <- empty
   if (all(c("chr.outcome", "pos.outcome") %in% names(hdat_use))) {
     out <- tibble::tibble(
-      SNP = as.character(hdat_use$SNP),
-      chr = as.character(hdat_use$chr.outcome),
-      pos = suppressWarnings(as.integer(hdat_use$pos.outcome))
+      SNP  = as.character(hdat_use$SNP),
+      chr  = as.character(hdat_use$chr.outcome),
+      pos  = suppressWarnings(as.integer(hdat_use$pos.outcome)),
+      pval = pval_all
     )
   } else {
     pcols <- list(c("Chr", "Pos"),
@@ -167,9 +180,10 @@ coloc_business_logic <- function(hdat_use,
         idx <- match(hdat_use$SNP, exposure_snps$SNP)
         ok <- !is.na(idx)
         out <- tibble::tibble(
-          SNP = as.character(hdat_use$SNP[ok]),
-          chr = as.character(exposure_snps[[pc[1]]][idx[ok]]),
-          pos = suppressWarnings(as.integer(exposure_snps[[pc[2]]][idx[ok]]))
+          SNP  = as.character(hdat_use$SNP[ok]),
+          chr  = as.character(exposure_snps[[pc[1]]][idx[ok]]),
+          pos  = suppressWarnings(as.integer(exposure_snps[[pc[2]]][idx[ok]])),
+          pval = pval_all[ok]
         )
         break
       }
@@ -185,27 +199,38 @@ coloc_business_logic <- function(hdat_use,
   iv_pos <- iv_pos[order(iv_pos$chr, iv_pos$pos), , drop = FALSE]
   iv_pos$lo <- pmax(1L, iv_pos$pos - win)
   iv_pos$hi <- iv_pos$pos + win
+  if (!"pval" %in% names(iv_pos)) iv_pos$pval <- rep(NA_real_, nrow(iv_pos))
 
   rows <- list()
   for (ch in unique(iv_pos$chr)) {
     sub <- iv_pos[iv_pos$chr == ch, , drop = FALSE]
     sub <- sub[order(sub$lo), , drop = FALSE]
-    cur_lo <- sub$lo[1]; cur_hi <- sub$hi[1]; cur_ivs <- sub$SNP[1]
+    cur_lo <- sub$lo[1]; cur_hi <- sub$hi[1]
+    cur_ivs <- sub$SNP[1]; cur_p <- sub$pval[1]
     for (k in seq_len(nrow(sub))[-1]) {
       if (sub$lo[k] <= cur_hi) {
         cur_hi <- max(cur_hi, sub$hi[k])
         cur_ivs <- c(cur_ivs, sub$SNP[k])
+        cur_p   <- c(cur_p, sub$pval[k])
       } else {
-        rows[[length(rows) + 1]] <- tibble::tibble(chr = ch, start = cur_lo, end = cur_hi,
-                                                   ivs = list(cur_ivs))
-        cur_lo <- sub$lo[k]; cur_hi <- sub$hi[k]; cur_ivs <- sub$SNP[k]
+        rows[[length(rows) + 1]] <- tibble::tibble(
+          chr = ch, start = cur_lo, end = cur_hi,
+          ivs = list(cur_ivs),
+          min_pval_exp = suppressWarnings(min(cur_p, na.rm = TRUE))
+        )
+        cur_lo <- sub$lo[k]; cur_hi <- sub$hi[k]
+        cur_ivs <- sub$SNP[k]; cur_p <- sub$pval[k]
       }
     }
-    rows[[length(rows) + 1]] <- tibble::tibble(chr = ch, start = cur_lo, end = cur_hi,
-                                               ivs = list(cur_ivs))
+    rows[[length(rows) + 1]] <- tibble::tibble(
+      chr = ch, start = cur_lo, end = cur_hi,
+      ivs = list(cur_ivs),
+      min_pval_exp = suppressWarnings(min(cur_p, na.rm = TRUE))
+    )
   }
   if (!length(rows)) {
-    return(tibble::tibble(chr = character(), start = integer(), end = integer(), ivs = list()))
+    return(tibble::tibble(chr = character(), start = integer(), end = integer(),
+                          ivs = list(), min_pval_exp = double()))
   }
   dplyr::bind_rows(rows)
 }
@@ -259,9 +284,11 @@ coloc_business_logic <- function(hdat_use,
                                  outcome_region_fetcher, outcome_metadata,
                                  plot_dir, cache_dir, priors, susie_always,
                                  exp_name = NA_character_, out_name = NA_character_,
+                                 is_lead = FALSE,
                                  verbose) {
-  locus_label <- sprintf("chr%s_%d_%d", locus$chr, locus$start, locus$end)
-  locus_dir <- if (nzchar(plot_dir)) file.path(plot_dir, locus_label) else ""
+  locus_label  <- sprintf("chr%s_%d_%d", locus$chr, locus$start, locus$end)
+  folder_label <- if (isTRUE(is_lead)) paste0("1-LEAD-", locus_label) else locus_label
+  locus_dir    <- if (nzchar(plot_dir)) file.path(plot_dir, folder_label) else ""
 
   ivs_here <- iv_pos$SNP[
     iv_pos$chr == locus$chr & iv_pos$pos >= locus$start & iv_pos$pos <= locus$end

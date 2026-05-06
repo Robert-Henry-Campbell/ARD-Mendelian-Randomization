@@ -36,6 +36,28 @@ test_that("locus merging: separate chromosomes yield separate loci", {
   expect_equal(nrow(loci), 2)
 })
 
+test_that(".coloc_iv_positions returns pval column from pval.exposure", {
+  hdat <- make_coloc_synthetic_iv_hdat("rs1", 1L, 100L, 0.08, 0.01, 0.06, 0.01)
+  iv_pos <- ardmr:::.coloc_iv_positions(hdat, tibble::tibble(SNP = character()))
+  expect_true("pval" %in% names(iv_pos))
+  expect_equal(iv_pos$pval[1], hdat$pval.exposure[1])
+})
+
+test_that(".coloc_build_loci attaches min_pval_exp per locus", {
+  iv_pos <- tibble::tibble(
+    SNP  = c("rs1","rs2","rs3"),
+    chr  = c("1","1","2"),
+    pos  = c(50000L, 60000L, 50000L),
+    pval = c(1e-12, 1e-5, 1e-8)
+  )
+  loci <- ardmr:::.coloc_build_loci(iv_pos, window_kb = 100L)
+  expect_true("min_pval_exp" %in% names(loci))
+  loc1 <- loci[loci$chr == "1", , drop = FALSE]
+  loc2 <- loci[loci$chr == "2", , drop = FALSE]
+  expect_equal(loc1$min_pval_exp, 1e-12)
+  expect_equal(loc2$min_pval_exp, 1e-8)
+})
+
 test_that("harmonisation flips beta when alleles swap", {
   exp_region <- tibble::tibble(
     SNP = c("rs1","rs2"), chr = c(1L,1L), pos = c(100L,200L),
