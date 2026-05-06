@@ -204,6 +204,56 @@ the run log so a truncated run is impossible to mistake for a full one.
 The `dev/integration_test_ieugwasr.R` script demonstrates the recommended
 usage.
 
+## Running multiple analyses concurrently
+
+`run_phenome_mr()` does **not** lock its cache directory and writes most cache
+and output files directly to their destination paths (no atomic rename). Two
+runs that share a cache can therefore corrupt each other's intermediates and
+outputs unless one of the safe configurations below applies.
+
+### Safe
+
+- **Each concurrent run uses a distinct `ARDMR_CACHE_DIR`.** Fully isolated;
+  no shared state.
+- **Shared cache, fully warm.** If the variant manifests, 1000G LD reference
+  panel, tabix indices, and per-IV outcome-SNP RDS files already exist on
+  disk, the cache writers all early-return on `file.exists()` and the runs
+  only read.
+- **Shared cache, warm, *and* each run has a different input hash** (different
+  IV set, sex, ancestry, sensitivity panel, clumping options, coloc params,
+  or multiple-testing rule). Output folders segregate by `<run_hash>` so
+  `results.rds`, `run_manifest.json`, plots, and per-run logs do not collide.
+- **The `testthat` suite** (`devtools::test()`). Every test scopes
+  `ARDMR_CACHE_DIR` to its own `tempfile()` cache via `withr::local_envvar`,
+  so parallel test execution is safe.
+
+### Not safe
+
+- **Cold cache + concurrency.** Two simultaneous runs that both need to
+  download the variant manifest, the 1000G LD reference panel, or a tabix
+  index will race on the same destination file. There is no atomic rename
+  and no lock, so a partial download can leave a silently corrupt file that
+  every later run treats as a cache hit.
+- **Two runs with identical inputs sharing a cache.** Both produce the same
+  `<run_hash>` and write to the same `results.rds`, `run_manifest.json`,
+  per-IV outcome RDS, LD-matrix RDS, and per-run log paths. Last writer wins;
+  an interrupted writer leaves a corrupt file.
+- **Parallelism inside a single R session** (e.g. `future`, `furrr`,
+  `parallel::mclapply`). The Pan-UKB grabber and the coloc data fetcher both
+  set `HTS_CACHE_DIR` via `Sys.setenv()`, which is process-global and races
+  between workers. The structured logger is also process-global and gets
+  reset by every call to `setup_logging()`. Use separate `Rscript`
+  invocations instead.
+
+### Recommended workflow for parallel runs
+
+1. Pre-warm the cache once, serially, by running a single small job (or
+   issuing the manifest / LD-reference / tabix downloads directly).
+2. Launch each parallel job as a separate `Rscript` process.
+3. Either give each job its own `ARDMR_CACHE_DIR`, or guarantee that each
+   job's input hash differs (different exposure, IV set, sex/ancestry, or
+   parameter sweep value).
+
 ## Quality-control checks
 
 Up to nine sensitivity diagnostics are calculated for every outcome when data
