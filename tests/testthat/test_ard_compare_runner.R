@@ -34,6 +34,45 @@ test_that("ieugwasr runner's sensitivity list is a superset of run_phenome_mr de
               info = paste("Missing:", paste(setdiff(default, vals), collapse = ", ")))
 })
 
+# Regression for the bug where exposures with NA sample_size in OpenGWAS
+# (notably some pQTL records, e.g. prot-c-3722_49_2 = TNF-alpha) silently
+# disabled coloc with "exposure N unknown; skipping". The fix added an
+# optional `samplesize` CSV column that build_exposure_snps prefers over
+# fetch_samplesize().
+test_that("run_ieugwasr_ard_compare exposes samplesize override codepath", {
+  src_path <- testthat::test_path("..", "..", "R", "ard_compare_grouped_ieugwasr.R")
+  skip_if_not(file.exists(src_path), "Source file not found")
+  src <- paste(readLines(src_path), collapse = "\n")
+
+  # build_exposure_snps must accept samplesize_override as a formal
+  expect_match(
+    src,
+    "build_exposure_snps\\s*<-\\s*function\\s*\\([^)]*samplesize_override",
+    info = "build_exposure_snps must accept a samplesize_override argument"
+  )
+
+  # build_exposure_snps must use samplesize_override to populate n_total
+  expect_match(
+    src,
+    "n_override\\s*<-\\s*suppressWarnings\\(as\\.numeric\\(samplesize_override\\)\\)",
+    info = "build_exposure_snps must coerce and inspect samplesize_override"
+  )
+
+  # the per-row map step must thread r$samplesize into the call
+  expect_match(
+    src,
+    "build_exposure_snps\\([^)]*samplesize_override\\s*=\\s*r\\$samplesize",
+    info = "the per-row purrr::map() must forward r$samplesize to build_exposure_snps"
+  )
+
+  # the CSV-reading step must default `samplesize` to NA_real_ if absent
+  expect_match(
+    src,
+    'if\\s*\\(!"samplesize"\\s*%in%\\s*names\\(expos\\)\\)\\s*expos\\$samplesize\\s*<-\\s*NA_real_',
+    info = "CSV must accept an optional `samplesize` column with NA fallback"
+  )
+})
+
 # Regression for the bug where ard_compare() silently dropped ieu_id /
 # exposure_id / exposure_sumstats from groups_info[[i]], causing every
 # downstream run_phenome_mr() call to receive exposure_id = NULL and

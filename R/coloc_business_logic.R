@@ -77,6 +77,19 @@ coloc_business_logic <- function(hdat_use,
   if (verbose) logger::log_info("coloc: {nrow(loci)} merged loci across {nrow(iv_pos)} IVs (window={window_kb} kb)")
   if (!nrow(loci)) return(.coloc_empty_result_tbl())
 
+  # Pull human-readable trait names from the harmonised data so per-locus
+  # sensitivity plots can replace coloc's default "trait 1" / "trait 2".
+  exp_name <- if ("exposure" %in% names(hdat_use)) {
+    as.character(hdat_use$exposure[1])
+  } else if ("Exposure" %in% names(exposure_snps)) {
+    as.character(exposure_snps$Exposure[1])
+  } else NA_character_
+  out_name <- if ("outcome" %in% names(hdat_use)) {
+    as.character(hdat_use$outcome[1])
+  } else if ("Phenotype" %in% names(hdat_use)) {
+    as.character(hdat_use$Phenotype[1])
+  } else NA_character_
+
   exp_meta <- exposure_metadata
   if (is.null(exp_meta$N) || is.na(exp_meta$N)) {
     if ("samplesize.exposure" %in% names(exposure_snps)) {
@@ -104,6 +117,8 @@ coloc_business_logic <- function(hdat_use,
         cache_dir = cache_dir,
         priors = priors,
         susie_always = susie_always,
+        exp_name = exp_name,
+        out_name = out_name,
         verbose = verbose
       ),
       error = function(e) {
@@ -242,7 +257,9 @@ coloc_business_logic <- function(hdat_use,
 .coloc_run_one_locus <- function(locus, iv_pos,
                                  exposure_region_fetcher, exp_meta, ancestry,
                                  outcome_region_fetcher, outcome_metadata,
-                                 plot_dir, cache_dir, priors, susie_always, verbose) {
+                                 plot_dir, cache_dir, priors, susie_always,
+                                 exp_name = NA_character_, out_name = NA_character_,
+                                 verbose) {
   locus_label <- sprintf("chr%s_%d_%d", locus$chr, locus$start, locus$end)
   locus_dir <- if (nzchar(plot_dir)) file.path(plot_dir, locus_label) else ""
 
@@ -339,7 +356,8 @@ coloc_business_logic <- function(hdat_use,
 
   if (nzchar(locus_dir)) {
     .coloc_save_locus_artefacts(locus_dir, locus_label, harm, ivs_here,
-                                D1, D2, abf_res, susie_res)
+                                D1, D2, abf_res, susie_res,
+                                exp_name = exp_name, out_name = out_name)
   }
 
   method_passed <- if (!is.na(pp_h4_susie_max) && pp_h4_susie_max > 0.80) "susie"
@@ -389,7 +407,9 @@ coloc_business_logic <- function(hdat_use,
 }
 
 .coloc_save_locus_artefacts <- function(locus_dir, locus_label, harm, ivs_here,
-                                        D1, D2, abf_res, susie_res) {
+                                        D1, D2, abf_res, susie_res,
+                                        exp_name = NA_character_,
+                                        out_name = NA_character_) {
   if (!dir.exists(locus_dir)) dir.create(locus_dir, recursive = TRUE, showWarnings = FALSE)
 
   exp_tbl <- tibble::tibble(SNP = harm$snp_rs, pos = harm$pos, pval = harm$pval_exp)
@@ -424,8 +444,12 @@ coloc_business_logic <- function(hdat_use,
       abf_summary$top_snp <- as.character(top$snp)
     }
     utils::write.csv(abf_summary, file.path(locus_dir, "coloc_abf_summary.csv"), row.names = FALSE)
-    .coloc_save_base_plot(function() coloc::sensitivity(abf_res, rule = "H4 > 0.8"),
-                          file.path(locus_dir, "coloc_sensitivity"))
+    coloc_plot_sensitivity(
+      abf_res,
+      basepath  = file.path(locus_dir, "coloc_sensitivity"),
+      exp_label = exp_name,
+      out_label = out_name
+    )
   }
 
   if (!is.null(susie_res) && !is.null(susie_res$summary) && NROW(susie_res$summary) > 0) {
