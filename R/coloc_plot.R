@@ -78,14 +78,24 @@ coloc_stacked_plot <- function(exp_tbl, out_tbl, ivs = character(), title = "") 
 #' @param w_in,h_in Plot dimensions in inches.
 #' @param left_mar Substituted `par(mar)[2]` value (in lines) to give the
 #'   prior/posterior y-axis labels breathing room.
+#' @param xlab_p12 Replacement label for the prior/posterior panels' x-axis
+#'   (coloc hardcodes `"p12"`). Pass any string or `expression()`. Defaults
+#'   to a self-explanatory phrase.
+#' @param manh_label_line Distance (in `mex` lines) of the **manhattan
+#'   panels'** axis labels from their axes. Coloc's default `mgp[1]` is
+#'   `2`. Lower values (e.g. `1.7`) bring "Chromosome position" and
+#'   "-log10(p)" closer to their axes without affecting the prior/
+#'   posterior probability panels.
 #' @return Invisibly returns the `basepath` stem.
 #' @keywords internal
 #' @export
 coloc_plot_sensitivity <- function(abf_res, basepath,
                                    exp_label = NULL, out_label = NULL,
                                    wrap = 30, rule = "H4 > 0.8",
-                                   w_in = 8.5, h_in = 6.0,
-                                   left_mar = 4.4) {
+                                   w_in = 7.2, h_in = 5.4,
+                                   left_mar = 4.4,
+                                   xlab_p12 = "Shared causal SNP prior (p12)",
+                                   manh_label_line = 1.7) {
   if (!requireNamespace("coloc", quietly = TRUE)) {
     stop("coloc_plot_sensitivity(): requires the coloc package.", call. = FALSE)
   }
@@ -107,13 +117,20 @@ coloc_plot_sensitivity <- function(abf_res, basepath,
   # is the cleanest non-fork way to override the hardcoded "trait 1" /
   # "trait 2" titles and the cramped par(mar = c(3,3,2,1)) left-margin.
   shadow <- new.env(parent = environment(coloc::sensitivity))
-  shadow$title <- function(main = NULL, ...) {
+  shadow$title <- function(main = NULL, sub = NULL, ...) {
     if (!is.null(main) && is.character(main) && length(main) >= 1L) {
       m <- as.character(main)[1]
       if (startsWith(m, "trait 1") && !is.null(exp_t)) main <- exp_t
       else if (startsWith(m, "trait 2") && !is.null(out_t)) main <- out_t
     }
-    graphics::title(main = main, ...)
+    # Suppress coloc's "shaded region: H4 > 0.8" subtitle entirely; the rule
+    # is already shown by the dashed vertical "results" line + the green
+    # shading itself.
+    if (!is.null(sub) && is.character(sub) && length(sub) >= 1L &&
+        startsWith(as.character(sub)[1], "shaded region:")) {
+      return(invisible(NULL))
+    }
+    graphics::title(main = main, sub = sub, ...)
   }
   shadow$par <- function(...) {
     args <- list(...)
@@ -121,9 +138,28 @@ coloc_plot_sensitivity <- function(abf_res, basepath,
     if (length(nms) && "mar" %in% nms &&
         length(args$mar) == 4L &&
         isTRUE(all(suppressWarnings(as.numeric(args$mar)) == c(3, 3, 2, 1)))) {
-      args$mar <- c(3, left_mar, 2, 1)
+      args$mar <- c(4, left_mar, 3, 1)
     }
     do.call(graphics::par, args)
+  }
+  # Replace coloc's hardcoded `xlab = "p12"` on the prior/posterior matplots
+  # with the user's `xlab_p12`. Both the prior and posterior panels are drawn
+  # by the same loop in coloc::sensitivity, so this affects both.
+  shadow$matplot <- function(..., xlab = NULL) {
+    if (!is.null(xlab) && is.character(xlab) && length(xlab) >= 1L &&
+        identical(as.character(xlab)[1], "p12")) {
+      xlab <- xlab_p12
+    }
+    graphics::matplot(..., xlab = xlab)
+  }
+  # Wrap coloc's internal manh.plot so the two manhattan panels render with
+  # a tighter `mgp[1]` than the prior/posterior panels. par() is restored
+  # after manh.plot returns, so subsequent matplots see the original mgp.
+  manh_plot_orig <- utils::getFromNamespace("manh.plot", "coloc")
+  shadow$manh.plot <- function(...) {
+    old <- graphics::par(mgp = c(manh_label_line, 0.4, 0))
+    on.exit(graphics::par(old), add = TRUE)
+    manh_plot_orig(...)
   }
   shadowed_sensitivity <- coloc::sensitivity
   environment(shadowed_sensitivity) <- shadow
