@@ -218,6 +218,8 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
 
   MR_df$outcome_snps <- vector("list", nrow(MR_df))
 
+  iv_hash <- .iv_set_hash(exposure_snps)
+
   pb <- utils::txtProgressBar(min = 0, max = nrow(MR_df), style = 3)
   on.exit(close(pb), add = TRUE)
 
@@ -230,9 +232,10 @@ panukb_snp_grabber <- function(exposure_snps, MR_df, ancestry, cache_dir = ardmr
     if (is.na(outcome_label) || !nzchar(outcome_label)) {
       outcome_label <- sprintf("panUKB_%03d", i)
     }
-    cache_file <- file.path(cache_root, paste0(.slug(outcome_label), ".rds"))
+    cache_file <- file.path(cache_root,
+                            paste0(.slug(outcome_label), "__", iv_hash, ".rds"))
 
-    # -- optional hard reset of cache for this phenotype
+    # -- optional hard reset of cache for this phenotype (surgical: only this iv_hash)
     if (isTRUE(force_refresh) && file.exists(cache_file)) {
       if (verbose) logger::log_info("Pan-UKB row {i}: force_refresh -> deleting cache {basename(cache_file)}")
       try(unlink(cache_file), silent = TRUE)

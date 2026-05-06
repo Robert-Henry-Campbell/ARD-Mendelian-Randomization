@@ -44,9 +44,10 @@ run_ieugwasr_ard_compare <- function(
     r2             = 0.001,
     kb             = 10000,
     f_threshold    = 10,
-    force_refresh  = TRUE,
+    force_refresh  = FALSE,
     sensitivity_pass_min = 6,
     n_pheno_limit  = NULL
+
 ) {
   # ---- packages ----
   pkgs <- c(
@@ -678,14 +679,35 @@ run_ieugwasr_ard_compare <- function(
     out
   }
 
-  # units via ieugwasr::gwasinfo()
-  fetch_units <- function(ieu_id) {
-    info <- try(ieugwasr::gwasinfo(ieu_id), silent = TRUE)
-    if (!inherits(info,"try-error") && "unit" %in% names(info)) {
-      u <- safe_chr(info$unit[1]); if (!is.na(u)) return(u)
-    }
-    NA_character_
+  # gwasinfo() lookup memoised per-id, so units + sample_size share one call
+  id_meta_cache <- new.env(parent = emptyenv())
+  pick1 <- function(...) {
+    args <- list(...)
+    for (a in args) if (!is.null(a) && length(a) && !all(is.na(a))) return(a[[1]])
+    NA
   }
+  fetch_id_meta <- function(ieu_id) {
+    if (exists(ieu_id, envir = id_meta_cache, inherits = FALSE)) {
+      return(get(ieu_id, envir = id_meta_cache, inherits = FALSE))
+    }
+    info <- try(ieugwasr::gwasinfo(ieu_id), silent = TRUE)
+    out <- list(unit = NA_character_, sample_size = NA_real_)
+    if (!inherits(info, "try-error") && NROW(info) > 0) {
+      info1 <- as.list(tibble::as_tibble(info)[1, ])
+      u <- safe_chr(pick1(info1$unit)); if (length(u) && !is.na(u)) out$unit <- u
+      ss <- suppressWarnings(as.numeric(pick1(info1$sample_size, info1$n)))
+      if (is.finite(ss)) out$sample_size <- ss
+      ncase <- suppressWarnings(as.numeric(pick1(info1$ncase)))
+      ncontrol <- suppressWarnings(as.numeric(pick1(info1$ncontrol)))
+      if (!is.finite(out$sample_size) && is.finite(ncase) && is.finite(ncontrol)) {
+        out$sample_size <- ncase + ncontrol
+      }
+    }
+    assign(ieu_id, out, envir = id_meta_cache)
+    out
+  }
+  fetch_units <- function(ieu_id) fetch_id_meta(ieu_id)$unit
+  fetch_samplesize <- function(ieu_id) fetch_id_meta(ieu_id)$sample_size
 
   # chr/pos annotator: reuse if present, else variants_rsid(), else associations()
   annotate_chrpos <- function(dat) {
@@ -766,6 +788,7 @@ run_ieugwasr_ard_compare <- function(
       stop(sprintf("Non-rsID variant IDs for %s: e.g. %s", ieu_id, paste(utils::head(bad,5), collapse=", ")))
     }
 
+    n_total <- fetch_samplesize(ieu_id)
     out <- raw |>
       dplyr::mutate(
         id.exposure            = ieu_id,
@@ -777,6 +800,7 @@ run_ieugwasr_ard_compare <- function(
         beta.exposure          = .data[[beta_nm]],
         se.exposure            = .data[[se_nm]],
         pval.exposure          = .data[[pval_nm]],
+        samplesize.exposure    = n_total,
         palindromic            = palindrome_flag(.data[[ea_nm]], .data[[oa_nm]]),
         mr_keep                = TRUE,
         F                      = f_stat(.data[[beta_nm]], .data[[se_nm]])
@@ -784,14 +808,16 @@ run_ieugwasr_ard_compare <- function(
       dplyr::select(
         id.exposure, exposure, Exposure, SNP, Chr, Pos,
         effect_allele.exposure, other_allele.exposure, eaf.exposure,
-        beta.exposure, se.exposure, palindromic, pval.exposure,
+        beta.exposure, se.exposure, samplesize.exposure,
+        palindromic, pval.exposure,
         mr_keep, F
       ) |>
       dplyr::arrange(.data$SNP)
 
     need <- c("id.exposure","exposure","SNP","Chr","Pos",
               "effect_allele.exposure","other_allele.exposure","eaf.exposure",
-              "beta.exposure","se.exposure","palindromic","pval.exposure",
+              "beta.exposure","se.exposure","samplesize.exposure",
+              "palindromic","pval.exposure",
               "mr_keep","F")
     stopifnot(all(need %in% names(out)))
     out
@@ -1116,6 +1142,7 @@ run_ieugwasr_ard_compare <- function(
         exposure       = exp_name,
         exposure_units = units_map[[ieu_id]],
         exposure_snps  = snps_df,
+        ieu_id         = ieu_id,
         phenoscanner_exclusions = r$phenoscanner_exclusions,
         phenoscanner_pval = phenoscanner_pval,
         multiple_testing_correction = mtc_val,
@@ -1271,6 +1298,7 @@ run_ieugwasr_ard_compare <- function(
         sex = e$sex,
         ancestry = e$ancestry,
         exposure_snps = e$exposure_snps,
+        ieu_id = e$ieu_id,
         phenoscanner_exclusions = e$phenoscanner_exclusions,
         phenoscanner_pval = e$phenoscanner_pval
       )
@@ -1292,7 +1320,7 @@ run_ieugwasr_ard_compare <- function(
             "egger_intercept","egger_slope_agreement",
             "weighted_median","weighted_mode",
             "steiger_direction","leave_one_out",
-            "ivw_Q","ivw_I2"
+            "ivw_Q","ivw_I2","coloc"
           ),
           sensitivity_pass_min        = sensitivity_pass_min,
           Multiple_testing_correction = multiple_testing_correction,

@@ -4,11 +4,17 @@
 #' @param exposure_snps exposure instruments (already asserted/validated; must have *.exposure cols)
 #' @param sensitivity_enabled character vector in
 #'   c("egger_intercept","egger_slope_agreement","weighted_median","weighted_mode",
-#'     "steiger_direction","leave_one_out","ivw_Q","ivw_I2")
+#'     "steiger_direction","leave_one_out","ivw_Q","ivw_I2","coloc")
 #' @param sensitivity_pass_min integer; minimum # of checks that must pass
 #' @param scatterplot,snpforestplot,leaveoneoutplot logical; write per-outcome plots if TRUE
 #' @param plot_output_dir directory to write plots ("" = off)
 #' @param cache_dir path (unused here; kept for parity)
+#' @param coloc_opts named list of coloc-specific options:
+#'   `exposure_id` (OpenGWAS id), `ancestry`, `window_kb` (default 500),
+#'   `priors` (list with p1/p2/p12), `outcome_fetcher_factory`
+#'   (`function(rec) -> function(chr, start, end)`),
+#'   `outcome_metadata_fn` (`function(rec) -> list(N, type, ncase, ncontrol, s)`).
+#'   Required only when `"coloc" \%in\% sensitivity_enabled`.
 #' @param verbose logical
 #' @return list(MR_df=updated, results_df=tidy summary)
 #' @export
@@ -19,6 +25,7 @@ mr_business_logic <- function(
     scatterplot, snpforestplot, leaveoneoutplot,
     plot_output_dir,
     cache_dir = ardmr_cache_dir(),
+    coloc_opts = list(),
     verbose = TRUE,
     test = FALSE
 ) {
@@ -86,6 +93,7 @@ mr_business_logic <- function(
   if (!"steiger"         %in% names(MR_df)) MR_df$steiger         <- vector("list", nrow(MR_df))
   if (!"harmonised"      %in% names(MR_df)) MR_df$harmonised      <- vector("list", nrow(MR_df))
   if (!"plots"           %in% names(MR_df)) MR_df$plots           <- vector("list", nrow(MR_df))
+  if (!"coloc"           %in% names(MR_df)) MR_df$coloc           <- vector("list", nrow(MR_df))
 
   # ---- pre-allocate all results_* columns on MR_df ----
   add_col <- function(nm, prototype) {
@@ -116,6 +124,10 @@ mr_business_logic <- function(
   add_col("results_p_wmode",              NA_real_)
   add_col("results_loo_flip",             NA)            # logical
   add_col("results_steiger_fail_frac",    NA_real_)
+  add_col("results_coloc_n_loci_total",   NA_integer_)
+  add_col("results_coloc_n_loci_pass",    NA_integer_)
+  add_col("results_coloc_max_PPH4",       NA_real_)
+  add_col("results_coloc_method",         NA_character_)
   add_col("results_checks_attempted",     NA_integer_)
   add_col("results_checks_passed",        NA_integer_)
   add_col("results_qc_pass",              NA)            # logical
@@ -131,6 +143,27 @@ mr_business_logic <- function(
   pb <- utils::txtProgressBar(min = 0, max = n_to_run, style = 3)
   on.exit(try(close(pb), silent = TRUE), add = TRUE)
 
+  # Coloc is gated by nominal IVW significance (raw p < 0.05); the first
+  # analysed outcome with >=1 IV always runs coloc as a smoke test so the
+  # user can confirm the coloc path is functional even when nothing else
+  # in the phenome happens to be nominally significant.
+  seen_first_with_ivs <- FALSE
+  coloc_p_threshold <- 0.05
+
+  # Telemetry to make coloc skip-reasons impossible to miss in the log + a
+  # COLOC_DIAGNOSTICS.txt artefact written to plot_output_dir at the end.
+  coloc_telemetry <- list(
+    enabled            = "coloc" %in% sensitivity_enabled,
+    n_eligible_by_gate = 0L,
+    n_attempted        = 0L,
+    n_with_loci        = 0L,
+    n_artefacts_dir    = 0L,
+    skip_reasons       = list()
+  )
+  bump_skip <- function(reason) {
+    cur <- coloc_telemetry$skip_reasons[[reason]]
+    coloc_telemetry$skip_reasons[[reason]] <<- if (is.null(cur)) 1L else cur + 1L
+  }
 
   for (k in seq_along(idx)) {
     i <- idx[k]  # actual MR_df row we’re working on
@@ -185,12 +218,14 @@ mr_business_logic <- function(
     if (nsnp_after < 1) {
       if (verbose) logger::log_warn("No overlapping instruments after harmonisation for '{outcome_label}'")
     }
+    is_first_with_ivs <- !seen_first_with_ivs && nsnp_after >= 1
+    if (is_first_with_ivs) seen_first_with_ivs <- TRUE
 
     # sensitivity bookkeeping
     enabled <- intersect(
       sensitivity_enabled,
       c("egger_intercept","egger_slope_agreement","weighted_median","weighted_mode",
-        "steiger_direction","leave_one_out","ivw_Q","ivw_I2")
+        "steiger_direction","leave_one_out","ivw_Q","ivw_I2","coloc")
     )
     checks_attempted <- 0L; checks_passed <- 0L
     check_pass <- function(ok) {
@@ -385,6 +420,121 @@ mr_business_logic <- function(
       chk_Steiger <- NA
     }
 
+    # 4) Colocalization (coloc.abf + coloc.susie when 2+ IVs in a region)
+    coloc_tbl <- tibble::tibble()
+    coloc_n_total <- NA_integer_; coloc_n_pass <- NA_integer_
+    coloc_max_h4 <- NA_real_;     coloc_method <- NA_character_
+    chk_Coloc <- NA
+    ivw_b_for_gate  <- as.numeric(ivw["b"])
+    ivw_se_for_gate <- as.numeric(ivw["se"])
+    ivw_p_raw <- if (is.finite(ivw_b_for_gate) && is.finite(ivw_se_for_gate) && ivw_se_for_gate > 0) {
+      z_g <- ivw_b_for_gate / ivw_se_for_gate
+      10 ^ ((stats::pnorm(abs(z_g), lower.tail = FALSE, log.p = TRUE) + log(2)) / log(10))
+    } else NA_real_
+    nominally_sig <- is.finite(ivw_p_raw) && ivw_p_raw < coloc_p_threshold
+    coloc_run <- "coloc" %in% enabled && nsnp_after >= 1 &&
+      (is_first_with_ivs || nominally_sig)
+    if ("coloc" %in% enabled && nsnp_after >= 1 && !coloc_run && verbose) {
+      logger::log_info(
+        "coloc: skipping '{outcome_label}' (IVW p={ivw_p_raw} >= {coloc_p_threshold}, not first analysed outcome)"
+      )
+      bump_skip("not_nominally_significant")
+    }
+    if ("coloc" %in% enabled && nsnp_after < 1) bump_skip("zero_ivs_after_harmonisation")
+    if (is_first_with_ivs && "coloc" %in% enabled && nsnp_after >= 1 && verbose) {
+      logger::log_info(
+        "coloc: MANDATORY smoke-test on first analysed outcome '{outcome_label}' (IVW p={ivw_p_raw})"
+      )
+    }
+    if (coloc_run) {
+      coloc_telemetry$n_eligible_by_gate <- coloc_telemetry$n_eligible_by_gate + 1L
+      cf <- if (is.null(coloc_opts)) list() else coloc_opts
+      fac <- cf$outcome_fetcher_factory
+      meta_fn <- cf$outcome_metadata_fn
+      exp_fetcher <- cf$exposure_region_fetcher
+      exp_meta    <- cf$exposure_metadata
+      if (is.null(fac) || is.null(meta_fn) || is.null(exp_fetcher) || is.null(exp_meta)) {
+        if (verbose) logger::log_warn("coloc: required coloc_opts (exposure_region_fetcher, exposure_metadata, outcome_fetcher_factory, outcome_metadata_fn) missing; skipping")
+        bump_skip("coloc_opts_missing")
+      } else {
+        out_fetcher <- tryCatch(fac(rec), error = function(e) NULL)
+        out_meta    <- tryCatch(meta_fn(rec), error = function(e) NULL)
+        skip_reason <- if (is.null(out_fetcher)) "outcome fetcher unavailable"
+                       else if (is.null(out_meta)) "outcome metadata unavailable"
+                       else if (is.na(out_meta$N)) "outcome N unknown"
+                       else NA_character_
+        if (!is.na(skip_reason)) {
+          if (verbose) logger::log_warn("coloc: {skip_reason} for '{outcome_label}'; skipping")
+          bump_skip(skip_reason)
+        } else {
+          plot_dir_coloc <- if (nzchar(plot_output_dir)) {
+            file.path(plot_output_dir, .slug(outcome_label), "coloc")
+          } else ""
+          if (verbose) {
+            logger::log_info(
+              "coloc: ENTER coloc_business_logic for '{outcome_label}' (plot_dir={plot_dir_coloc}, exp_N={exp_meta$N}, out_N={out_meta$N}, out_type={out_meta$type})"
+            )
+          }
+          coloc_telemetry$n_attempted <- coloc_telemetry$n_attempted + 1L
+          coloc_tbl <- tryCatch(
+            coloc_business_logic(
+              hdat_use = hdat_use,
+              exposure_snps = exposure_fmt,
+              exposure_region_fetcher = exp_fetcher,
+              exposure_metadata = exp_meta,
+              ancestry = if (is.null(cf$ancestry)) "EUR" else cf$ancestry,
+              outcome_region_fetcher = out_fetcher,
+              outcome_metadata = out_meta,
+              window_kb = if (is.null(cf$window_kb)) 500L else cf$window_kb,
+              plot_dir = plot_dir_coloc,
+              cache_dir = cache_dir,
+              priors = if (is.null(cf$priors)) list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-5) else cf$priors,
+              skip_mhc = if (is.null(cf$skip_mhc)) TRUE else cf$skip_mhc,
+              susie_always = if (is.null(cf$susie_always)) TRUE else cf$susie_always,
+              verbose = verbose
+            ),
+            error = function(e) {
+              logger::log_warn("coloc_business_logic failed for {outcome_label}: {conditionMessage(e)}")
+              bump_skip("coloc_business_logic_error")
+              tibble::tibble()
+            }
+          )
+          if (verbose) {
+            logger::log_info(
+              "coloc: EXIT coloc_business_logic for '{outcome_label}' (loci={NROW(coloc_tbl)})"
+            )
+          }
+          if (.nz(coloc_tbl)) {
+            coloc_telemetry$n_with_loci <- coloc_telemetry$n_with_loci + 1L
+            if (any(!is.na(coloc_tbl$coloc_dir))) {
+              coloc_telemetry$n_artefacts_dir <- coloc_telemetry$n_artefacts_dir + 1L
+            } else {
+              bump_skip("loci_returned_no_artefact_dir")
+            }
+            coloc_n_total <- nrow(coloc_tbl)
+            pass_vec <- (coloc_tbl$pp_h4_abf > 0.80) |
+                        (!is.na(coloc_tbl$pp_h4_susie_max) & coloc_tbl$pp_h4_susie_max > 0.80)
+            pass_vec[is.na(pass_vec)] <- FALSE
+            coloc_n_pass <- sum(pass_vec)
+            v <- c(coloc_tbl$pp_h4_abf, coloc_tbl$pp_h4_susie_max)
+            v <- v[is.finite(v)]
+            if (length(v)) coloc_max_h4 <- max(v)
+            if (any(pass_vec)) {
+              coloc_method <- if (any(coloc_tbl$method_passed == "susie")) "susie" else "abf"
+            } else {
+              coloc_method <- "none"
+            }
+            chk_Coloc <- check_pass(any(pass_vec))
+          } else {
+            bump_skip("coloc_business_logic_returned_empty")
+            chk_Coloc <- check_pass(FALSE)
+            coloc_method <- "none"
+          }
+        }
+      }
+    }
+    MR_df$coloc[i] <- list(if (.nz(coloc_tbl)) coloc_tbl else tibble::tibble())
+
     # QC decision
     core_viable <- is.finite(as.numeric(ivw["b"])) && is.finite(as.numeric(ivw["se"]))
     qc_ok <- if (nsnp_after == 1) {
@@ -424,6 +574,10 @@ mr_business_logic <- function(
     MR_df$results_p_wmode[i]            <- as.numeric(wmode["p"])
     MR_df$results_loo_flip[i]           <- if (is.na(chk_LOO)) NA else !chk_LOO
     MR_df$results_steiger_fail_frac[i]  <- steiger_fail_frac
+    MR_df$results_coloc_n_loci_total[i] <- coloc_n_total
+    MR_df$results_coloc_n_loci_pass[i]  <- coloc_n_pass
+    MR_df$results_coloc_max_PPH4[i]     <- coloc_max_h4
+    MR_df$results_coloc_method[i]       <- coloc_method
     MR_df$results_checks_attempted[i]   <- checks_attempted
     MR_df$results_checks_passed[i]      <- checks_passed
     MR_df$results_qc_pass[i]            <- qc_ok
@@ -446,6 +600,41 @@ mr_business_logic <- function(
   )
 
   if (verbose) logger::log_info("MR business logic: {nrow(results_df)} outcomes analysed")
+
+  if (isTRUE(coloc_telemetry$enabled)) {
+    skip_lines <- if (length(coloc_telemetry$skip_reasons)) {
+      paste(sprintf("    %-40s %d", names(coloc_telemetry$skip_reasons),
+                    unlist(coloc_telemetry$skip_reasons)), collapse = "\n")
+    } else "    (none)"
+    summary_txt <- sprintf(
+      paste0(
+        "COLOC TELEMETRY (mr_business_logic)\n",
+        "  outcomes_total              : %d\n",
+        "  coloc_eligible_by_gate      : %d  (first-outcome smoke test or IVW p < %.3f)\n",
+        "  coloc_attempted             : %d  (passed all pre-coloc_business_logic checks)\n",
+        "  coloc_with_loci             : %d  (coloc_business_logic returned >=1 locus)\n",
+        "  coloc_artefacts_dir         : %d  (locus dir actually created on disk)\n",
+        "  skip-reason breakdown:\n%s\n"
+      ),
+      nrow(MR_df), coloc_telemetry$n_eligible_by_gate, coloc_p_threshold,
+      coloc_telemetry$n_attempted, coloc_telemetry$n_with_loci,
+      coloc_telemetry$n_artefacts_dir, skip_lines
+    )
+    if (verbose) {
+      for (line in strsplit(summary_txt, "\n", fixed = TRUE)[[1]]) {
+        logger::log_info(line)
+      }
+    }
+    if (nzchar(plot_output_dir)) {
+      tryCatch({
+        if (!dir.exists(plot_output_dir)) dir.create(plot_output_dir, recursive = TRUE, showWarnings = FALSE)
+        writeLines(summary_txt, con = file.path(plot_output_dir, "COLOC_DIAGNOSTICS.txt"))
+      }, error = function(e) {
+        logger::log_warn("Could not write COLOC_DIAGNOSTICS.txt: {conditionMessage(e)}")
+      })
+    }
+  }
+
   list(MR_df = MR_df, results_df = results_df)
 
 }

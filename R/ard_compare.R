@@ -39,8 +39,9 @@ ard_compare <- function(
     logfile = NULL,
     verbose = TRUE,
     confirm = "yes",
-    force_refresh = TRUE,
+    force_refresh = FALSE,
     n_pheno_limit = NULL
+
 ) {
   Multiple_testing_correction <- match.arg(Multiple_testing_correction)
   if (missing(exposure)) stop("`exposure` is mandatory.")
@@ -310,6 +311,7 @@ ard_compare <- function(
       exposure_snps = info$exposure_snps,
       exposure_units = exposure_units,
       ancestry = info$ancestry,
+      exposure_id = if (!is.null(info$exposure_id)) info$exposure_id else info$ieu_id,
       sex = info$sex,
       sensitivity_enabled = sensitivity_enabled,
       sensitivity_pass_min = sensitivity_pass_min,
@@ -317,6 +319,7 @@ ard_compare <- function(
       scatterplot = scatterplot,
       snpforestplot = snpforestplot,
       leaveoneoutplot = leaveoneoutplot,
+      acknowledge_no_coloc = is.null(info$exposure_id) && is.null(info$ieu_id),
       cache_dir = cache_dir,
       logfile = logfile,
       verbose = verbose,

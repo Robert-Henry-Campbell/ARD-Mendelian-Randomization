@@ -227,6 +227,7 @@ neale_snp_grabber <- function(
 
   cache_root <- file.path(cache_dir, "neale_outcome_snps", sex_sub)
   dir.create(cache_root, recursive = TRUE, showWarnings = FALSE)
+  iv_hash <- .iv_set_hash(exposure_snps)
 
   cache_files <- list.files(cache_root, pattern = "\\.rds$", full.names = TRUE)
   if (length(cache_files)) {
@@ -310,9 +311,10 @@ neale_snp_grabber <- function(
       tools::file_path_sans_ext(basename(fname))
     }
 
-    cache_file <- file.path(cache_root, paste0(.slug(label), ".rds"))
+    cache_file <- file.path(cache_root,
+                            paste0(.slug(label), "__", iv_hash, ".rds"))
 
-    # optional hard reset for this phenotype
+    # optional hard reset for this phenotype (surgical: only this iv_hash)
     if (isTRUE(force_refresh) && file.exists(cache_file)) {
       if (verbose) logger::log_info("Neale row {i}: force_refresh -> deleting cache {basename(cache_file)}")
       try(unlink(cache_file), silent = TRUE)
