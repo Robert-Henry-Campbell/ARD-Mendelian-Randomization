@@ -51,6 +51,14 @@ run_with_mocks <- function(args, snps = NULL) {
     mr_business_logic = function(MR_df, exposure_snps, ...) {
       list(MR_df = MR_df, results_df = tibble::tibble())
     },
+    # Snps_id mode now routes through preprocess_exposure_snps (Job 2a).
+    # Stub it to pass-through so the test stays offline (no LD reference).
+    preprocess_exposure_snps = function(snps_tbl, clump_opts = list(),
+                                        ancestry, cache_dir, confirm = "ask",
+                                        verbose = TRUE) {
+      list(snps = tibble::as_tibble(snps_tbl), steps = list(),
+           resolved_opts = ardmr:::.resolve_clump_opts(clump_opts))
+    },
     .package = "ardmr",
     .env = parent.frame()
   )

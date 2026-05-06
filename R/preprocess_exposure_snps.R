@@ -42,13 +42,13 @@
 #'     `skipped_reason`).
 #'   * `resolved_opts`: the merged `defaults <- modifyList(...) -> co`.
 #' @keywords internal
-preprocess_exposure_snps <- function(snps_tbl,
-                                     clump_opts = list(),
-                                     ancestry,
-                                     cache_dir = ardmr_cache_dir(),
-                                     confirm = "ask",
-                                     verbose = TRUE) {
-  defaults <- list(
+#' Canonical defaults for the preprocess pipeline.
+#'
+#' Single source of truth shared by [preprocess_exposure_snps()] and
+#' [.resolve_coloc_source()] so the two cannot drift.
+#' @keywords internal
+.preprocess_defaults <- function() {
+  list(
     p_backoff           = c(5e-8, 5e-7, 5e-6),
     r2                  = 0.001,
     kb                  = 10000L,
@@ -62,8 +62,14 @@ preprocess_exposure_snps <- function(snps_tbl,
     already_p_filtered  = FALSE,
     preprocess          = TRUE
   )
+}
 
-  # Backward compat: translate p_threshold -> p_backoff = c(p_threshold).
+#' Translate deprecated `p_threshold` -> `p_backoff`, then merge with defaults.
+#'
+#' The `p_threshold` deprecation warning fires here; downstream callers can
+#' assume `co$p_backoff` is the only pval-source field.
+#' @keywords internal
+.resolve_clump_opts <- function(clump_opts = list()) {
   if (!is.null(clump_opts$p_threshold)) {
     if (!is.null(clump_opts$p_backoff)) {
       logger::log_warn(
@@ -78,8 +84,16 @@ preprocess_exposure_snps <- function(snps_tbl,
     }
     clump_opts$p_threshold <- NULL
   }
+  utils::modifyList(.preprocess_defaults(), clump_opts)
+}
 
-  co <- utils::modifyList(defaults, clump_opts)
+preprocess_exposure_snps <- function(snps_tbl,
+                                     clump_opts = list(),
+                                     ancestry,
+                                     cache_dir = ardmr_cache_dir(),
+                                     confirm = "ask",
+                                     verbose = TRUE) {
+  co <- .resolve_clump_opts(clump_opts)
 
   if (!is.data.frame(snps_tbl)) {
     stop("preprocess_exposure_snps(): snps_tbl must be a data.frame.", call. = FALSE)
