@@ -239,7 +239,7 @@ run_ieugwasr_ard_compare <- function(
   }
 
   apply_phewas_filters <- function(snps_df, exposure_label, ieu_id, sex, ancestry,
-                                   patterns_info, phewas_pval, cache_dir) {
+                                   patterns_info, phewas_pval, cache_dir, run_hash) {
     total_snps <- nrow(snps_df)
     summary <- list(
       ieu_id = ieu_id,
@@ -258,7 +258,7 @@ run_ieugwasr_ard_compare <- function(
 
     output_dir <- file.path(cache_dir, "output", slugify(exposure_label), sex, ancestry)
     pre_snapshot_path <- write_phenoscanner_report(
-      file.path(output_dir, "phewas_pre_filter.csv"),
+      file.path(output_dir, sprintf("phewas_pre_filter_%s.csv", run_hash)),
       snps_df
     )
     summary$pre_filter_snapshot <- pre_snapshot_path
@@ -404,7 +404,7 @@ run_ieugwasr_ard_compare <- function(
     )
 
     report_path <- write_phenoscanner_report(
-      file.path(output_dir, "phewas_review.csv"),
+      file.path(output_dir, sprintf("phewas_review_%s.csv", run_hash)),
       report_tbl
     )
     summary$report_path <- report_path
@@ -417,7 +417,7 @@ run_ieugwasr_ard_compare <- function(
   }
 
   apply_phenoscanner_filters <- function(snps_df, exposure_label, ieu_id, sex, ancestry,
-                                         patterns_info, phenoscanner_pval, cache_dir) {
+                                         patterns_info, phenoscanner_pval, cache_dir, run_hash) {
     total_snps <- nrow(snps_df)
     summary <- list(
       ieu_id = ieu_id,
@@ -436,7 +436,7 @@ run_ieugwasr_ard_compare <- function(
 
     output_dir <- file.path(cache_dir, "output", slugify(exposure_label), sex, ancestry)
     pre_snapshot_path <- write_phenoscanner_report(
-      file.path(output_dir, "phenoscanner_pre_filter.csv"),
+      file.path(output_dir, sprintf("phenoscanner_pre_filter_%s.csv", run_hash)),
       snps_df
     )
     summary$pre_filter_snapshot <- pre_snapshot_path
@@ -615,7 +615,7 @@ run_ieugwasr_ard_compare <- function(
       remove = remove_vec
     )
     report_path <- write_phenoscanner_report(
-      file.path(output_dir, "phenoscanner_review.csv"),
+      file.path(output_dir, sprintf("phenoscanner_review_%s.csv", run_hash)),
       report_tbl
     )
     message(sprintf(
@@ -1070,6 +1070,17 @@ run_ieugwasr_ard_compare <- function(
       snps_df <- build_exposure_snps(ins, exposure_label = exp_name, ieu_id = ieu_id,
                                      samplesize_override = r$samplesize)
 
+      run_hash <- .run_input_hash(
+        exposure_snps        = snps_df,
+        exposure_id          = ieu_id,
+        sensitivity_pass_min = sensitivity_pass_min,
+        clump_opts           = list(r2 = r2, kb = kb, p_threshold = p_threshold)
+      )
+      message(sprintf(
+        "[ardmr][%s] run_hash = %s (r2=%g, kb=%g, p=%.0e, sens_min=%d)",
+        ieu_id, run_hash, r2, kb, p_threshold, sensitivity_pass_min
+      ))
+
       patterns_info <- parse_phenoscanner_patterns(r$phenoscanner_exclusions)
 
       phewas_res <- apply_phewas_filters(
@@ -1080,7 +1091,8 @@ run_ieugwasr_ard_compare <- function(
         ancestry = r$ancestry,
         patterns_info = patterns_info,
         phewas_pval = phewas_pval,
-        cache_dir = cache_dir
+        cache_dir = cache_dir,
+        run_hash = run_hash
       )
 
       snps_df <- phewas_res$snps
@@ -1116,7 +1128,8 @@ run_ieugwasr_ard_compare <- function(
           ancestry = r$ancestry,
           patterns_info = patterns_info,
           phenoscanner_pval = phenoscanner_pval,
-          cache_dir = cache_dir
+          cache_dir = cache_dir,
+          run_hash = run_hash
         )
 
         snps_df <- filter_res$snps

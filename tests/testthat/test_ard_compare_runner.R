@@ -79,3 +79,44 @@ test_that("ard_compare forwards ieu_id from groups to run_phenome_mr", {
   expect_equal(captured$exposure_id, "ieu-b-110")
   expect_false(isTRUE(captured$acknowledge_no_coloc))
 })
+
+# Structural test: pre-filter and review CSV snapshots must include the
+# run_hash so different parameter sets don't silently overwrite each other.
+test_that("phewas/phenoscanner snapshot CSVs are suffixed with run_hash", {
+  src_path <- testthat::test_path("..", "..", "R", "ard_compare_grouped_ieugwasr.R")
+  skip_if_not(file.exists(src_path), "Source file not found")
+  src <- paste(readLines(src_path), collapse = "\n")
+
+  # Old hardcoded literals must be gone.
+  for (lit in c("phewas_pre_filter\\.csv",
+                "phenoscanner_pre_filter\\.csv",
+                "phewas_review\\.csv",
+                "phenoscanner_review\\.csv")) {
+    expect_false(grepl(paste0('"', lit, '"'), src),
+                 info = paste0("Bare '", gsub("\\\\", "", lit),
+                               "' literal still present."))
+  }
+
+  # New suffixed forms must be present.
+  for (stem in c("phewas_pre_filter",
+                 "phenoscanner_pre_filter",
+                 "phewas_review",
+                 "phenoscanner_review")) {
+    pattern <- paste0('sprintf\\("', stem, '_%s\\.csv", run_hash\\)')
+    expect_match(src, pattern, fixed = FALSE,
+                 info = paste0("Missing sprintf form for ", stem))
+  }
+
+  # Both filter functions must declare a run_hash parameter.
+  expect_match(src,
+               "apply_phewas_filters\\s*<-\\s*function\\([^)]*run_hash[^)]*\\)",
+               fixed = FALSE,
+               info = "apply_phewas_filters() missing run_hash parameter")
+  expect_match(src,
+               "apply_phenoscanner_filters\\s*<-\\s*function\\([^)]*run_hash[^)]*\\)",
+               fixed = FALSE,
+               info = "apply_phenoscanner_filters() missing run_hash parameter")
+
+  # The runner must compute run_hash via .run_input_hash() before the calls.
+  expect_match(src, "run_hash\\s*<-\\s*\\.run_input_hash\\(", fixed = FALSE)
+})
