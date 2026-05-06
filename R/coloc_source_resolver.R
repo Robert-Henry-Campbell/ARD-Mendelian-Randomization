@@ -116,28 +116,35 @@
     validate_gwasvcf(exposure_sumstats, genome_build)
     return(finalize(
       "snps_vcf", exposure_snps,
-      coloc_fetcher  = .vcf_fetcher(exposure_sumstats, genome_build, verbose),
+      coloc_fetcher  = .vcf_fetcher(exposure_sumstats, genome_build,
+                                    co$info_min, verbose),
       coloc_metadata = read_gwasvcf_metadata(exposure_sumstats, genome_build)
     ))
   }
 
   # Mode: vcf_only
-  # Interim state: clump_sumstats_to_ivs still does its own indel/clump/
-  # F-stat work. Job 2b will refactor it to delegate to
-  # preprocess_exposure_snps. For now, plumb scalars from co (using the
-  # strictest p_backoff rung) and return without an extra preprocess pass.
+  # clump_sumstats_to_ivs (Job 2b refactor) now delegates to
+  # preprocess_exposure_snps internally. Pass the resolved clump_opts so
+  # the unified pipeline (with the same defaults this resolver uses) runs
+  # against the VCF-derived IVs. The vcf_only branch does NOT layer an
+  # additional preprocess pass on top -- preprocessing_steps is empty
+  # here because it lives inside clump_sumstats_to_ivs.
   if (has_vcf) {
     validate_gwasvcf(exposure_sumstats, genome_build)
     snps <- clump_sumstats_to_ivs(
-      vcf_path = exposure_sumstats, ancestry = ancestry,
-      p_threshold = co$p_backoff[1], r2 = co$r2, kb = co$kb,
-      f_threshold = co$f_threshold, genome_build = genome_build,
-      cache_dir = cache_dir, verbose = verbose
+      vcf_path     = exposure_sumstats,
+      ancestry     = ancestry,
+      clump_opts   = co,
+      genome_build = genome_build,
+      cache_dir    = cache_dir,
+      confirm      = confirm,
+      verbose      = verbose
     )
     return(list(
       mode                = "vcf_only",
       exposure_snps       = tibble::as_tibble(snps),
-      coloc_fetcher       = .vcf_fetcher(exposure_sumstats, genome_build, verbose),
+      coloc_fetcher       = .vcf_fetcher(exposure_sumstats, genome_build,
+                                         co$info_min, verbose),
       coloc_metadata      = read_gwasvcf_metadata(exposure_sumstats, genome_build),
       clump_opts_resolved = co,
       preprocessing_steps = list()
@@ -244,11 +251,14 @@
   )
 }
 
-.vcf_fetcher <- function(vcf_path, genome_build, verbose) {
-  force(vcf_path); force(genome_build); force(verbose)
+.vcf_fetcher <- function(vcf_path, genome_build, info_min, verbose) {
+  force(vcf_path); force(genome_build); force(info_min); force(verbose)
+  effective_info_min <- if (is.null(info_min)) 0.8 else info_min
   function(chr, start, end) {
     read_gwasvcf_region(vcf_path, chr, start, end,
-                        genome_build = genome_build, verbose = verbose)
+                        genome_build = genome_build,
+                        info_min = effective_info_min,
+                        verbose = verbose)
   }
 }
 

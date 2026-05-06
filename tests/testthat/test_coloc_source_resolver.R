@@ -149,7 +149,7 @@ test_that("snps_id: preprocess called once + ieugwasr fetcher attached", {
 
 # ---- vcf_only -------------------------------------------------------------
 
-test_that("vcf_only: clump_sumstats_to_ivs called once with merged opts", {
+test_that("vcf_only: clump_sumstats_to_ivs called once with full clump_opts", {
   vcf <- make_gwasvcf_fixture(include_indel = FALSE, include_multiallelic = FALSE)
   fake_ivs <- tibble::tibble(
     SNP = c("rs1","rs2"), Chr = c(1L, 2L), Pos = c(1000L, 2000L),
@@ -161,13 +161,17 @@ test_that("vcf_only: clump_sumstats_to_ivs called once with merged opts", {
   )
   observed <- new.env()
   testthat::local_mocked_bindings(
-    clump_sumstats_to_ivs = function(vcf_path, ancestry, p_threshold, r2, kb,
-                                     f_threshold, genome_build, cache_dir, verbose) {
-      observed$count       <- (observed$count %||% 0L) + 1L
-      observed$p_threshold <- p_threshold
-      observed$r2          <- r2
-      observed$kb          <- kb
-      observed$f_threshold <- f_threshold
+    clump_sumstats_to_ivs = function(vcf_path, ancestry,
+                                     p_threshold = 5e-8, r2 = 0.001, kb = 10000L,
+                                     f_threshold = 10,
+                                     genome_build = "GRCh37",
+                                     cache_dir = ardmr_cache_dir(),
+                                     clump_opts = list(),
+                                     confirm = "ask",
+                                     verbose = TRUE) {
+      observed$count      <- (observed$count %||% 0L) + 1L
+      observed$clump_opts <- clump_opts
+      observed$confirm    <- confirm
       fake_ivs
     }
   )
@@ -176,10 +180,12 @@ test_that("vcf_only: clump_sumstats_to_ivs called once with merged opts", {
   )
   expect_equal(r$mode, "vcf_only")
   expect_equal(observed$count, 1L)
-  expect_equal(observed$p_threshold, 5e-8)  # strictest p_backoff rung
-  expect_equal(observed$r2, 0.001)
-  expect_equal(observed$kb, 10000L)
-  expect_equal(observed$f_threshold, 10)
+  # The full resolved clump_opts is plumbed through (Job 2b)
+  expect_equal(observed$clump_opts$p_backoff, c(5e-8, 5e-7, 5e-6))
+  expect_equal(observed$clump_opts$r2, 0.001)
+  expect_equal(observed$clump_opts$kb, 10000L)
+  expect_equal(observed$clump_opts$f_threshold, 10)
+  expect_equal(observed$confirm, "ask")
   expect_equal(nrow(r$exposure_snps), 2L)
   expect_true("clump_opts_resolved" %in% names(r))
   expect_true("preprocessing_steps" %in% names(r))
@@ -373,12 +379,15 @@ test_that("deprecation: clump_opts$p_threshold translated to p_backoff via resol
   vcf <- make_gwasvcf_fixture(include_indel = FALSE, include_multiallelic = FALSE)
   observed <- new.env()
   testthat::local_mocked_bindings(
-    clump_sumstats_to_ivs = function(vcf_path, ancestry, p_threshold, r2, kb,
-                                     f_threshold, genome_build, cache_dir, verbose) {
-      observed$p_threshold <- p_threshold
-      observed$r2          <- r2
-      observed$kb          <- kb
-      observed$f_threshold <- f_threshold
+    clump_sumstats_to_ivs = function(vcf_path, ancestry,
+                                     p_threshold = 5e-8, r2 = 0.001, kb = 10000L,
+                                     f_threshold = 10,
+                                     genome_build = "GRCh37",
+                                     cache_dir = ardmr_cache_dir(),
+                                     clump_opts = list(),
+                                     confirm = "ask",
+                                     verbose = TRUE) {
+      observed$clump_opts <- clump_opts
       tibble::tibble(
         SNP = "rs1", Chr = 1L, Pos = 1000L,
         effect_allele.exposure = "A", other_allele.exposure = "G",
@@ -398,10 +407,10 @@ test_that("deprecation: clump_opts$p_threshold translated to p_backoff via resol
   )
   expect_true(any(grepl("p_threshold is deprecated", cap$logs)))
   # The strictest (and only) p_backoff rung is 1e-6 after translation.
-  expect_equal(observed$p_threshold, 1e-6)
-  expect_equal(observed$r2, 0.01)
-  expect_equal(observed$kb, 5000L)
-  expect_equal(observed$f_threshold, 5)
+  expect_equal(observed$clump_opts$p_backoff, 1e-6)
+  expect_equal(observed$clump_opts$r2, 0.01)
+  expect_equal(observed$clump_opts$kb, 5000L)
+  expect_equal(observed$clump_opts$f_threshold, 5)
   expect_equal(cap$value$clump_opts_resolved$p_backoff, 1e-6)
   expect_null(cap$value$clump_opts_resolved$p_threshold)
 })
