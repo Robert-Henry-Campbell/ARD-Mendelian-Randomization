@@ -17,12 +17,18 @@ The primary entry point is [`run_phenome_mr()`](./R/run_phenome_mr.R), which:
 1. Loads the packaged phenotype catalog for the requested sex and ancestry.
 2. Downloads or reuses variant manifests and maps exposure SNPs to provider
    coordinates.
-3. Retrieves outcome SNP rows either from Pan-UK Biobank (sex = "both") or local
+3. Computes a pairwise LD matrix between the supplied exposure instruments
+   against the 1000 Genomes Phase 3 reference panel and writes
+   `exposure_snps_ld_matrix.csv` to the run output directory.
+4. Retrieves outcome SNP rows either from Pan-UK Biobank (sex = "both") or local
    Neale Lab summary statistics (sex = "male"/"female").
-4. Runs inverse-variance weighted MR along with eight supporting sensitivity and
-   quality-control checks.
-5. Produces tidy result tables and ggplot2-based volcano and Manhattan plots and
-   writes run artefacts to disk for reproducibility.
+5. Runs inverse-variance weighted MR along with up to nine supporting
+   sensitivity and quality-control checks (Cochran's Q, I², MR-Egger,
+   weighted median/mode, Steiger directionality, leave-one-out, and
+   Bayesian colocalisation via `coloc.abf` / `coloc.susie`).
+6. Produces tidy result tables and ggplot2-based volcano and Manhattan plots and
+   writes run artefacts to disk under a per-run hash subfolder so different
+   parameterisations don't overwrite each other.
 
 ## Key capabilities
 
@@ -32,14 +38,23 @@ The primary entry point is [`run_phenome_mr()`](./R/run_phenome_mr.R), which:
 - **Provider-aware SNP mapping.** `exposure_snp_mapper()` joins user-supplied
   instruments to Pan-UKB or Neale variant manifests and handles multi-allelic
   loci.
+- **Automatic exposure-SNP LD matrix.** `compute_ld_matrix()` runs inside
+  `run_phenome_mr()` (step 3 above) and writes a per-run
+  `exposure_snps_ld_matrix.csv` of pairwise correlations against 1000G v3.
+  Useful for diagnosing IV correlation structure post hoc.
 - **Remote-friendly Pan-UKB queries.** `panukb_snp_grabber()` streams tabix
   slices over HTTPS via Bioconductor's `Rsamtools`, so a system `tabix`
   executable is not required.
 - **Neale GWAS management.** `neale_gwas_checker()` verifies large Neale Lab
   files locally, optionally downloading missing datasets with resumable logging.
 - **QC-rich MR engine.** `mr_business_logic()` harmonises, runs multiple MR
-  estimators, and records eight sensitivity checks with configurable pass
-  thresholds.
+  estimators, and records up to nine sensitivity checks (including Bayesian
+  colocalisation) with configurable pass thresholds.
+- **Bayesian colocalisation.** `coloc_business_logic()` runs `coloc::coloc.abf`
+  on a ±500 kb window around each IV and `coloc::coloc.susie` whenever a
+  per-locus LD matrix is computable. Per-locus artefacts (CSV summaries,
+  stacked locus-zoom plots, sensitivity curves) are written under
+  `<run_dir>/<outcome_slug>/coloc/<chrX_start_end>/`. See [Colocalisation](#colocalisation).
 - **Plotting + enrichment.** Helpers such as `plots.R`,
   `run_phenome_mr_plotting_only()`, and `enrichment_business_logic.R` generate
   reusable visuals and enrichment summaries for downstream reporting.
@@ -138,31 +153,57 @@ exposure <- tibble::tibble(
 results <- run_phenome_mr(
   exposure = "LDL cholesterol",
   exposure_snps = exposure,
+  exposure_id = "ieu-b-110",  # OpenGWAS id; required for colocalisation
   exposure_units = "1-SD increase",
   ancestry = "EUR",
-  sex = "both",             # "both" uses Pan-UKB, "male"/"female" use Neale
-  sensitivity_pass_min = 6,  # require six of the eight checks
+  sex = "both",                  # "both" uses Pan-UKB, "male"/"female" use Neale
+  sensitivity_pass_min = 6,      # require six of the nine checks
   Multiple_testing_correction = "BH"
 )
 
+# To run without coloc (no exposure_id / exposure_sumstats), pass
+# `acknowledge_no_coloc = TRUE`. Coloc will be removed from the sensitivity
+# panel for the run and a single INFO line will note this in the run log.
+
 # Inspect outputs
-results$results_df   # tidy phenome-wide MR summary
+results$results_df   # tidy phenome-wide MR summary; includes results_coloc_* cols
 results$volcano      # ggplot object; can be customised further
 results$manhattan    # ggplot object for -log10(p) across outcomes
 ```
 
-Each run writes a timestamped log file, diagnostic plots, and CSV exports to:
+Each run writes a timestamped log file, diagnostic plots, and CSV exports under
+a per-run-hash subfolder:
 
 ```
-<cache_dir>/output/<exposure>/<sex>/<ancestry>/
+<cache_dir>/output/<exposure>/<sex>/<ancestry>/<run_hash>/
 ```
 
-and caches variant lookups under provider-specific subdirectories so subsequent
-runs are faster.
+The run hash is derived from the inputs (IV set, sensitivity panel, clump opts,
+coloc params, multiple-testing rule), so different parameter choices land in
+distinct folders and cannot overwrite each other. Variant lookups continue to
+be cached under provider-specific subdirectories so subsequent runs are faster.
+
+### Quick test runs (`n_pheno_limit`)
+
+For end-to-end smoke tests and CI integration, pass `n_pheno_limit = N` to
+truncate the outcome list to the first `N` phenotypes immediately after
+`Outcome_setup()`:
+
+```r
+run_phenome_mr(..., n_pheno_limit = 10)   # only the first 10 outcomes
+```
+
+Multiple-testing thresholds, p-values, and enrichment p-values from a
+truncated run are **not scientifically valid** — use this knob for
+debugging and pipeline regression-tests only. A `WARN` line is emitted in
+the run log so a truncated run is impossible to mistake for a full one.
+The `dev/integration_test_ieugwasr.R` script demonstrates the recommended
+usage.
 
 ## Quality-control checks
 
-Eight sensitivity diagnostics are calculated for every outcome when data permit:
+Up to nine sensitivity diagnostics are calculated for every outcome when data
+permit:
 
 1. Cochran's Q (heterogeneity) p-value ≥ 0.05
 2. Cochran's Q I² ≤ 50%
@@ -172,10 +213,110 @@ Eight sensitivity diagnostics are calculated for every outcome when data permit:
 6. Weighted median estimate within one IVW standard error
 7. Weighted mode estimate within one IVW standard error
 8. Leave-one-out analysis shows no sign-flip and Steiger filtering failures ≤ 30%
+9. Bayesian colocalisation PP.H4 > 0.80 in at least one IV-anchored locus
+   (`coloc.abf`, with `coloc.susie` as a multi-causal-variant supplement when
+   LD is computable). Only computed for outcomes that pass the gating rules
+   described in [Colocalisation](#colocalisation).
 
 `sensitivity_pass_min` defines how many of the enabled checks an outcome must
 pass to be considered QC-approved. This flag feeds into the default multiple
-testing correction and plot aesthetics.
+testing correction and plot aesthetics. Coloc is included in the default
+panel; pass `sensitivity_enabled` without `"coloc"` to disable it for a run.
+
+## Colocalisation
+
+Bayesian colocalisation is run as one of the sensitivity checks via
+[`coloc_business_logic()`](./R/coloc_business_logic.R). It builds a ±500 kb
+window around each IV (overlapping windows are merged), pulls regional
+summary statistics for both the exposure and the outcome, and applies
+`coloc::coloc.abf`. Where in-sample-style LD is computable against the
+1000G v3 panel, `coloc::coloc.susie` is also fitted to relax the
+single-causal-variant assumption. The MHC region (chr6:25–35 Mb) is
+skipped by default; toggle with `coloc_skip_mhc = FALSE`.
+
+### Required exposure data
+
+Coloc needs a **regional summary-statistics source** for the exposure, in
+addition to the instrument table. Either:
+
+- `exposure_id = "ieu-b-110"` — an OpenGWAS study id; regions are pulled via
+  `ieugwasr::associations()` (requires `OPENGWAS_JWT`), or
+- `exposure_sumstats = "/path/to.vcf.gz"` — a tabix-indexed
+  [GWAS-VCF](https://github.com/MRCIEU/gwasvcf) (MRC-IEU spec) on disk
+  (GRCh37 only; FORMAT fields `ES` and `SE` required).
+
+If you supply only `exposure_snps` and neither `exposure_id` nor
+`exposure_sumstats`, `run_phenome_mr()` errors and asks you to set
+`acknowledge_no_coloc = TRUE`; doing so removes coloc from the sensitivity
+panel for that run.
+
+### Per-outcome gating
+
+To keep coloc time bounded on phenome-wide runs, coloc is **only run on
+outcomes that are nominally significant in IVW (raw p < 0.05)**. The first
+analysed outcome with at least one IV after harmonisation is exempted —
+it always runs as a mandatory smoke test, so a clean run log will always
+contain at least one `coloc: ENTER coloc_business_logic ...` line.
+Outcomes skipped by the gate get a clear log entry:
+
+```
+coloc: skipping '<NAME>' (IVW p=<value> >= 0.050, not first analysed outcome)
+```
+
+and **no `coloc/` subfolder** under their outcome directory. This is by
+design — empty folders are not "missing artefacts".
+
+### Per-locus artefacts
+
+For every outcome that passes the gate, a `coloc/<chrX_start_end>/`
+subfolder is written for each merged locus, containing:
+
+- `coloc_abf_summary.csv` — PP.H0 through PP.H4 plus the top SNP
+- `coloc_susie_summary.csv` — SuSiE credible-set table (when `coloc.susie` ran)
+- `stacked_manhattan.{png,pdf}` — exposure (top) and outcome (bottom) regional
+  −log₁₀(p) plots with IV positions highlighted
+- `coloc_dataset_exposure.{png,pdf}` and `coloc_dataset_outcome.{png,pdf}` —
+  `coloc::plot_dataset()` Manhattan for each trait
+- `coloc_sensitivity.{png,pdf}` — `coloc::sensitivity()` curve for the p12 prior
+- `coloc_aligned_data.csv` — the harmonised regional table fed to coloc
+
+Per-outcome columns are added to the returned `MR_df` and `results_df`:
+
+| column | meaning |
+|---|---|
+| `results_coloc_n_loci_total`  | merged loci tested for that outcome |
+| `results_coloc_n_loci_pass`   | loci with PP.H4 > 0.80 |
+| `results_coloc_max_PPH4`      | max PP.H4 across all loci (abf and susie) |
+| `results_coloc_method`        | "susie" / "abf" / "none" — which method's PP.H4 cleared 0.80 |
+
+### Run-level diagnostics
+
+After every run, a `COLOC_DIAGNOSTICS.txt` file is written at the run root
+summarising how many outcomes were eligible, attempted, returned loci,
+and produced artefact folders, plus a per-skip-reason breakdown:
+
+```
+COLOC TELEMETRY (mr_business_logic)
+  outcomes_total              : 396
+  coloc_eligible_by_gate      : 23   (first-outcome smoke test or IVW p < 0.050)
+  coloc_attempted             : 23
+  coloc_with_loci             : 21
+  coloc_artefacts_dir         : 21
+  skip-reason breakdown:
+    not_nominally_significant              373
+    coloc_business_logic_returned_empty      2
+```
+
+If a run produces no coloc artefacts, this file (plus `coloc:` log lines
+from `coloc_business_logic`) is your first stop.
+
+### Tuning knobs
+
+| arg | default | meaning |
+|---|---|---|
+| `coloc_window_kb` | `500L` | half-window around each IV |
+| `coloc_priors`    | `list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-5)` | coloc.abf priors |
+| `coloc_skip_mhc`  | `TRUE` | skip chr6:25–35 Mb (long-range LD breaks coloc.abf) |
 
 ## Working with outcome providers
 
@@ -216,12 +357,28 @@ inspected with `utils::data()` or `get_pkg_obj()`:
 
 - `run_phenome_mr_plotting_only()` regenerates plots from a previous run without
   re-downloading or re-running MR analyses.
-- `ard_compare()` and `ard_compare_grouped_ieugwasr()` contrast ARDMR findings
+- `ard_compare()` and `run_ieugwasr_ard_compare()` contrast ARDMR findings
   against IEU OpenGWAS or other external MR results.
+- `compute_ld_matrix()` computes pairwise correlations between exposure
+  instruments using PLINK 1.9 against the bundled 1000G v3 reference. Called
+  automatically inside `run_phenome_mr()` (writes `exposure_snps_ld_matrix.csv`
+  to the run directory); also callable on its own.
+- `coloc_fetch_exposure_region()`, `coloc_fetch_outcome_panukb_region()`,
+  `coloc_panukb_outcome_metadata()` — building blocks for the coloc data
+  fetchers; useful if you want to drive coloc directly without the
+  `run_phenome_mr()` wrapper.
+- `validate_gwasvcf()` and `read_gwasvcf_region()` — light wrappers for the
+  GWAS-VCF format used as the on-disk exposure-sumstats source.
+- `clump_sumstats_to_ivs()` — when `exposure_sumstats` is supplied without
+  `exposure_snps`, derives IVs by p-thresholding, LD-clumping (against 1000G
+  v3) and F-filtering the VCF (`gwasvcf` package required).
 - `enrichment_business_logic.R` performs over-representation testing of GBD
   causes among significant discoveries.
 - `logging.R` sets up structured logging via the `logger` package so runs can be
   audited later.
+- `dev/integration_test_ieugwasr.R` is a minimal end-to-end smoke test using
+  `n_pheno_limit` and a tiny exposure CSV; safe to run for ~5 outcomes to
+  confirm the pipeline is intact after a code change.
 
 ### Phenoscanner deprecation and IEU OpenGWAS PheWAS support
 

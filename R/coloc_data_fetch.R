@@ -188,12 +188,30 @@ coloc_fetch_outcome_panukb_region <- function(rec, ancestry, chr, start, end,
     return(empty)
   }
 
+  # Pan-UKB tsv.bgz files don't prefix their column header with `#`, so
+  # `Rsamtools::headerTabix()` returns nothing tab-separated. Mirror the
+  # fallback that `panukb_snp_grabber()` uses: open the URL and read the
+  # first line directly via gzcon().
   hdr <- tryCatch(Rsamtools::headerTabix(tf), error = function(e) NULL)
   hdr_fields <- character()
   if (!is.null(hdr)) {
     hl <- unlist(hdr, use.names = FALSE)
     cand <- hl[grepl("\t", hl, fixed = TRUE)]
     if (length(cand)) hdr_fields <- strsplit(sub("^#+", "", utils::tail(cand, 1)), "\t", fixed = TRUE)[[1]]
+  }
+  if (!length(hdr_fields)) {
+    hdr_line <- tryCatch({
+      con <- gzcon(url(url, open = "rb"))
+      on.exit(try(close(con), silent = TRUE), add = TRUE)
+      withCallingHandlers(
+        readLines(con, n = 1),
+        warning = function(w) invokeRestart("muffleWarning")
+      )
+    }, error = function(e) NA_character_)
+    if (length(hdr_line) && !is.na(hdr_line[[1]]) && nzchar(hdr_line[[1]])) {
+      hdr_line <- sub("^#+", "", hdr_line[[1]])
+      hdr_fields <- trimws(strsplit(hdr_line, "\t", fixed = TRUE)[[1]])
+    }
   }
   if (!length(hdr_fields)) stop("coloc: could not read Pan-UKB header for column mapping", call. = FALSE)
 

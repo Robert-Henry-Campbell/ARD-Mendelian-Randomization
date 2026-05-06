@@ -773,7 +773,7 @@ run_ieugwasr_ard_compare <- function(
       dplyr::mutate(Chr = NA_character_, Pos = as.numeric(NA))
   }
 
-  build_exposure_snps <- function(raw, exposure_label, ieu_id) {
+  build_exposure_snps <- function(raw, exposure_label, ieu_id, samplesize_override = NA_real_) {
     # resolve column names that differ by version
     beta_nm <- pick_colname(raw, c("beta","beta.exposure"), TRUE, "beta")
     se_nm   <- pick_colname(raw, c("se","se.exposure"), TRUE, "se")
@@ -788,7 +788,24 @@ run_ieugwasr_ard_compare <- function(
       stop(sprintf("Non-rsID variant IDs for %s: e.g. %s", ieu_id, paste(utils::head(bad,5), collapse=", ")))
     }
 
-    n_total <- fetch_samplesize(ieu_id)
+    # Prefer the per-row CSV `samplesize` override when supplied; otherwise
+    # fall back to ieugwasr::gwasinfo() via fetch_samplesize(). Some OpenGWAS
+    # records (notably some pQTL ids) have NA/0 sample_size in their metadata,
+    # which previously cascaded into "coloc: exposure N unknown; skipping".
+    n_override <- suppressWarnings(as.numeric(samplesize_override))
+    n_total <- if (length(n_override) && is.finite(n_override) && n_override > 0) {
+      message(sprintf("[ID=%s] Using CSV samplesize override = %.0f", ieu_id, n_override))
+      n_override
+    } else {
+      fetched <- fetch_samplesize(ieu_id)
+      if (!is.finite(fetched)) {
+        message(sprintf(
+          "[ID=%s] WARNING: gwasinfo returned no usable sample_size; coloc will skip this exposure with 'exposure N unknown'. Add a `samplesize` column to your CSV with the known sample size to fix.",
+          ieu_id
+        ))
+      }
+      fetched
+    }
     out <- raw |>
       dplyr::mutate(
         id.exposure            = ieu_id,
@@ -959,6 +976,11 @@ run_ieugwasr_ard_compare <- function(
   if (length(miss_cols)) stop("CSV missing required columns: ", paste(miss_cols, collapse = ", "))
   if (!"exposure_units" %in% names(expos)) expos$exposure_units <- NA_character_
   if (!"phenoscanner_exclusions" %in% names(expos)) expos$phenoscanner_exclusions <- NA_character_
+  # Optional: per-row sample-size override. Used when an OpenGWAS study has
+  # missing/zero `sample_size` in `gwasinfo()` (common for some pQTL records),
+  # which would otherwise leave `samplesize.exposure` and the coloc-side
+  # `exposure_metadata$N` as NA -> coloc skipped with "exposure N unknown".
+  if (!"samplesize" %in% names(expos)) expos$samplesize <- NA_real_
 
   expos <- expos |>
     dplyr::mutate(
@@ -976,6 +998,7 @@ run_ieugwasr_ard_compare <- function(
         }
         val
       },
+      samplesize = suppressWarnings(as.numeric(samplesize)),
       multiple_testing_correction = normalize_mtc(multiple_testing_correction),
       confirm = normalize_confirm(confirm)
     )
@@ -1044,7 +1067,8 @@ run_ieugwasr_ard_compare <- function(
         return(NULL)
       }
 
-      snps_df <- build_exposure_snps(ins, exposure_label = exp_name, ieu_id = ieu_id)
+      snps_df <- build_exposure_snps(ins, exposure_label = exp_name, ieu_id = ieu_id,
+                                     samplesize_override = r$samplesize)
 
       patterns_info <- parse_phenoscanner_patterns(r$phenoscanner_exclusions)
 

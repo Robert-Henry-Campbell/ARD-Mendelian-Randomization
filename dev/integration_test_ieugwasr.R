@@ -5,6 +5,11 @@
 # meaningless. Use this only to catch crashes / regressions in the pipeline.
 #
 # Usage: source("dev/integration_test_ieugwasr.R") from the package root.
+rm(list = ls())
+Sys.setenv(OPENGWAS_JWT = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFwaS1qd3QiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJhcGkub3Blbmd3YXMuaW8iLCJhdWQiOiJhcGkub3Blbmd3YXMuaW8iLCJzdWIiOiJoLnJvYmVydC5jYW1wYmVsbEBnbWFpbC5jb20iLCJpYXQiOjE3Nzc5Nzc3OTIsImV4cCI6MTc3OTE4NzM5Mn0.n--pL9YObsrKDfMPEOMoXQAlyPcQ-CuQcQiQBeMCZ_gBfrXuunNcEuyyqjAGeDP0NG_knFZQtzYPPz2zqCSpe_zRuPi2MKy64nJy2ZJVy0nYhokUWk7henI8autyo_g2k-Z1_J56cU1CaoKDTxTerNTbySwmY4KY71FkK3QYXE222jZErUivC79M_4DUEz4Vq0wlzXmWSwEAcfv2B_j4CLjEVHbRbRMSTm03RTmZK-4KSPlXAPLDAwSWbvH8s7XAzNKC4Os6-qzmg9txHEy1GX4AyJwnrSX8xNWP9ze_HCRDETdsFodXUb2LRBHOamby8f96YMbhwwcWsxkMDhxp5Q")
+#set cache dir
+Sys.setenv(ARDMR_CACHE_DIR = 'C:\\Users\\Robert\\Downloads\\ardmr')
+
 
 stopifnot(file.exists("DESCRIPTION"))  # must run from package root
 
@@ -20,7 +25,7 @@ if (!nzchar(jwt)) {
 
 devtools::load_all(".", quiet = TRUE)
 
-csv_path  <- "dev/integration_test_exposure.csv"
+csv_path  <- "G:\\My Drive\\Documents\\0Oxford_main\\ARD paper\\3_ARD_MR\\exposures to run on\\test_phenos\\BMI_only_goodtest.csv"
 Sys.setenv(ARDMR_CACHE_DIR = 'C:\\Users\\Robert\\Downloads\\ardmr')
 
 
@@ -37,7 +42,7 @@ out <- run_ieugwasr_ard_compare(
   prompt_for_units = FALSE,
   phenoscanner     = FALSE,
   force_refresh    = FALSE,
-  n_pheno_limit    = 10
+  n_pheno_limit    = 5
 )
 t1 <- Sys.time()
 elapsed <- difftime(t1, t0, units = "mins")

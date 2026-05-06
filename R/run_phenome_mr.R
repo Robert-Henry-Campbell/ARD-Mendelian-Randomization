@@ -87,12 +87,9 @@ run_phenome_mr <- function(
     logfile = NULL,
     verbose = TRUE,
     confirm = 'ask',
-<<<<<<< HEAD
-    force_refresh = TRUE,
+    force_refresh = FALSE,
     n_pheno_limit = NULL
-=======
-    force_refresh = FALSE
->>>>>>> claude/keen-hawking-657ea4
+
 ) {
   # ---- validate args ----
   sex <- match.arg(sex)

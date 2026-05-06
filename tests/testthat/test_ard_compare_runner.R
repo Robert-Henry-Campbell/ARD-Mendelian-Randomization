@@ -33,3 +33,49 @@ test_that("ieugwasr runner's sensitivity list is a superset of run_phenome_mr de
   expect_true(all(default %in% vals),
               info = paste("Missing:", paste(setdiff(default, vals), collapse = ", ")))
 })
+
+# Regression for the bug where ard_compare() silently dropped ieu_id /
+# exposure_id / exposure_sumstats from groups_info[[i]], causing every
+# downstream run_phenome_mr() call to receive exposure_id = NULL and
+# acknowledge_no_coloc = TRUE -> coloc disabled for the run.
+test_that("ard_compare forwards ieu_id from groups to run_phenome_mr", {
+  captured <- list()
+  testthat::local_mocked_bindings(
+    run_phenome_mr = function(exposure_snps, exposure_id = NULL,
+                              acknowledge_no_coloc = FALSE, ...) {
+      captured$exposure_id          <<- exposure_id
+      captured$acknowledge_no_coloc <<- acknowledge_no_coloc
+      list(MR_df = tibble::tibble(), results_df = tibble::tibble())
+    }
+  )
+  exposure_snps <- tibble::tibble(
+    SNP                    = c("rs1", "rs2", "rs3"),
+    effect_allele.exposure = c("A", "C", "G"),
+    other_allele.exposure  = c("G", "T", "A"),
+    beta.exposure          = c(0.05, -0.03, 0.12),
+    se.exposure            = c(0.010, 0.015, 0.008),
+    pval.exposure          = c(5e-7, 4.5e-2, 1e-30),
+    eaf.exposure           = c(0.35, 0.42, 0.28),
+    samplesize.exposure    = c(100000L, 100000L, 100000L),
+    id.exposure            = "synth_exposure",
+    exposure               = "Synthetic exposure"
+  )
+  invisible(tryCatch(
+    ard_compare(
+      exposure       = "TEST",
+      exposure_units = "1-SD",
+      groups         = list(eur_both = list(
+        sex           = "both",
+        ancestry      = "EUR",
+        exposure_snps = exposure_snps,
+        ieu_id        = "ieu-b-110"
+      )),
+      cache_dir      = tempdir(),
+      verbose        = FALSE,
+      force_refresh  = TRUE
+    ),
+    error = function(e) NULL  # post-call assembly may error; we only care about the captured args
+  ))
+  expect_equal(captured$exposure_id, "ieu-b-110")
+  expect_false(isTRUE(captured$acknowledge_no_coloc))
+})

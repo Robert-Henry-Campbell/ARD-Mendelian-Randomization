@@ -15,7 +15,11 @@
 #'   `sex` value must be one of `"both"`, `"male"`, or `"female"`. The
 #'   `ancestry` code must match the inputs accepted by
 #'   [run_phenome_mr()]. `exposure_snps` should contain the TwoSampleMR-style
-#'   instrument data for that group.
+#'   instrument data for that group. Each entry may **additionally** carry
+#'   one of `ieu_id` (an OpenGWAS study id) or `exposure_sumstats` (a path
+#'   to a tabix-indexed GWAS-VCF) to give coloc a regional summary-statistics
+#'   source for the exposure; without one, `run_phenome_mr()` runs with
+#'   `acknowledge_no_coloc = TRUE` and coloc is skipped for that group.
 #'
 #' @return Invisibly returns a list containing the compare output directory
 #'   (`compare_root`) and compare log file path (`compare_logfile`).
@@ -217,6 +221,9 @@ ard_compare <- function(
       sex = sex,
       ancestry = ancestry,
       exposure_snps = exposure_snps,
+      ieu_id            = g_named[["ieu_id"]],
+      exposure_id       = g_named[["exposure_id"]],
+      exposure_sumstats = g_named[["exposure_sumstats"]],
       display = display,
       group_dir = group_dir,
       results_rds = file.path(group_dir, "results.rds"),
