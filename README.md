@@ -182,8 +182,9 @@ The run hash is derived from the inputs (IV set, sensitivity panel, clump opts,
 coloc params, multiple-testing rule), so different parameter choices land in
 distinct folders and cannot overwrite each other. It has the form
 `<iv_hash>__<params_hash>`; the prefix matches the suffix on cached
+
 outcome-SNP files (`<phenotype>__<iv_hash>.rds`) so you can trace lineage at a
-glance. Variant lookups continue to be cached under provider-specific
+glance. Variant lookups continue to be cached under provider-specific 
 subdirectories so subsequent runs are faster.
 
 ### Quick test runs (`n_pheno_limit`)
