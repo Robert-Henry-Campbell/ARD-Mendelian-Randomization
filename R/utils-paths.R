@@ -87,7 +87,7 @@ variant_manifest_path <- function(catalog, cache_dir = ardmr_cache_dir()) {
 #' depend on which IVs were queried.
 #'
 #' @keywords internal
-.iv_set_hash <- function(snps, n = 10L) {
+.iv_set_hash <- function(snps, n = 5L) {
   df <- .iv_chr_pos(snps)
   if (!nrow(df)) return(strrep("0", n))
   tuples <- sprintf("%s:%d:%s:%s", df$chr, df$pos, df$ea, df$oa)
@@ -112,11 +112,11 @@ variant_manifest_path <- function(catalog, cache_dir = ardmr_cache_dir()) {
                             coloc_priors = NULL,
                             coloc_skip_mhc = NULL,
                             multiple_testing_correction = NULL,
-                            n = 10L) {
+                            n = 5L) {
   norm_set <- function(x) if (is.null(x)) NULL else sort(unique(as.character(x)))
   norm_list <- function(x) if (is.null(x) || !length(x)) NULL else x[order(names(x))]
+  iv_hash <- if (!is.null(exposure_snps)) .iv_set_hash(exposure_snps, n = n) else strrep("0", n)
   payload <- list(
-    iv_hash = if (!is.null(exposure_snps)) .iv_set_hash(exposure_snps, n = 16L) else NULL,
     exposure_id = if (is.null(exposure_id)) NULL else as.character(exposure_id),
     exposure_sumstats = if (is.null(exposure_sumstats)) NULL else basename(as.character(exposure_sumstats)),
     sensitivity_enabled = norm_set(sensitivity_enabled),
@@ -127,7 +127,8 @@ variant_manifest_path <- function(catalog, cache_dir = ardmr_cache_dir()) {
     coloc_skip_mhc = if (is.null(coloc_skip_mhc)) NULL else isTRUE(coloc_skip_mhc),
     multiple_testing_correction = if (is.null(multiple_testing_correction)) NULL else as.character(multiple_testing_correction)
   )
-  substr(digest::digest(payload, algo = "xxhash64"), 1L, n)
+  params_hash <- substr(digest::digest(payload, algo = "xxhash64"), 1L, n)
+  paste0(iv_hash, "__", params_hash)
 }
 
 #' @keywords internal

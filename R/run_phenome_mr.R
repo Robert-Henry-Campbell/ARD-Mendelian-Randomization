@@ -165,7 +165,7 @@ run_phenome_mr <- function(
   dir.create(Neale_GWAS_dir,  recursive = TRUE, showWarnings = FALSE)
 
   # ---- write run_manifest.json ----
-  iv_hash <- .iv_set_hash(exposure_snps, n = 16L)
+  iv_hash <- .iv_set_hash(exposure_snps, n = 5L)
   run_manifest <- list(
     run_hash             = run_hash,
     started_at           = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),

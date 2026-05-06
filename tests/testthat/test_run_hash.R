@@ -67,7 +67,7 @@ test_that("run_phenome_mr writes outputs into a <run_hash>/ subfolder", {
   cache_dir <- run_with_mocks(mk_args())
   rh <- read_runhash(cache_dir)
   expect_equal(length(rh), 1L)
-  expect_match(rh, "^[0-9a-f]{10}$")
+  expect_match(rh, "^[0-9a-f]{5}__[0-9a-f]{5}$")
 })
 
 test_that("run_manifest.json is written with run_hash and key inputs", {
@@ -82,7 +82,8 @@ test_that("run_manifest.json is written with run_hash and key inputs", {
   expect_equal(m$ancestry, "EUR")
   expect_equal(m$sex, "both")
   expect_equal(m$exposure_id, "ieu-a-test")
-  expect_match(m$iv_hash, "^[0-9a-f]{16}$")
+  expect_match(m$iv_hash, "^[0-9a-f]{5}$")
+  expect_equal(substr(m$run_hash, 1L, 5L), m$iv_hash)
 })
 
 test_that("identical inputs produce identical run_hash", {

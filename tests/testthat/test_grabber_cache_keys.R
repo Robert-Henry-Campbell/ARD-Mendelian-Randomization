@@ -111,5 +111,5 @@ test_that("neale_snp_grabber: two IV sets get separate cache files", {
   hA <- ardmr:::.iv_set_hash(expA)
   hB <- ardmr:::.iv_set_hash(expB)
   expect_false(identical(hA, hB))
-  expect_match(hA, "^[0-9a-f]{10}$")
+  expect_match(hA, "^[0-9a-f]{5}$")
 })
