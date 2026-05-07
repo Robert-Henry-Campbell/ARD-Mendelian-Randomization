@@ -7,6 +7,15 @@
 #' outputs.
 #'
 #' @inheritParams run_phenome_mr
+#' @param clump_opts Named list of preprocessing parameters forwarded to
+#'   [run_phenome_mr()] (which forwards them to [preprocess_exposure_snps()]).
+#'   Default: `list(already_clumped = TRUE, already_p_filtered = TRUE)` --
+#'   ard_compare's group SNPs have typically already been LD-clumped and
+#'   p-value-filtered upstream, so the unified preprocessor's clump and
+#'   p-backoff steps are skipped here. Override to apply additional
+#'   preprocessing (e.g. `list(maf_min = 0.05, already_clumped = TRUE,
+#'   already_p_filtered = TRUE)`). See [run_phenome_mr()] for the full
+#'   schema.
 #' @param force_refresh Logical; when `TRUE` (default) clear any existing
 #'   outputs for each group before re-running [run_phenome_mr()]. Set to
 #'   `FALSE` to reuse cached results.
@@ -39,6 +48,7 @@ ard_compare <- function(
     scatterplot = TRUE,
     snpforestplot = TRUE,
     leaveoneoutplot = TRUE,
+    clump_opts = list(already_clumped = TRUE, already_p_filtered = TRUE),
     cache_dir = ardmr_cache_dir(),
     logfile = NULL,
     verbose = TRUE,
@@ -327,6 +337,7 @@ ard_compare <- function(
       snpforestplot = snpforestplot,
       leaveoneoutplot = leaveoneoutplot,
       acknowledge_no_coloc = is.null(info$exposure_id) && is.null(info$ieu_id),
+      clump_opts = clump_opts,
       cache_dir = cache_dir,
       logfile = logfile,
       verbose = verbose,

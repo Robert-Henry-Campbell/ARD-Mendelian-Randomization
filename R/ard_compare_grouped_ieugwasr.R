@@ -835,7 +835,12 @@ run_ieugwasr_ard_compare <- function(
   }
 
   # ---- p-value backoff ladder ----
-  p_backoff <- c(p_threshold, 5e-7, 5e-6) |> unique()
+  # Walk the canonical preprocess-pipeline ladder, prepending the user's
+  # `p_threshold` (defaults to 5e-8 -- already in the canonical ladder).
+  # The unified preprocessor (called downstream via the resolver) owns the
+  # default ladder; we mirror it here because get_instruments fetches from
+  # OpenGWAS one rung at a time, before the resolver ever sees the SNPs.
+  p_backoff <- unique(c(p_threshold, .preprocess_defaults()$p_backoff))
 
   # instrument extraction + F filtering with ancestry-aware fallback + p backoff
   # ALWAYS clumps before returning
@@ -1059,11 +1064,21 @@ run_ieugwasr_ard_compare <- function(
         exposure_snps        = snps_df,
         exposure_id          = ieu_id,
         sensitivity_pass_min = sensitivity_pass_min,
-        clump_opts           = list(r2 = r2, kb = kb, p_threshold = p_threshold)
+        # Complete clump_opts (incl. f_threshold + ard_compare-side
+        # already_* flags) so the cache key reflects every parameter
+        # actually used downstream by run_phenome_mr.
+        clump_opts           = list(
+          r2                  = r2,
+          kb                  = kb,
+          p_threshold         = p_threshold,
+          f_threshold         = f_threshold,
+          already_clumped     = TRUE,
+          already_p_filtered  = TRUE
+        )
       )
       message(sprintf(
-        "[ardmr][%s] run_hash = %s (r2=%g, kb=%g, p=%.0e, sens_min=%d)",
-        ieu_id, run_hash, r2, kb, p_threshold, sensitivity_pass_min
+        "[ardmr][%s] run_hash = %s (r2=%g, kb=%g, p=%.0e, F>=%g, sens_min=%d)",
+        ieu_id, run_hash, r2, kb, p_threshold, f_threshold, sensitivity_pass_min
       ))
 
       patterns_info <- parse_phenoscanner_patterns(r$phenoscanner_exclusions)
@@ -1349,6 +1364,18 @@ run_ieugwasr_ard_compare <- function(
           scatterplot                 = TRUE,
           snpforestplot               = TRUE,
           leaveoneoutplot             = TRUE,
+          # SNPs reaching ard_compare have already been server-clumped by
+          # extract_instruments and walked through the p-value backoff
+          # ladder by get_instruments(); tell the unified preprocessor
+          # not to repeat that work. The remaining steps (indel,
+          # palindromic, F-stat, MAF, INFO) still run.
+          clump_opts                  = list(
+            already_clumped    = TRUE,
+            already_p_filtered = TRUE,
+            f_threshold        = f_threshold,
+            r2                 = r2,
+            kb                 = kb
+          ),
           cache_dir                   = cache_dir,
           logfile                     = NULL,
           verbose                     = TRUE,
