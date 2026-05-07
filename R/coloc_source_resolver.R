@@ -63,6 +63,16 @@
 
   # Helper: invoke preprocess (or bypass when co$preprocess = FALSE) and
   # build the per-mode return list.
+  #
+  # `already_p_filtered` / `already_clumped` are RESOLVER-SIDE hints
+  # (facts about what the resolver itself just did). They are merged
+  # with the user's clump_opts via OR: skip the corresponding local
+  # step if EITHER the resolver did it (per-mode hint TRUE) OR the
+  # caller signalled it was done upstream (clump_opts$already_X = TRUE).
+  # Previously these args UNCONDITIONALLY overwrote the user's values,
+  # so ard_compare's `already_clumped = TRUE` was silently discarded
+  # for snps_id mode and the unified preprocessor re-clumped already-
+  # clumped SNPs.
   finalize <- function(mode, snps, coloc_fetcher, coloc_metadata,
                        already_p_filtered = FALSE, already_clumped = FALSE) {
     if (!isTRUE(co$preprocess)) {
@@ -76,8 +86,10 @@
       ))
     }
     mode_opts <- co
-    mode_opts$already_p_filtered <- already_p_filtered
-    mode_opts$already_clumped    <- already_clumped
+    mode_opts$already_p_filtered <-
+      isTRUE(co$already_p_filtered) || isTRUE(already_p_filtered)
+    mode_opts$already_clumped    <-
+      isTRUE(co$already_clumped)    || isTRUE(already_clumped)
     pp <- preprocess_exposure_snps(
       snps_tbl   = snps,
       clump_opts = mode_opts,

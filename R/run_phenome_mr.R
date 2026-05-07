@@ -49,9 +49,11 @@
 #'       panel.}
 #'     \item{`f_threshold`}{F-statistic minimum (default `10`). Runs
 #'       AFTER clumping (per-SNP, no locus loss).}
-#'     \item{`maf_min`}{Minimum minor-allele frequency (default `NULL` =
-#'       off); applied as `pmin(eaf, 1-eaf) >= maf_min`. Rows with `NA`
-#'       EAF are kept.}
+#'     \item{`maf_min`}{Minimum minor-allele frequency. Default `0.01`
+#'       (1%, standard MR practice); applied as `pmin(eaf, 1-eaf) >=
+#'       maf_min`. Pass `NULL` to disable. Rows with `NA` EAF are
+#'       kept; the step is automatically skipped when the
+#'       `eaf.exposure` column is missing.}
 #'     \item{`info_min`}{Minimum INFO/imputation-quality score (default
 #'       `NULL` = off); auto-detects an `SI`/`Rsq`/`R2`/`INFO`/`info`
 #'       column (SI/Rsq/R2 take priority because in real GWAS-VCF data

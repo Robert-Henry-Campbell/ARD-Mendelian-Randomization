@@ -10,6 +10,10 @@
 # Defaults: skip p-backoff, skip clump, F-stat unreachable, MAF/INFO off,
 # indel/palindromic at their pipeline defaults.
 mk_skip_opts <- function(...) {
+  # keep.null = TRUE so callers passing `maf_min = NULL` (or any other
+  # NULL) actually override the default rather than being silently
+  # dropped. Matches the behavior of .resolve_clump_opts() (Job 4
+  # follow-up).
   utils::modifyList(
     list(
       already_p_filtered = TRUE,
@@ -20,7 +24,8 @@ mk_skip_opts <- function(...) {
       maf_min            = NULL,
       info_min           = NULL
     ),
-    list(...)
+    list(...),
+    keep.null = TRUE
   )
 }
 
@@ -459,6 +464,67 @@ test_that("MAF: maf_min = NULL skips the step", {
   step <- get_step(res, "maf")
   expect_equal(step$skipped_reason, "maf_min not set")
   expect_equal(step$n_out, 1L)
+})
+
+test_that("MAF default: maf_min = 0.01 fires by default", {
+  # No user clump_opts -> defaults apply. With maf_min default 0.01,
+  # an EAF = 0.005 row should be dropped.
+  snps <- make_synthetic_exposure_snps(
+    n = 2L, SNP = c("rs1", "rs2"),
+    eaf.exposure = c(0.005, 0.30)
+  )
+  res <- preprocess_exposure_snps(
+    snps,
+    # Skip everything else but let MAF run with its default value.
+    clump_opts = list(
+      already_p_filtered = TRUE, already_clumped = TRUE,
+      f_threshold = -Inf, drop_indels = FALSE, drop_palindromic = FALSE
+      # maf_min intentionally NOT set -> default 0.01 applies
+    ),
+    ancestry = "EUR", verbose = FALSE
+  )
+  step <- get_step(res, "maf")
+  expect_equal(step$value, 0.01)
+  expect_equal(step$n_out, 1L)
+  expect_equal(res$snps$SNP, "rs2")
+  expect_equal(res$resolved_opts$maf_min, 0.01)
+})
+
+test_that("MAF: explicit maf_min = NULL disables the filter (keep.null override)", {
+  snps <- make_synthetic_exposure_snps(
+    n = 2L, SNP = c("rs1", "rs2"),
+    eaf.exposure = c(0.005, 0.30)
+  )
+  res <- preprocess_exposure_snps(
+    snps,
+    clump_opts = list(
+      already_p_filtered = TRUE, already_clumped = TRUE,
+      f_threshold = -Inf, drop_indels = FALSE, drop_palindromic = FALSE,
+      maf_min = NULL    # explicitly disable
+    ),
+    ancestry = "EUR", verbose = FALSE
+  )
+  step <- get_step(res, "maf")
+  expect_equal(step$skipped_reason, "maf_min not set")
+  expect_equal(step$n_out, 2L)  # both kept
+  expect_null(res$resolved_opts$maf_min)
+})
+
+test_that("MAF: auto-skipped when eaf.exposure column is missing", {
+  snps <- make_synthetic_exposure_snps(n = 2L, SNP = c("rs1", "rs2"))
+  snps$eaf.exposure <- NULL  # simulate missing EAF column
+  res <- preprocess_exposure_snps(
+    snps,
+    clump_opts = list(
+      already_p_filtered = TRUE, already_clumped = TRUE,
+      f_threshold = -Inf, drop_indels = FALSE, drop_palindromic = FALSE
+      # maf_min default 0.01
+    ),
+    ancestry = "EUR", verbose = FALSE
+  )
+  step <- get_step(res, "maf")
+  expect_equal(step$skipped_reason, "no eaf.exposure column")
+  expect_equal(step$n_out, 2L)  # nothing dropped
 })
 
 # ---- INFO -----------------------------------------------------------------

@@ -1,5 +1,25 @@
 # ardmr (development version)
 
+## Job 4 follow-ups
+
+- **Bug fix: resolver now honors user-supplied `already_clumped` /
+  `already_p_filtered` flags.** The resolver's `finalize()` function
+  was unconditionally overwriting these flags with its per-mode defaults
+  (FALSE/FALSE for `snps_id`), causing ard_compare's pre-clumped SNPs
+  to be silently re-clumped and re-p-filtered downstream. The flags
+  now combine via OR: skip the corresponding step when EITHER the
+  resolver did it (per-mode hint) OR the caller signalled it was done
+  upstream (clump_opts). The redundant ~3-second per-exposure local
+  clump in ard_compare batch flows is gone; manifests now correctly
+  report `clump_opts_resolved$already_clumped = true` when the caller
+  set it.
+- **MAF filter is now ON by default at `maf_min = 0.01`** (1%, standard
+  MR practice). Auto-skipped when the `eaf.exposure` column is missing.
+  Pass `clump_opts = list(maf_min = NULL)` to disable explicitly.
+  `.resolve_clump_opts()` now uses `keep.null = TRUE` so explicit NULLs
+  in user-supplied `clump_opts` actually override defaults instead of
+  being silently dropped.
+
 ## Job 4: discipline-standard preprocessing order, local clumping, safer defaults
 
 A post-implementation review of Jobs 1-3 surfaced five concerns,

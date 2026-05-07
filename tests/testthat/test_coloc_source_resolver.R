@@ -147,6 +147,70 @@ test_that("snps_id: preprocess called once + ieugwasr fetcher attached", {
   expect_false(isTRUE(cap$last_co$already_p_filtered))
 })
 
+test_that("snps_id: user-supplied already_clumped = TRUE in clump_opts is HONORED (regression)", {
+  # Regression for the bug where finalize() unconditionally overwrote
+  # the user's already_clumped / already_p_filtered with the resolver's
+  # per-mode default args (FALSE/FALSE for snps_id), causing ard_compare's
+  # pre-clumped SNPs to be silently re-clumped.
+  cap <- new.env()
+  testthat::local_mocked_bindings(
+    preprocess_exposure_snps = mk_preprocess_recorder(cap)
+  )
+  testthat::local_mocked_bindings(
+    coloc_fetch_metadata = function(exposure_id, ...) mk_fake_meta()
+  )
+  r <- ardmr:::.resolve_coloc_source(
+    exposure_snps = mk_snps(), exposure_id = "ieu-b-38",
+    ancestry = "EUR", cache_dir = tempdir(),
+    clump_opts = list(already_clumped = TRUE, already_p_filtered = TRUE),
+    verbose = FALSE
+  )
+  expect_true(isTRUE(cap$last_co$already_clumped))      # honored
+  expect_true(isTRUE(cap$last_co$already_p_filtered))   # honored
+  # And the manifest's resolved opts also reflect the honored flags
+  expect_true(isTRUE(r$clump_opts_resolved$already_clumped))
+  expect_true(isTRUE(r$clump_opts_resolved$already_p_filtered))
+})
+
+test_that("snps_only: user-supplied already_clumped = TRUE in clump_opts is HONORED", {
+  cap <- new.env()
+  testthat::local_mocked_bindings(
+    preprocess_exposure_snps = mk_preprocess_recorder(cap)
+  )
+  r <- ardmr:::.resolve_coloc_source(
+    exposure_snps = mk_snps(), ancestry = "EUR",
+    acknowledge_no_coloc = TRUE,
+    clump_opts = list(already_clumped = TRUE),
+    verbose = FALSE
+  )
+  expect_true(isTRUE(cap$last_co$already_clumped))
+})
+
+test_that("ieugwasr: resolver hint already_p_filtered=TRUE wins even if user passes FALSE", {
+  # The resolver KNOWS it just fetched p-filtered data. User trying to
+  # override with already_p_filtered=FALSE shouldn't re-filter (the data
+  # came directly from extract_instruments(p1=...)). With OR-logic, the
+  # resolver's TRUE wins.
+  testthat::local_mocked_bindings(
+    extract_instruments = function(outcomes, p1, clump = TRUE, ...) mk_snps(),
+    .package = "TwoSampleMR"
+  )
+  testthat::local_mocked_bindings(
+    coloc_fetch_metadata = function(exposure_id, ...) mk_fake_meta()
+  )
+  cap <- new.env()
+  testthat::local_mocked_bindings(
+    preprocess_exposure_snps = mk_preprocess_recorder(cap)
+  )
+  r <- ardmr:::.resolve_coloc_source(
+    exposure_id = "ieu-b-38", ancestry = "EUR",
+    cache_dir = tempdir(),
+    clump_opts = list(already_p_filtered = FALSE),  # user's FALSE
+    verbose = FALSE
+  )
+  expect_true(isTRUE(cap$last_co$already_p_filtered))  # resolver's TRUE wins
+})
+
 # ---- vcf_only -------------------------------------------------------------
 
 test_that("vcf_only: clump_sumstats_to_ivs called once with full clump_opts", {
@@ -404,6 +468,36 @@ test_that("defaults merge: user maf_min preserved, defaults filled in", {
   expect_equal(r$clump_opts_resolved$f_threshold, 10)
   expect_equal(r$clump_opts_resolved$p_backoff, c(5e-8))   # Job 4 default
   expect_false("prefer_server_clump" %in% names(r$clump_opts_resolved))
+})
+
+test_that("defaults: maf_min is 0.01 by default (filter ON; standard MR practice)", {
+  cap <- new.env()
+  testthat::local_mocked_bindings(
+    preprocess_exposure_snps = mk_preprocess_recorder(cap)
+  )
+  r <- ardmr:::.resolve_coloc_source(
+    exposure_snps = mk_snps(), ancestry = "EUR",
+    acknowledge_no_coloc = TRUE,
+    verbose = FALSE
+  )
+  expect_equal(r$clump_opts_resolved$maf_min, 0.01)
+})
+
+test_that("user can disable MAF by passing maf_min = NULL explicitly", {
+  cap <- new.env()
+  testthat::local_mocked_bindings(
+    preprocess_exposure_snps = mk_preprocess_recorder(cap)
+  )
+  r <- ardmr:::.resolve_coloc_source(
+    exposure_snps = mk_snps(), ancestry = "EUR",
+    acknowledge_no_coloc = TRUE,
+    clump_opts = list(maf_min = NULL),
+    verbose = FALSE
+  )
+  # NULL overrides the default 0.01.
+  # modifyList preserves NULL values explicitly listed in the user's list,
+  # so resolved should be NULL.
+  expect_null(r$clump_opts_resolved$maf_min)
 })
 
 # ---- p_threshold deprecation through the resolver ------------------------

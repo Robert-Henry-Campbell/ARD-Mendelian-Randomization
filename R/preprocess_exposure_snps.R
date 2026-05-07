@@ -10,7 +10,9 @@
 #'                             skipped if `already_p_filtered = TRUE`)
 #'   2. rsid validate + dedupe
 #'   3. drop indels           (default ON)
-#'   4. MAF filter            (default OFF; if `maf_min` set;
+#'   4. MAF filter            (default ON at `maf_min = 0.01`; pass
+#'                             `maf_min = NULL` to disable; auto-skipped
+#'                             when `eaf.exposure` is absent;
 #'                             `pmin(eaf, 1-eaf)`)
 #'   5. INFO filter           (default OFF; if `info_min` set AND an INFO
 #'                             column is present; auto-detects
@@ -65,7 +67,10 @@
     r2                  = 0.001,
     kb                  = 10000L,
     f_threshold         = 10,
-    maf_min             = NULL,
+    # MAF filter is ON by default at 1% (standard MR practice). Step
+    # is skipped automatically when `eaf.exposure` is missing, and
+    # rows with NA EAF are kept. Pass `maf_min = NULL` to disable.
+    maf_min             = 0.01,
     info_min            = NULL,
     drop_indels         = TRUE,
     drop_palindromic    = FALSE,
@@ -141,7 +146,10 @@
     }
     clump_opts$p_threshold <- NULL
   }
-  utils::modifyList(.preprocess_defaults(), clump_opts)
+  # `keep.null = TRUE` so a user explicitly passing `maf_min = NULL`
+  # (or `info_min = NULL`) actually disables the corresponding step
+  # rather than silently inheriting the default.
+  utils::modifyList(.preprocess_defaults(), clump_opts, keep.null = TRUE)
 }
 
 preprocess_exposure_snps <- function(snps_tbl,
