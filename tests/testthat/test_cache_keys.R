@@ -35,6 +35,26 @@ test_that(".iv_set_hash differs when alleles change", {
   expect_false(identical(h1, h2))
 })
 
+test_that(".iv_set_hash differs when only the LAST tuple changes (regression for digest serialize=FALSE bug)", {
+  # digest(serialize=FALSE) on a character vector only hashes the FIRST
+  # element, so two IV sets that share the lexicographically-first tuple
+  # used to alias to the same hash. Guard against that regression.
+  h_full <- ardmr:::.iv_set_hash(mk_iv())                                # 3 tuples
+  h_dropped_last <- ardmr:::.iv_set_hash(mk_iv(snps = c("rs1","rs2"),
+                                               chr  = c(1L, 2L),
+                                               pos  = c(100L, 200L),
+                                               ea   = c("A","C"),
+                                               oa   = c("G","T")))         # 2 tuples; same first
+  expect_false(identical(h_full, h_dropped_last))
+})
+
+test_that(".iv_set_hash differs when only the SECOND tuple changes", {
+  base <- mk_iv()                                          # 3 tuples
+  altered <- mk_iv(pos = c(100L, 999L, 300L))              # same 1st & 3rd, 2nd changed
+  expect_false(identical(ardmr:::.iv_set_hash(base),
+                         ardmr:::.iv_set_hash(altered)))
+})
+
 test_that(".iv_set_hash works with panukb_chrom/panukb_pos columns", {
   h_default <- ardmr:::.iv_set_hash(mk_iv())
   h_panukb  <- ardmr:::.iv_set_hash(mk_iv(cols = c("panukb_chrom","panukb_pos")))

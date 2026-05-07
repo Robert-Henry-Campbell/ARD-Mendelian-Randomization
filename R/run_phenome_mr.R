@@ -28,9 +28,40 @@
 #'   anything else triggers a hard error).
 #' @param acknowledge_no_coloc Set to `TRUE` to acknowledge that supplying
 #'   `exposure_snps` alone disables coloc. Required in that case.
-#' @param clump_opts Named list of preprocessing parameters (used in
-#'   `vcf_only` and `ieugwasr` modes): `p_threshold` (5e-8), `r2` (0.001),
-#'   `kb` (10000), `f_threshold` (10).
+#' @param clump_opts Named list of preprocessing parameters used by the
+#'   unified exposure-SNP preprocessing pipeline (see
+#'   [preprocess_exposure_snps()]). Applied to all input modes
+#'   (`snps_only`, `snps_vcf`, `vcf_only`, `ieugwasr`, `snps_id`) for
+#'   parity. Recognised fields:
+#'   \describe{
+#'     \item{`p_backoff`}{Numeric vector of p-value thresholds tried
+#'       strictest-first (default `c(5e-8, 5e-7, 5e-6)`). Replaces the
+#'       deprecated `p_threshold` scalar (silently translated with a
+#'       deprecation warning).}
+#'     \item{`r2`, `kb`}{LD clumping params (defaults `0.001`, `10000`).}
+#'     \item{`f_threshold`}{F-statistic minimum (default `10`).}
+#'     \item{`maf_min`}{Minimum minor-allele frequency (default `NULL` =
+#'       off); applied as `pmin(eaf, 1-eaf) >= maf_min`. Rows with `NA`
+#'       EAF are kept.}
+#'     \item{`info_min`}{Minimum INFO/imputation-quality score (default
+#'       `NULL` = off); auto-detects an `INFO`/`info`/`Rsq`/`R2`/`SI`
+#'       column. Rows with `NA` INFO are kept. The same threshold also
+#'       applies to coloc-region fetching when present.}
+#'     \item{`drop_indels`}{Drop variants where either allele is non-SNV
+#'       (`nchar > 1` or `-`/`D`/`I` codes). Default `TRUE`.}
+#'     \item{`drop_palindromic`}{Drop strand-ambiguous A/T or C/G pairs
+#'       (a `palindromic` column is added either way). Default `FALSE`.}
+#'     \item{`prefer_server_clump`}{For `ieugwasr` mode, use server-side
+#'       clumping via `extract_instruments`. Default `TRUE`.}
+#'     \item{`already_clumped`, `already_p_filtered`}{Caller hint that LD
+#'       clumping or p-value filtering have already been done upstream;
+#'       skips the corresponding local step. Defaults `FALSE`.}
+#'     \item{`preprocess`}{Master opt-out: when `FALSE`, no preprocessing
+#'       is applied (the input is passed through as-is). Default `TRUE`.}
+#'   }
+#'   The merged-and-applied list is recorded in `run_manifest.json` as
+#'   `clump_opts_resolved`; per-step `n_in`/`n_out` accounting is in
+#'   `preprocessing_steps`.
 #' @param coloc_window_kb Half-window (kb) around each IV used to build coloc
 #'   regions; overlapping windows are merged (default 500).
 #' @param coloc_priors Coloc priors `list(p1, p2, p12)` (defaults match coloc).
@@ -121,10 +152,16 @@ run_phenome_mr <- function(
     acknowledge_no_coloc = acknowledge_no_coloc,
     clump_opts         = clump_opts,
     cache_dir          = cache_dir,
+    confirm            = confirm,
     verbose            = verbose
   )
-  exposure_snps <- resolved$exposure_snps
+  exposure_snps       <- resolved$exposure_snps
+  clump_opts_resolved <- resolved$clump_opts_resolved
+  preprocessing_steps <- resolved$preprocessing_steps
   assert_exposure(exposure_snps)
+  if (NROW(exposure_snps) == 0L) {
+    stop(.format_zero_iv_error(preprocessing_steps), call. = FALSE)
+  }
   if (resolved$mode == "snps_only") {
     sensitivity_enabled <- setdiff(sensitivity_enabled, "coloc")
     if (verbose) logger::log_info("coloc-source: mode='snps_only'; coloc disabled for this run")
@@ -181,6 +218,8 @@ run_phenome_mr <- function(
     sensitivity_enabled  = sensitivity_enabled,
     sensitivity_pass_min = sensitivity_pass_min,
     clump_opts           = clump_opts,
+    clump_opts_resolved  = clump_opts_resolved,
+    preprocessing_steps  = preprocessing_steps,
     coloc                = list(window_kb = coloc_window_kb, priors = coloc_priors,
                                 skip_mhc = coloc_skip_mhc),
     multiple_testing_correction = Multiple_testing_correction,

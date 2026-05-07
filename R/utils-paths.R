@@ -92,7 +92,11 @@ variant_manifest_path <- function(catalog, cache_dir = ardmr_cache_dir()) {
   if (!nrow(df)) return(strrep("0", n))
   tuples <- sprintf("%s:%d:%s:%s", df$chr, df$pos, df$ea, df$oa)
   tuples <- sort(unique(tuples))
-  substr(digest::digest(tuples, algo = "xxhash64", serialize = FALSE), 1L, n)
+  # Collapse before hashing: digest(serialize = FALSE) on a character
+  # vector only hashes the first element, so multi-row IV sets that share
+  # a lexicographically-first tuple would otherwise alias to the same hash.
+  payload <- paste(tuples, collapse = "|")
+  substr(digest::digest(payload, algo = "xxhash64", serialize = FALSE), 1L, n)
 }
 
 #' Hash the inputs that determine a run's *outputs* into a short identifier.

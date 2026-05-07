@@ -64,6 +64,52 @@
   )
 }
 
+#' Format a `preprocessing_steps` list into a human-readable error message
+#' for the 0-IV case.
+#'
+#' Lists every recorded step with its `n_in -> n_out` and a marker on the
+#' first step that took the count from positive to zero. Falls back to a
+#' simpler message when no steps were recorded (e.g. preprocess = FALSE
+#' bypass).
+#' @keywords internal
+.format_zero_iv_error <- function(steps) {
+  if (!length(steps)) {
+    return(paste0(
+      "Preprocessing returned 0 instruments and no preprocessing steps were ",
+      "recorded (likely clump_opts$preprocess = FALSE or a bypassed mode). ",
+      "Check exposure input or re-enable preprocessing."
+    ))
+  }
+  killed <- NA_character_
+  fmt_step <- function(s) {
+    desc <- as.character(s$step %||% "?")
+    val_str <- ""
+    if (!is.null(s$value) && length(s$value) == 1L && !is.na(s$value)) {
+      val_str <- sprintf(" (%g)", s$value)
+    }
+    skip_str <- if (!is.null(s$skipped_reason)) sprintf(" [skipped: %s]", s$skipped_reason) else ""
+    n_in  <- if (is.null(s$n_in)) NA_integer_ else as.integer(s$n_in)
+    n_out <- if (is.null(s$n_out)) NA_integer_ else as.integer(s$n_out)
+    arrow <- ""
+    if (is.na(killed) && !is.na(n_in) && !is.na(n_out) && n_in > 0L && n_out == 0L) {
+      killed <<- desc
+      arrow <- "  <- everything dropped here"
+    }
+    sprintf("  %s%s: %d -> %d%s%s", desc, val_str, n_in, n_out, skip_str, arrow)
+  }
+  lines <- c(
+    "Preprocessing returned 0 instruments. Per-step counts:",
+    vapply(steps, fmt_step, character(1))
+  )
+  if (!is.na(killed)) {
+    lines <- c(lines, sprintf(
+      "Likely cause: '%s' step. Adjust clump_opts (e.g. drop_indels = FALSE, looser p_backoff/maf_min/info_min) or check input quality.",
+      killed
+    ))
+  }
+  paste(lines, collapse = "\n")
+}
+
 #' Translate deprecated `p_threshold` -> `p_backoff`, then merge with defaults.
 #'
 #' The `p_threshold` deprecation warning fires here; downstream callers can
