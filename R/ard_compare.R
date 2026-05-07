@@ -326,6 +326,7 @@ ard_compare <- function(
     run_phenome_mr(
       exposure = exposure,
       exposure_snps = info$exposure_snps,
+      exposure_sumstats = info$exposure_sumstats, ##note: claude told me to manually add this, could be mistake
       exposure_units = exposure_units,
       ancestry = info$ancestry,
       exposure_id = if (!is.null(info$exposure_id)) info$exposure_id else info$ieu_id,
@@ -336,7 +337,7 @@ ard_compare <- function(
       scatterplot = scatterplot,
       snpforestplot = snpforestplot,
       leaveoneoutplot = leaveoneoutplot,
-      acknowledge_no_coloc = is.null(info$exposure_id) && is.null(info$ieu_id),
+      acknowledge_no_coloc = is.null(info$exposure_id) && is.null(info$ieu_id) && is.null(info$exposure_sumstats), ##note: claude told me to manually modify this, could be miistake
       clump_opts = clump_opts,
       cache_dir = cache_dir,
       logfile = logfile,

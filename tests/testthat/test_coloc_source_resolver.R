@@ -383,6 +383,10 @@ test_that("ieugwasr backoff (opt-in): 0 at strictest, hits at next rung -> calle
     .package = "TwoSampleMR"
   )
   testthat::local_mocked_bindings(
+    tophits = function(id, p = NULL, pval = NULL, ...) NULL,
+    .package = "ieugwasr"
+  )
+  testthat::local_mocked_bindings(
     coloc_fetch_metadata = function(exposure_id, ...) mk_fake_meta()
   )
   cap <- new.env()
