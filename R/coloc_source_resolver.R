@@ -12,6 +12,24 @@
 #'   - "snps_id"     : SNPs as IVs (already filtered) + id for coloc only.
 #'                     Allowed but warns; primarily for ard_compare's
 #'                     PheWAS-filtered flow.
+#'
+#' All modes route their IV tibble through [preprocess_exposure_snps()] for
+#' a single, unified exposure-SNP preprocessing pipeline. The `ieugwasr`
+#' branch handles the p-value backoff ladder at the source-fetch layer
+#' (fetching unclumped via `extract_instruments(clump = FALSE)` or
+#' `tophits` per rung) and passes `already_p_filtered = TRUE,
+#' already_clumped = FALSE` to the preprocessor. Local LD clumping then
+#' runs against the ancestry-aware 1kg.v3 panel inside
+#' `preprocess_exposure_snps`. The `snps_*` modes leave both flags
+#' FALSE so the preprocessor walks the ladder itself by re-filtering
+#' the input tibble.
+#'
+#' @return list(mode, exposure_snps, coloc_fetcher, coloc_metadata,
+#'   clump_opts_resolved, preprocessing_steps).
+#'   `preprocessing_steps` is a list (may be empty when
+#'   `clump_opts$preprocess = FALSE` or for `vcf_only` whose
+#'   `clump_sumstats_to_ivs` runs the preprocessor internally and
+#'   returns just the SNPs).
 #' @keywords internal
 .resolve_coloc_source <- function(exposure_snps = NULL,
                                   exposure_sumstats = NULL,
@@ -21,6 +39,7 @@
                                   acknowledge_no_coloc = FALSE,
                                   clump_opts = list(),
                                   cache_dir = ardmr_cache_dir(),
+                                  confirm = "ask",
                                   verbose = TRUE) {
   has_snps <- !is.null(exposure_snps) && NROW(exposure_snps) > 0
   has_vcf  <- !is.null(exposure_sumstats) && nzchar(as.character(exposure_sumstats))
@@ -34,8 +53,60 @@
          call. = FALSE)
   }
 
-  defaults <- list(p_threshold = 5e-8, r2 = 0.001, kb = 10000L, f_threshold = 10)
-  co <- utils::modifyList(defaults, clump_opts)
+  # Single source of truth for defaults + p_threshold deprecation.
+  co <- .resolve_clump_opts(clump_opts)
+
+  # Clumping always runs locally against the ancestry-aware 1kg.v3
+  # panel (Job 4). The previous prefer_server_clump branch was removed
+  # because OpenGWAS's server-side clumping uses its default (EUR) LD
+  # panel regardless of the requested ancestry.
+
+  # Helper: invoke preprocess (or bypass when co$preprocess = FALSE) and
+  # build the per-mode return list.
+  #
+  # `already_p_filtered` / `already_clumped` are RESOLVER-SIDE hints
+  # (facts about what the resolver itself just did). They are merged
+  # with the user's clump_opts via OR: skip the corresponding local
+  # step if EITHER the resolver did it (per-mode hint TRUE) OR the
+  # caller signalled it was done upstream (clump_opts$already_X = TRUE).
+  # Previously these args UNCONDITIONALLY overwrote the user's values,
+  # so ard_compare's `already_clumped = TRUE` was silently discarded
+  # for snps_id mode and the unified preprocessor re-clumped already-
+  # clumped SNPs.
+  finalize <- function(mode, snps, coloc_fetcher, coloc_metadata,
+                       already_p_filtered = FALSE, already_clumped = FALSE) {
+    if (!isTRUE(co$preprocess)) {
+      return(list(
+        mode                = mode,
+        exposure_snps       = tibble::as_tibble(snps),
+        coloc_fetcher       = coloc_fetcher,
+        coloc_metadata      = coloc_metadata,
+        clump_opts_resolved = co,
+        preprocessing_steps = list()
+      ))
+    }
+    mode_opts <- co
+    mode_opts$already_p_filtered <-
+      isTRUE(co$already_p_filtered) || isTRUE(already_p_filtered)
+    mode_opts$already_clumped    <-
+      isTRUE(co$already_clumped)    || isTRUE(already_clumped)
+    pp <- preprocess_exposure_snps(
+      snps_tbl   = snps,
+      clump_opts = mode_opts,
+      ancestry   = ancestry,
+      cache_dir  = cache_dir,
+      confirm    = confirm,
+      verbose    = verbose
+    )
+    list(
+      mode                = mode,
+      exposure_snps       = pp$snps,
+      coloc_fetcher       = coloc_fetcher,
+      coloc_metadata      = coloc_metadata,
+      clump_opts_resolved = pp$resolved_opts,
+      preprocessing_steps = pp$steps
+    )
+  }
 
   # Mode: snps_only
   if (has_snps && !has_vcf && !has_id) {
@@ -44,50 +115,59 @@
            "coloc cannot run. Pass acknowledge_no_coloc = TRUE to proceed without coloc.",
            call. = FALSE)
     }
-    return(list(mode = "snps_only", exposure_snps = exposure_snps,
-                coloc_fetcher = NULL, coloc_metadata = NULL))
+    return(finalize("snps_only", exposure_snps, NULL, NULL))
   }
 
   # Mode: snps_vcf
   if (has_snps && has_vcf) {
     validate_gwasvcf(exposure_sumstats, genome_build)
-    return(list(
-      mode = "snps_vcf", exposure_snps = exposure_snps,
-      coloc_fetcher = .vcf_fetcher(exposure_sumstats, genome_build, verbose),
+    return(finalize(
+      "snps_vcf", exposure_snps,
+      coloc_fetcher  = .vcf_fetcher(exposure_sumstats, genome_build,
+                                    co$info_min, verbose),
       coloc_metadata = read_gwasvcf_metadata(exposure_sumstats, genome_build)
     ))
   }
 
   # Mode: vcf_only
+  # clump_sumstats_to_ivs (Job 2b refactor) now delegates to
+  # preprocess_exposure_snps internally. Pass the resolved clump_opts so
+  # the unified pipeline (with the same defaults this resolver uses) runs
+  # against the VCF-derived IVs. The vcf_only branch does NOT layer an
+  # additional preprocess pass on top -- preprocessing_steps is empty
+  # here because it lives inside clump_sumstats_to_ivs.
   if (has_vcf) {
     validate_gwasvcf(exposure_sumstats, genome_build)
     snps <- clump_sumstats_to_ivs(
-      vcf_path = exposure_sumstats, ancestry = ancestry,
-      p_threshold = co$p_threshold, r2 = co$r2, kb = co$kb,
-      f_threshold = co$f_threshold, genome_build = genome_build,
-      cache_dir = cache_dir, verbose = verbose
+      vcf_path     = exposure_sumstats,
+      ancestry     = ancestry,
+      clump_opts   = co,
+      genome_build = genome_build,
+      cache_dir    = cache_dir,
+      confirm      = confirm,
+      verbose      = verbose
     )
-    if (!nrow(snps)) {
-      stop("clump_sumstats_to_ivs() returned 0 IVs at p<", co$p_threshold,
-           ", r2<", co$r2, ", F>=", co$f_threshold, call. = FALSE)
-    }
     return(list(
-      mode = "vcf_only", exposure_snps = snps,
-      coloc_fetcher = .vcf_fetcher(exposure_sumstats, genome_build, verbose),
-      coloc_metadata = read_gwasvcf_metadata(exposure_sumstats, genome_build)
+      mode                = "vcf_only",
+      exposure_snps       = tibble::as_tibble(snps),
+      coloc_fetcher       = .vcf_fetcher(exposure_sumstats, genome_build,
+                                         co$info_min, verbose),
+      coloc_metadata      = read_gwasvcf_metadata(exposure_sumstats, genome_build),
+      clump_opts_resolved = co,
+      preprocessing_steps = list()
     ))
   }
 
-  # Mode: snps_id (advanced — PheWAS-filtered IVs + id for coloc)
+  # Mode: snps_id (advanced -- PheWAS-filtered IVs + id for coloc)
   if (has_snps && has_id) {
     if (verbose) {
       logger::log_warn(
         "Both exposure_snps and exposure_id provided: using snps as IVs, id for coloc only."
       )
     }
-    return(list(
-      mode = "snps_id", exposure_snps = exposure_snps,
-      coloc_fetcher = .ieugwasr_fetcher(exposure_id, cache_dir, verbose),
+    return(finalize(
+      "snps_id", exposure_snps,
+      coloc_fetcher  = .ieugwasr_fetcher(exposure_id, cache_dir, verbose),
       coloc_metadata = coloc_fetch_metadata(exposure_id, cache_dir, verbose)
     ))
   }
@@ -96,34 +176,99 @@
   if (!requireNamespace("TwoSampleMR", quietly = TRUE)) {
     stop("Mode 'ieugwasr' requires the TwoSampleMR package.", call. = FALSE)
   }
-  if (verbose) logger::log_info("coloc-source: extract_instruments({exposure_id})")
-  ivs <- tryCatch(
-    TwoSampleMR::extract_instruments(
-      outcomes = exposure_id, p1 = co$p_threshold,
-      clump = TRUE, r2 = co$r2, kb = co$kb
-    ),
-    error = function(e) { logger::log_warn("extract_instruments failed: {conditionMessage(e)}"); NULL }
+  ivs <- .ieugwasr_extract_with_backoff(
+    exposure_id = exposure_id, co = co, verbose = verbose
   )
-  if (is.null(ivs) || !nrow(ivs)) {
-    stop("extract_instruments(", exposure_id, ") returned no IVs at p<",
-         co$p_threshold, call. = FALSE)
+  if (is.null(ivs) || !nrow(ivs)) ivs <- .empty_exposure_tbl()
+  return(finalize(
+    "ieugwasr", ivs,
+    coloc_fetcher      = .ieugwasr_fetcher(exposure_id, cache_dir, verbose),
+    coloc_metadata     = coloc_fetch_metadata(exposure_id, cache_dir, verbose),
+    already_p_filtered = TRUE,
+    already_clumped    = FALSE  # local clump always runs in preprocess
+  ))
+}
+
+# ---- ieugwasr extraction with p-value backoff at the source layer --------
+
+#' Fetch unclumped instruments from OpenGWAS, walking the p_backoff
+#' ladder strictest-first.
+#'
+#' Always fetches WITHOUT server-side clumping so the unified
+#' preprocessor can clump locally against the ancestry-aware 1kg.v3
+#' panel. Falls back from `extract_instruments(clump = FALSE)` to
+#' `safe_tophits()` when the former fails.
+#' @keywords internal
+.ieugwasr_extract_with_backoff <- function(exposure_id, co, verbose = TRUE) {
+  rungs <- as.numeric(co$p_backoff)
+  for (rung in rungs) {
+    if (verbose) {
+      logger::log_info(
+        "coloc-source: extract_instruments({exposure_id}) at p<{rung} (clump=FALSE; local clump downstream)"
+      )
+    }
+    ivs <- tryCatch(
+      TwoSampleMR::extract_instruments(
+        outcomes = exposure_id, p1 = rung, clump = FALSE
+      ),
+      error = function(e) {
+        logger::log_warn(
+          "extract_instruments failed at p<{rung}: {conditionMessage(e)}; falling back to tophits()"
+        )
+        NULL
+      }
+    )
+    if (is.null(ivs) || !NROW(ivs)) {
+      th <- safe_tophits(exposure_id, rung)
+      if (!is.null(th) && nrow(th)) ivs <- .tophits_to_tsmr(th, exposure_id)
+    }
+    if (!is.null(ivs) && NROW(ivs) > 0L) {
+      if (verbose) {
+        logger::log_info(
+          "coloc-source: {nrow(ivs)} IVs from {exposure_id} at p<{rung} (pre-clump)"
+        )
+      }
+      return(tibble::as_tibble(ivs))
+    }
   }
-  if (all(c("beta.exposure", "se.exposure") %in% names(ivs))) {
-    Fstat <- (ivs$beta.exposure / ivs$se.exposure) ^ 2
-    ivs <- ivs[is.finite(Fstat) & Fstat >= co$f_threshold, , drop = FALSE]
+  if (verbose) {
+    logger::log_warn(
+      "coloc-source: no IVs from {exposure_id} across p_backoff = ({paste(rungs, collapse=', ')})"
+    )
   }
-  list(
-    mode = "ieugwasr", exposure_snps = tibble::as_tibble(ivs),
-    coloc_fetcher = .ieugwasr_fetcher(exposure_id, cache_dir, verbose),
-    coloc_metadata = coloc_fetch_metadata(exposure_id, cache_dir, verbose)
+  NULL
+}
+
+#' Convert an `ieugwasr::tophits` tibble to TwoSampleMR-shaped exposure SNPs.
+#' @keywords internal
+.tophits_to_tsmr <- function(th, exposure_id) {
+  pick <- function(nms, default = NA) {
+    hit <- intersect(nms, names(th))
+    if (!length(hit)) return(rep(default, nrow(th)))
+    th[[hit[1]]]
+  }
+  tibble::tibble(
+    SNP                    = as.character(pick(c("rsid", "SNP"))),
+    id.exposure            = as.character(exposure_id),
+    exposure               = as.character(exposure_id),
+    effect_allele.exposure = toupper(as.character(pick(c("ea", "effect_allele")))),
+    other_allele.exposure  = toupper(as.character(pick(c("nea", "other_allele")))),
+    beta.exposure          = suppressWarnings(as.numeric(pick(c("beta", "es")))),
+    se.exposure            = suppressWarnings(as.numeric(pick(c("se")))),
+    eaf.exposure           = suppressWarnings(as.numeric(pick(c("eaf", "af")))),
+    pval.exposure          = suppressWarnings(as.numeric(pick(c("p", "pval")))),
+    samplesize.exposure    = suppressWarnings(as.numeric(pick(c("n", "samplesize"))))
   )
 }
 
-.vcf_fetcher <- function(vcf_path, genome_build, verbose) {
-  force(vcf_path); force(genome_build); force(verbose)
+.vcf_fetcher <- function(vcf_path, genome_build, info_min, verbose) {
+  force(vcf_path); force(genome_build); force(info_min); force(verbose)
+  effective_info_min <- if (is.null(info_min)) 0.8 else info_min
   function(chr, start, end) {
     read_gwasvcf_region(vcf_path, chr, start, end,
-                        genome_build = genome_build, verbose = verbose)
+                        genome_build = genome_build,
+                        info_min = effective_info_min,
+                        verbose = verbose)
   }
 }
 

@@ -130,6 +130,23 @@ Additional metadata columns (sample size, eaf, etc.) are retained and
 propagated when available. Use `exposure_snp_mapper()` prior to MR runs if you
 need access to provider-specific chromosome/position columns.
 
+### Unified preprocessing
+
+Whichever way you supply the exposure -- pre-curated SNPs, an OpenGWAS id,
+or a tabix-indexed GWAS-VCF -- `run_phenome_mr()` runs the same
+preprocessing pipeline in this order: p-value -> rsid validate ->
+drop indels -> MAF -> INFO -> palindromic drop -> LD clumping ->
+F-statistic. Data-quality filters precede LD clumping so a
+clump-elected lead SNP that fails any of them does not cost the
+entire locus. Clumping always runs locally against the
+ancestry-aware 1kg.v3 panel. The full parameter list lives in
+`?run_phenome_mr` under `clump_opts`; per-step counts and the
+merged-and-applied options are recorded in `run_manifest.json`
+(`preprocessing_steps`, `clump_opts_resolved`). The default p-value
+threshold is genome-wide-significant (`5e-8`); pass
+`clump_opts$p_backoff = c(5e-8, 5e-7, 5e-6)` to opt into a backoff
+ladder for batch flows.
+
 ## Quick start
 
 ```r

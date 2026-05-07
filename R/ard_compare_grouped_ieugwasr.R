@@ -7,6 +7,13 @@
 #' @param jwt IEU JWT string; defaults to IEU_JWT/OPENGWAS_JWT env vars
 #' @param prompt_for_units If TRUE, interactively prompt for missing units; otherwise stop on missing units
 #' @param p_threshold Genome-wide significance threshold for instrument extraction (default 5e-8)
+#' @param p_backoff Optional numeric vector of p-value rungs tried
+#'   strictest-first during per-row instrument extraction. Default
+#'   `NULL` -> single rung `c(p_threshold)` (does NOT silently relax
+#'   genome-wide significance). Pass an explicit ladder such as
+#'   `c(5e-8, 5e-7, 5e-6)` to accept progressively weaker instruments
+#'   for exposures that have no GWAS-significant SNPs. The chosen
+#'   ladder is recorded in the run manifest's `clump_opts_resolved`.
 #' @param phenoscanner Logical; if TRUE, run a Phenoscanner lookup after the
 #'   PheWAS filter for additional exclusion screening (default FALSE)
 #' @param phenoscanner_pval P-value threshold used when querying Phenoscanner for
@@ -38,6 +45,9 @@ run_ieugwasr_ard_compare <- function(
 
     prompt_for_units = interactive(),
     p_threshold    = 5e-8,
+    p_backoff      = NULL,   # NULL -> single rung c(p_threshold). Pass
+                              # e.g. c(5e-8, 5e-7, 5e-6) for the old
+                              # batch-friendly relaxation.
     phenoscanner = FALSE,
     phenoscanner_pval = 5e-8,
     phewas_pval = 5e-8,
@@ -62,14 +72,8 @@ run_ieugwasr_ard_compare <- function(
   Sys.setenv(OPENGWAS_JWT = jwt)
 
   # ---- helpers ----
-  is_rsid <- function(x) !is.na(x) & grepl("^rs\\d+$", x)
-
-  palindrome_flag <- function(a1, a2) {
-    a1 <- toupper(a1); a2 <- toupper(a2)
-    (a1=="A"&a2=="T")|(a1=="T"&a2=="A")|(a1=="C"&a2=="G")|(a1=="G"&a2=="C")
-  }
-
-  f_stat <- function(beta, se) (beta/se)^2
+  # is_rsid, palindrome_flag, f_stat now live in R/utils-snp.R; calls below
+  # resolve to the package-level versions via lexical scoping.
 
   safe_chr <- function(x) {
     x <- trimws(as.character(x))
@@ -840,129 +844,87 @@ run_ieugwasr_ard_compare <- function(
     out
   }
 
-  # ---- p-value backoff ladder ----
-  p_backoff <- c(p_threshold, 5e-7, 5e-6) |> unique()
+  # ---- p-value ladder (single rung default; opt-in expansion) ----
+  # Default behavior: single-rung c(p_threshold). Users opt into the
+  # backoff ladder by passing `p_backoff = c(5e-8, 5e-7, 5e-6)` (or
+  # whatever rungs they want) to run_ieugwasr_ard_compare. This matches
+  # the discipline-standard "don't silently relax genome-wide
+  # significance" default (Job 4).
+  p_backoff <- if (is.null(p_backoff)) c(p_threshold) else as.numeric(p_backoff)
 
-  # instrument extraction + F filtering with ancestry-aware fallback + p backoff
-  # ALWAYS clumps before returning
+  # Instrument extraction with ancestry-aware LOCAL clumping.
+  # Job 4 refactor: fetch unclumped via extract_instruments(clump = FALSE)
+  # (or safe_tophits as fallback), then route through the unified
+  # preprocess_exposure_snps for local clumping + indel/MAF/INFO/
+  # palindromic/F-stat filters. The previous server-clumped path used
+  # OpenGWAS's default (typically EUR) LD panel even when the user
+  # requested AFR/EAS/SAS; local clumping with ld_pop_from_ancestry()
+  # fixes that.
   get_instruments <- function(ieu_id, ancestry) {
-    ld_pop <- ld_pop_from_ancestry(ancestry)
-
-    # helper: robust tophits across ieugwasr versions (p vs pval)
-    safe_tophits <- function(id, thr) {
-      th <- try(ieugwasr::tophits(id = id, p = thr), silent = TRUE)
-      if (inherits(th, "try-error") || !is.data.frame(th)) {
-        th <- try(ieugwasr::tophits(id = id, pval = thr), silent = TRUE)
-      }
-      if (inherits(th, "try-error") || !is.data.frame(th)) return(NULL)
-      if (!nrow(th)) return(th[0, ])
-      if (!"p" %in% names(th) && "pval" %in% names(th)) th$p <- th$pval
-      th
-    }
-
-    # helper: self-clump a table that has rsids + p-values, then subset original
-    # helper: self-clump a table that has rsids + p-values, then subset original
-    self_clump <- function(tbl, rs_col = "SNP", p_col = NULL) {
-      # pick a p-value column if not provided
-      if (is.null(p_col)) {
-        p_col <- pick_colname(tbl, c("p","pval","pval.exposure","pval.outcome"), TRUE, "p-value")
-      }
-
-      # build library for clumping
-      lib <- tbl |>
-        dplyr::transmute(rsid = .data[[rs_col]], p = .data[[p_col]]) |>
-        dplyr::filter(is.finite(.data$p), !is.na(.data$rsid)) |>
-        dplyr::distinct()
-
-      # if 0 or 1 SNPs, just return the input (no clumping possible/needed)
-      if (!nrow(lib) || nrow(lib) == 1L) {
-        return(tbl)
-      }
-
-      cl <- with_backoff(ieugwasr::ld_clump(lib, pop = ld_pop, r2 = r2, kb = kb))
-      if (inherits(cl, "try-error") || !is.data.frame(cl) || !nrow(cl)) {
-        warning(sprintf("ld_clump() failed/empty for %s (pop=%s). Proceeding UNCLUMPED.", ieu_id, ld_pop))
-        return(tbl)
-      }
-
-      # correct key mapping: keep rows in tbl whose rs_col matches cl$rsid
-      dplyr::semi_join(tbl, cl, by = setNames("rsid", rs_col))
-    }
-
-
     for (pthr in p_backoff) {
-      message(sprintf("[ID=%s] Trying instrument extraction at p<=%.0e …", ieu_id, pthr))
+      message(sprintf("[ID=%s] Trying instrument extraction at p<=%.0e ...", ieu_id, pthr))
 
-      # ---- 1) Standard path: already clumped by API ----
+      # ---- 1) Fetch UNCLUMPED instruments at this rung ----
       ins <- with_backoff(
-        TwoSampleMR::extract_instruments(outcomes = ieu_id, p1 = pthr, clump = TRUE, r2 = r2, kb = kb)
+        TwoSampleMR::extract_instruments(outcomes = ieu_id, p1 = pthr, clump = FALSE)
       )
 
-      # If that fails or returns 0 rows, try unclumped then self-clump
+      # ---- 2) Fallback: ieugwasr::tophits() converted to TSMR shape ----
       if (inherits(ins, "try-error") || !nrow(ins)) {
         if (inherits(ins, "try-error")) {
-          message(sprintf("[ID=%s] extract_instruments(clump=TRUE) errored at p<=%.0e; retrying clump=FALSE + self-clump …", ieu_id, pthr))
+          message(sprintf("[ID=%s] extract_instruments(clump=FALSE) errored at p<=%.0e; trying tophits() ...", ieu_id, pthr))
         } else {
-          message(sprintf("[ID=%s] No SNPs via extract_instruments(clump=TRUE) at p<=%.0e; retrying clump=FALSE + self-clump …", ieu_id, pthr))
+          message(sprintf("[ID=%s] No SNPs via extract_instruments at p<=%.0e; trying tophits() ...", ieu_id, pthr))
         }
-        ins <- with_backoff(
-          TwoSampleMR::extract_instruments(outcomes = ieu_id, p1 = pthr, clump = FALSE)
-        )
-        if (!inherits(ins, "try-error") && nrow(ins)) {
-          pcol_try <- if ("pval" %in% names(ins)) "pval" else if ("pval.exposure" %in% names(ins)) "pval.exposure" else NULL
-          ins <- self_clump(ins, rs_col = "SNP", p_col = pcol_try)
-        }
-      }
-
-      # ---- 2) Fallback to tophits + self-clump ----
-      if (inherits(ins, "try-error") || !nrow(ins)) {
-        message(sprintf("[ID=%s] Falling back to ieugwasr::tophits() at p<=%.0e …", ieu_id, pthr))
         th <- safe_tophits(ieu_id, pthr)
-        if (is.null(th)) {
-          message(sprintf("[ID=%s] tophits error at p<=%.0e; continuing backoff …", ieu_id, pthr))
+        if (is.null(th) || !nrow(th)) {
+          message(sprintf("[ID=%s] tophits empty/error at p<=%.0e; continuing backoff ...", ieu_id, pthr))
           next
         }
-        if (!nrow(th)) {
-          message(sprintf("[ID=%s] No SNPs at p<=%.0e; continuing backoff …", ieu_id, pthr))
-          next
-        }
-        thc <- self_clump(th, rs_col = "rsid", p_col = "p")
-        ins <- dplyr::transmute(
-          thc,
-          SNP           = .data$rsid,
-          effect_allele = .data$ea,
-          other_allele  = .data$oa,
-          eaf           = .data$eaf,
-          beta          = .data$beta,
-          se            = .data$se,
-          pval          = .data$p
-        )
+        ins <- .tophits_to_tsmr(th, ieu_id)
       }
 
-      # ---- 3) F filter (robust to column name variants) ----
-      beta_nm <- if ("beta" %in% names(ins)) "beta" else if ("beta.exposure" %in% names(ins)) "beta.exposure" else NA_character_
-      se_nm   <- if ("se"   %in% names(ins)) "se"   else if ("se.exposure"   %in% names(ins)) "se.exposure"   else NA_character_
-      if (is.na(beta_nm) || is.na(se_nm)) {
-        message(sprintf("[ID=%s] Missing beta/se at p<=%.0e; continuing backoff …", ieu_id, pthr))
-        next
-      }
-      ins$F_tmp <- (ins[[beta_nm]] / ins[[se_nm]])^2
-      ins <- dplyr::filter(ins, is.finite(.data$F_tmp), .data$F_tmp >= f_threshold) |>
-        dplyr::select(-.data$F_tmp)
+      # ---- 3) Local clump + F-stat + indel/palindromic via the unified
+      #         preprocess_exposure_snps. p-value already filtered by the
+      #         server fetch above.
+      pp <- preprocess_exposure_snps(
+        snps_tbl   = ins,
+        clump_opts = list(
+          p_backoff          = c(pthr),
+          r2                 = r2,
+          kb                 = kb,
+          f_threshold        = f_threshold,
+          drop_indels        = TRUE,
+          drop_palindromic   = FALSE,
+          already_p_filtered = TRUE,
+          already_clumped    = FALSE
+        ),
+        ancestry  = ancestry,
+        cache_dir = cache_dir,
+        confirm   = "yes",   # batch flow; assume LD reference is downloadable
+        verbose   = FALSE
+      )
+      ins <- pp$snps
+
       if (!nrow(ins)) {
-        message(sprintf("[ID=%s] All SNPs dropped by F-stat (>= %g) at p<=%.0e; continuing backoff …", ieu_id, f_threshold, pthr))
+        message(sprintf(
+          "[ID=%s] All SNPs dropped by preprocess at p<=%.0e (likely F-stat or clump); continuing backoff ...",
+          ieu_id, pthr
+        ))
         next
       }
 
       # ---- 4) Annotate chr/pos and return ----
       ins <- annotate_chrpos(ins)
-      message(sprintf("[ID=%s] SUCCESS at p<=%.0e: %d clumped SNPs retained (F>=%.1f).", ieu_id, pthr, nrow(ins), f_threshold))
+      message(sprintf("[ID=%s] SUCCESS at p<=%.0e: %d locally-clumped SNPs retained (F>=%.1f).",
+                      ieu_id, pthr, nrow(ins), f_threshold))
       attr(ins, "p_used") <- pthr
       return(ins)
     }
 
     # If we reach here, nothing found across the ladder
-    message(sprintf("[ID=%s] FAILED after backoff (5e-08 → 5e-07 → 5e-06). Skipping.", ieu_id))
+    rungs_str <- paste(sprintf("%.0e", p_backoff), collapse = " -> ")
+    message(sprintf("[ID=%s] FAILED after backoff (%s). Skipping.", ieu_id, rungs_str))
     return(tibble::tibble())
   }
 
@@ -1074,11 +1036,24 @@ run_ieugwasr_ard_compare <- function(
         exposure_snps        = snps_df,
         exposure_id          = ieu_id,
         sensitivity_pass_min = sensitivity_pass_min,
-        clump_opts           = list(r2 = r2, kb = kb, p_threshold = p_threshold)
+        # Complete clump_opts (incl. f_threshold, p_backoff, and the
+        # ard_compare-side already_* flags) so the cache key reflects
+        # every parameter actually used downstream by run_phenome_mr.
+        clump_opts           = list(
+          r2                  = r2,
+          kb                  = kb,
+          p_threshold         = p_threshold,
+          p_backoff           = p_backoff,
+          f_threshold         = f_threshold,
+          already_clumped     = TRUE,
+          already_p_filtered  = TRUE
+        )
       )
       message(sprintf(
-        "[ardmr][%s] run_hash = %s (r2=%g, kb=%g, p=%.0e, sens_min=%d)",
-        ieu_id, run_hash, r2, kb, p_threshold, sensitivity_pass_min
+        "[ardmr][%s] run_hash = %s (r2=%g, kb=%g, p=%.0e, ladder=[%s], F>=%g, sens_min=%d)",
+        ieu_id, run_hash, r2, kb, p_threshold,
+        paste(sprintf("%.0e", p_backoff), collapse = ","),
+        f_threshold, sensitivity_pass_min
       ))
 
       patterns_info <- parse_phenoscanner_patterns(r$phenoscanner_exclusions)
@@ -1364,6 +1339,19 @@ run_ieugwasr_ard_compare <- function(
           scatterplot                 = TRUE,
           snpforestplot               = TRUE,
           leaveoneoutplot             = TRUE,
+          # SNPs reaching ard_compare have already been LOCALLY clumped
+          # (Job 4) and walked through the p-value ladder by
+          # get_instruments(); tell the unified preprocessor not to
+          # repeat that work. We still thread `p_backoff` so the cache
+          # key downstream reflects the ladder we used.
+          clump_opts                  = list(
+            already_clumped    = TRUE,
+            already_p_filtered = TRUE,
+            f_threshold        = f_threshold,
+            r2                 = r2,
+            kb                 = kb,
+            p_backoff          = p_backoff
+          ),
           cache_dir                   = cache_dir,
           logfile                     = NULL,
           verbose                     = TRUE,

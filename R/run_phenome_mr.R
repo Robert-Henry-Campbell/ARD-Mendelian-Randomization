@@ -28,9 +28,55 @@
 #'   anything else triggers a hard error).
 #' @param acknowledge_no_coloc Set to `TRUE` to acknowledge that supplying
 #'   `exposure_snps` alone disables coloc. Required in that case.
-#' @param clump_opts Named list of preprocessing parameters (used in
-#'   `vcf_only` and `ieugwasr` modes): `p_threshold` (5e-8), `r2` (0.001),
-#'   `kb` (10000), `f_threshold` (10).
+#' @param clump_opts Named list of preprocessing parameters used by the
+#'   unified exposure-SNP preprocessing pipeline (see
+#'   [preprocess_exposure_snps()]). Applied to all input modes
+#'   (`snps_only`, `snps_vcf`, `vcf_only`, `ieugwasr`, `snps_id`) for
+#'   parity. The pipeline runs in this order: p-value -> rsid validate
+#'   -> drop indels -> MAF -> INFO -> palindromic -> LD clumping ->
+#'   F-stat. Data-quality filters precede clumping so a clump-elected
+#'   lead SNP that fails one of them does not cost the entire locus.
+#'   Recognised fields:
+#'   \describe{
+#'     \item{`p_backoff`}{Numeric vector of p-value thresholds tried
+#'       strictest-first. Default `c(5e-8)` (single rung); pass a
+#'       multi-element vector to enable a backoff ladder
+#'       (e.g. `c(5e-8, 5e-7, 5e-6)`). Replaces the deprecated
+#'       `p_threshold` scalar (silently translated with a deprecation
+#'       warning).}
+#'     \item{`r2`, `kb`}{LD clumping params (defaults `0.001`, `10000`).
+#'       Clumping is always local against the ancestry-aware 1kg.v3
+#'       panel.}
+#'     \item{`f_threshold`}{F-statistic minimum (default `10`). Runs
+#'       AFTER clumping (per-SNP, no locus loss).}
+#'     \item{`maf_min`}{Minimum minor-allele frequency. Default `0.01`
+#'       (1%, standard MR practice); applied as `pmin(eaf, 1-eaf) >=
+#'       maf_min`. Pass `NULL` to disable. Rows with `NA` EAF are
+#'       kept; the step is automatically skipped when the
+#'       `eaf.exposure` column is missing.}
+#'     \item{`info_min`}{Minimum INFO/imputation-quality score (default
+#'       `NULL` = off); auto-detects an `SI`/`Rsq`/`R2`/`INFO`/`info`
+#'       column (SI/Rsq/R2 take priority because in real GWAS-VCF data
+#'       the `INFO` column is typically the raw `;`-separated VCF INFO
+#'       blob, not a numeric score). Rows with `NA` INFO are kept. The
+#'       same threshold also applies to coloc-region fetching.}
+#'     \item{`drop_indels`}{Drop variants where either allele is non-SNV
+#'       (`nchar > 1` or `-`/`D`/`I` codes). Default `TRUE`.}
+#'     \item{`drop_palindromic`}{Drop AMBIGUOUS palindromic SNPs
+#'       (A/T or C/G pairs AND `eaf in [0.42, 0.58]`).
+#'       Strand-resolvable palindromes (extreme EAF) are kept for
+#'       downstream `harmonise_data` to align from EAF. The
+#'       preprocessor does NOT add a `palindromic` column;
+#'       TwoSampleMR's harmonise computes its own. Default `FALSE`.}
+#'     \item{`already_clumped`, `already_p_filtered`}{Caller hint that LD
+#'       clumping or p-value filtering have already been done upstream;
+#'       skips the corresponding local step. Defaults `FALSE`.}
+#'     \item{`preprocess`}{Master opt-out: when `FALSE`, no preprocessing
+#'       is applied (the input is passed through as-is). Default `TRUE`.}
+#'   }
+#'   The merged-and-applied list is recorded in `run_manifest.json` as
+#'   `clump_opts_resolved`; per-step `n_in`/`n_out` accounting is in
+#'   `preprocessing_steps`.
 #' @param coloc_window_kb Half-window (kb) around each IV used to build coloc
 #'   regions; overlapping windows are merged (default 500).
 #' @param coloc_priors Coloc priors `list(p1, p2, p12)` (defaults match coloc).
@@ -56,7 +102,13 @@
 #'   resulting multiple-testing thresholds, p-values, and enrichment p-values
 #'   are NOT scientifically valid. Default `NULL` (no truncation).
 #'
-#' @return A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
+#' @return A list: `MR_df`, `results_df`, `manhattan` (ggplot),
+#'   `volcano` (ggplot). When preprocessing strips every IV, the
+#'   function emits a `logger::log_warn` (not an error), still writes
+#'   the run manifest so the user can inspect per-step counts, and
+#'   returns
+#'   `list(MR_df = tibble(), results_df = tibble(), manhattan = NULL,
+#'   volcano = NULL, run_dir = <plot_output_dir>, status = "no_ivs")`.
 #' @export
 run_phenome_mr <- function(
     exposure,
@@ -121,10 +173,18 @@ run_phenome_mr <- function(
     acknowledge_no_coloc = acknowledge_no_coloc,
     clump_opts         = clump_opts,
     cache_dir          = cache_dir,
+    confirm            = confirm,
     verbose            = verbose
   )
-  exposure_snps <- resolved$exposure_snps
+  exposure_snps       <- resolved$exposure_snps
+  clump_opts_resolved <- resolved$clump_opts_resolved
+  preprocessing_steps <- resolved$preprocessing_steps
   assert_exposure(exposure_snps)
+  # 0-IV is no longer fatal (Job 4): we still build the run dir + write
+  # the manifest so the user can inspect what happened, then warn and
+  # return an empty result list with status = "no_ivs". The actual
+  # warn+return happens after the manifest is written, below.
+  no_ivs <- (NROW(exposure_snps) == 0L)
   if (resolved$mode == "snps_only") {
     sensitivity_enabled <- setdiff(sensitivity_enabled, "coloc")
     if (verbose) logger::log_info("coloc-source: mode='snps_only'; coloc disabled for this run")
@@ -181,6 +241,8 @@ run_phenome_mr <- function(
     sensitivity_enabled  = sensitivity_enabled,
     sensitivity_pass_min = sensitivity_pass_min,
     clump_opts           = clump_opts,
+    clump_opts_resolved  = clump_opts_resolved,
+    preprocessing_steps  = preprocessing_steps,
     coloc                = list(window_kb = coloc_window_kb, priors = coloc_priors,
                                 skip_mhc = coloc_skip_mhc),
     multiple_testing_correction = Multiple_testing_correction,
@@ -194,6 +256,18 @@ run_phenome_mr <- function(
     error = function(e) logger::log_warn("Could not write run_manifest.json: {conditionMessage(e)}")
   )
 
+  # ---- 0-IV early return (warn, do not stop) ----
+  if (isTRUE(no_ivs)) {
+    logger::log_warn(.format_zero_iv_error(preprocessing_steps))
+    return(list(
+      MR_df      = tibble::tibble(),
+      results_df = tibble::tibble(),
+      manhattan  = NULL,
+      volcano    = NULL,
+      run_dir    = plot_output_dir,
+      status     = "no_ivs"
+    ))
+  }
 
   # ---- choose catalog ----
   catalog <- if (sex == "both") {

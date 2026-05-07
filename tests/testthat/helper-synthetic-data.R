@@ -14,6 +14,48 @@
 # Single source of truth so seeds cannot silently drift across tests.
 SYNTH_SEED <- 20260501L
 
+# ---- Synthetic exposure-SNP builder ----
+# A flexible TwoSampleMR-shaped tibble used by test_preprocess_exposure_snps.R
+# and (later) other tests that need a known IV input. Defaults produce one
+# clean SNV; override individual columns to construct edge cases (indels,
+# palindromes, NA EAF, low INFO, weak F-stat, non-rsid IDs, duplicates).
+#
+# `n` rows are generated with default values; supply any of the column
+# vectors to override. Recycled to length `n`.
+make_synthetic_exposure_snps <- function(
+    n = 1L,
+    SNP                    = sprintf("rs%d", seq_len(n)),
+    id.exposure            = "synth",
+    exposure               = "synth",
+    Chr                    = 1L,
+    Pos                    = seq.int(1000L, length.out = n, by = 1000L),
+    effect_allele.exposure = rep("A", n),
+    other_allele.exposure  = rep("G", n),
+    beta.exposure          = rep(0.1, n),
+    se.exposure            = rep(0.01, n),
+    eaf.exposure           = rep(0.30, n),
+    pval.exposure          = rep(1e-10, n),
+    samplesize.exposure    = rep(100000L, n),
+    INFO                   = NULL
+) {
+  out <- tibble::tibble(
+    SNP                    = SNP,
+    id.exposure            = id.exposure,
+    exposure               = exposure,
+    Chr                    = Chr,
+    Pos                    = Pos,
+    effect_allele.exposure = effect_allele.exposure,
+    other_allele.exposure  = other_allele.exposure,
+    beta.exposure          = beta.exposure,
+    se.exposure            = se.exposure,
+    eaf.exposure           = eaf.exposure,
+    pval.exposure          = pval.exposure,
+    samplesize.exposure    = samplesize.exposure
+  )
+  if (!is.null(INFO)) out$INFO <- INFO
+  out
+}
+
 # ---- Synthetic enrichment input ----
 # Chains the mr_business_logic golden fixture: loads its results_df,
 # augments with the columns enrichment_business_logic requires
