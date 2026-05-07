@@ -203,42 +203,80 @@ test_that("output passes assert_exposure() column requirements", {
   expect_silent(assert_exposure(ivs))
 })
 
-# ---- new ordering: indel after clump (validates locked order) ------------
+# ---- new ordering: indel/MAF dropped BEFORE clump (Job 4) ----------------
 
-test_that("indel chosen as clump-elected lead is dropped (locus lost)", {
-  # Strongest p-value belongs to an indel (rs1: REF='A', ALT='AT').
-  # Two SNVs (rs2, rs3) have weaker p-values.
+test_that("indels are dropped BEFORE clumping (regression for new order)", {
+  # rs1 is an indel; rs2, rs3 are SNVs. Job 4 order drops indels first
+  # so the indel must NEVER reach the clump library.
   hits <- tibble::tibble(
     rsid = c("rs1","rs2","rs3"), seqnames = rep(1L, 3),
     start = c(1000L, 2000L, 3000L),
     REF = c("A","C","G"), ALT = c("AT","T","A"),     # rs1 is an indel
     ES  = c(0.20, 0.05, 0.04), SE = rep(0.01, 3),
-    LP  = c(50, 12, 11),                              # rs1 is strongest
+    LP  = c(50, 12, 11),
     AF  = rep(0.3, 3), SS = rep(100000L, 3)
   )
   fn <- make_clump_fn(hits)
-  # Mock clump to pick rs1 as the lead -- this exercises the "indel as
-  # locus index" case the new ordering must drop.
-  mock_ld_stack(ld_clump_fn = function(dat, ...) {
-    dat[dat$rsid == "rs1", , drop = FALSE]
-  })
-  ivs <- fn("fake.vcf.bgz", ancestry = "EUR", cache_dir = tempdir(),
-            p_threshold = 1, f_threshold = 0, verbose = FALSE)
-  expect_equal(nrow(ivs), 0L)
+  observed_clump_input <- new.env()
+  testthat::local_mocked_bindings(
+    ld_reference_checker = function(...) mk_fake_ld_ref(),
+    .find_plink_bin = function(plink_bin = NULL) NULL
+  )
+  testthat::local_mocked_bindings(
+    ld_clump = function(dat, ...) {
+      observed_clump_input$rsids <- as.character(dat$rsid)
+      dat
+    },
+    .package = "ieugwasr"
+  )
+  fn("fake.vcf.bgz", ancestry = "EUR", cache_dir = tempdir(),
+     p_threshold = 1, f_threshold = 0, verbose = FALSE)
+  # rs1 (the indel) must not appear in the clump library; only rs2, rs3.
+  expect_false("rs1" %in% observed_clump_input$rsids)
+  expect_setequal(observed_clump_input$rsids, c("rs2", "rs3"))
 })
 
-test_that("SNV clump-elected lead survives the indel filter", {
+test_that("low-MAF SNPs are dropped BEFORE clumping when maf_min set", {
   hits <- tibble::tibble(
-    rsid = c("rs1","rs2"), seqnames = rep(1L, 2),
-    start = c(1000L, 2000L),
-    REF = c("AT","C"), ALT = c("A","T"),  # rs1 is an indel; rs2 SNV
-    ES  = c(0.20, 0.05), SE = rep(0.01, 2),
-    LP  = c(50, 12), AF = rep(0.3, 2), SS = rep(100000L, 2)
+    rsid = c("rs1","rs2","rs3"), seqnames = rep(1L, 3),
+    start = c(1000L, 2000L, 3000L),
+    REF = c("A","C","G"), ALT = c("G","T","A"),
+    ES  = c(0.20, 0.05, 0.04), SE = rep(0.01, 3),
+    LP  = c(50, 12, 11),
+    AF  = c(0.005, 0.30, 0.40),  # rs1 is rare (MAF = 0.005)
+    SS  = rep(100000L, 3)
   )
   fn <- make_clump_fn(hits)
-  mock_ld_stack(ld_clump_fn = function(dat, ...) {
-    dat[dat$rsid == "rs2", , drop = FALSE]
-  })
+  observed_clump_input <- new.env()
+  testthat::local_mocked_bindings(
+    ld_reference_checker = function(...) mk_fake_ld_ref(),
+    .find_plink_bin = function(plink_bin = NULL) NULL
+  )
+  testthat::local_mocked_bindings(
+    ld_clump = function(dat, ...) {
+      observed_clump_input$rsids <- as.character(dat$rsid)
+      dat
+    },
+    .package = "ieugwasr"
+  )
+  fn("fake.vcf.bgz", ancestry = "EUR", cache_dir = tempdir(),
+     p_threshold = 1, f_threshold = 0,
+     clump_opts = list(maf_min = 0.05),
+     verbose = FALSE)
+  # rs1 (low MAF) must not reach the clump library.
+  expect_false("rs1" %in% observed_clump_input$rsids)
+  expect_setequal(observed_clump_input$rsids, c("rs2", "rs3"))
+})
+
+test_that("SNV clump-elected lead survives end-to-end", {
+  # Single SNV survives all filters and clumping.
+  hits <- tibble::tibble(
+    rsid = "rs2", seqnames = 1L, start = 2000L,
+    REF = "C", ALT = "T",
+    ES  = 0.05, SE = 0.01, LP = 12, AF = 0.30, SS = 100000L
+  )
+  fn <- make_clump_fn(hits)
+  mock_ld_stack(ld_clump_fn = function(dat, ...) dat)
   ivs <- fn("fake.vcf.bgz", ancestry = "EUR", cache_dir = tempdir(),
             p_threshold = 1, f_threshold = 0, verbose = FALSE)
   expect_equal(nrow(ivs), 1L)

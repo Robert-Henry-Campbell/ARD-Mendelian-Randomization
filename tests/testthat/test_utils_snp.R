@@ -82,3 +82,61 @@ test_that("safe_tophits synthesises 'p' column when ieugwasr returns 'pval'", {
   expect_true("p" %in% names(out))
   expect_equal(out$p, c(1e-9, 1e-10))
 })
+
+# ---- is_ambiguous_palindrome ---------------------------------------------
+
+test_that("is_ambiguous_palindrome: A/T at intermediate AF is TRUE", {
+  expect_true(ardmr:::is_ambiguous_palindrome("A", "T", 0.50))
+})
+
+test_that("is_ambiguous_palindrome: A/T at the boundaries (0.42 / 0.58) is TRUE", {
+  expect_true(ardmr:::is_ambiguous_palindrome("A", "T", 0.42))
+  expect_true(ardmr:::is_ambiguous_palindrome("A", "T", 0.58))
+})
+
+test_that("is_ambiguous_palindrome: A/T at extreme AF is FALSE (strand-resolvable)", {
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "T", 0.30))
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "T", 0.70))
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "T", 0.05))
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "T", 0.95))
+})
+
+test_that("is_ambiguous_palindrome: A/T with NA EAF is FALSE (kept; can't assess)", {
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "T", NA_real_))
+})
+
+test_that("is_ambiguous_palindrome: non-palindromes always FALSE regardless of AF", {
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "G", 0.50))
+  expect_false(ardmr:::is_ambiguous_palindrome("C", "T", 0.50))
+})
+
+test_that("is_ambiguous_palindrome: C/G also flagged at intermediate AF", {
+  expect_true(ardmr:::is_ambiguous_palindrome("C", "G", 0.50))
+  expect_true(ardmr:::is_ambiguous_palindrome("G", "C", 0.45))
+  expect_false(ardmr:::is_ambiguous_palindrome("C", "G", 0.20))
+})
+
+test_that("is_ambiguous_palindrome: case-insensitive (delegates to palindrome_flag)", {
+  expect_true(ardmr:::is_ambiguous_palindrome("a", "t", 0.50))
+})
+
+test_that("is_ambiguous_palindrome: vectorised", {
+  ea <- c("A", "C", "A", "A")
+  oa <- c("T", "T", "T", "G")
+  ef <- c(0.50, 0.50, 0.95, 0.50)
+  expect_equal(
+    ardmr:::is_ambiguous_palindrome(ea, oa, ef),
+    c(TRUE, FALSE, FALSE, FALSE)
+  )
+})
+
+test_that("is_ambiguous_palindrome: custom lo/hi window respected", {
+  # Tighter window: 0.45-0.55. 0.42 should now be FALSE.
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "T", 0.42, lo = 0.45, hi = 0.55))
+  expect_true(ardmr:::is_ambiguous_palindrome("A", "T", 0.50, lo = 0.45, hi = 0.55))
+})
+
+test_that("is_ambiguous_palindrome: character EAF is coerced", {
+  expect_true(ardmr:::is_ambiguous_palindrome("A", "T", "0.50"))
+  expect_false(ardmr:::is_ambiguous_palindrome("A", "T", "not-a-number"))
+})

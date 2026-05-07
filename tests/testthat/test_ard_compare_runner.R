@@ -196,14 +196,88 @@ test_that("inline literal p-value backoff ladder no longer present in ieugwasr r
   src_path <- testthat::test_path("..", "..", "R", "ard_compare_grouped_ieugwasr.R")
   skip_if_not(file.exists(src_path), "Source file not found")
   src <- paste(readLines(src_path), collapse = "\n")
-  # The old literal had a comma-separated list; the new code uses
-  # .preprocess_defaults()$p_backoff. Guard against a regression that
-  # re-introduces a hardcoded vector.
+  # No hardcoded c(p_threshold, 5e-7, 5e-6) literal anywhere (Job 3
+  # removed the original; Job 4 does NOT silently re-introduce it).
   expect_false(grepl("c\\(p_threshold,\\s*5e-7,\\s*5e-6\\)", src),
                info = "Inline c(p_threshold, 5e-7, 5e-6) literal must be gone.")
-  # The new sourcing call must be present
-  expect_match(src, "\\.preprocess_defaults\\(\\)\\$p_backoff",
-               info = "Runner must source the canonical p_backoff from .preprocess_defaults().")
+  # Job 4: default behaviour must be a single rung c(p_threshold).
+  expect_match(src, "if\\s*\\(is\\.null\\(p_backoff\\)\\)\\s*c\\(p_threshold\\)",
+               info = "Runner must default to a single-rung ladder when p_backoff is NULL.")
+})
+
+# ---- Job 4: p_backoff parameter and local-clumping refactor --------------
+
+test_that("run_ieugwasr_ard_compare has a p_backoff formal parameter (default NULL)", {
+  expect_true("p_backoff" %in% names(formals(run_ieugwasr_ard_compare)))
+  expect_null(eval(formals(run_ieugwasr_ard_compare)$p_backoff))
+})
+
+test_that("get_instruments uses local clumping via preprocess_exposure_snps (Job 4)", {
+  src_path <- testthat::test_path("..", "..", "R", "ard_compare_grouped_ieugwasr.R")
+  skip_if_not(file.exists(src_path), "Source file not found")
+  lines <- readLines(src_path)
+  # Find the get_instruments closure body and assert the new local-clump call.
+  start <- grep("get_instruments\\s*<-\\s*function", lines)
+  expect_true(length(start) >= 1L, info = "get_instruments closure not found")
+  # Walk forward until matching close brace.
+  depth <- 0L; end <- NA_integer_
+  for (i in seq.int(start[1], length(lines))) {
+    chars <- strsplit(lines[i], "")[[1]]
+    for (ch in chars) {
+      if (ch == "{") depth <- depth + 1L
+      if (ch == "}") {
+        depth <- depth - 1L
+        if (depth == 0L) { end <- i; break }
+      }
+    }
+    if (!is.na(end)) break
+  }
+  expect_false(is.na(end), info = "Could not find end of get_instruments body")
+  block <- paste(lines[start[1]:end], collapse = "\n")
+  # Must NOT use the old server-clump default (clump = TRUE) anywhere.
+  expect_false(grepl("clump\\s*=\\s*TRUE", block),
+               info = "get_instruments must not server-clump (Job 4 always-local).")
+  # Must call extract_instruments with clump = FALSE.
+  expect_match(block, "clump\\s*=\\s*FALSE",
+               info = "get_instruments must call extract_instruments(clump = FALSE).")
+  # Must delegate the post-fetch work to preprocess_exposure_snps.
+  expect_match(block, "preprocess_exposure_snps\\s*\\(",
+               info = "get_instruments must call preprocess_exposure_snps for local clump + filters.")
+  # Must mark the p-filter as already-done (server fetched the rung).
+  expect_match(block, "already_p_filtered\\s*=\\s*TRUE",
+               info = "get_instruments must pass already_p_filtered = TRUE.")
+  # Must request local clumping (already_clumped = FALSE).
+  expect_match(block, "already_clumped\\s*=\\s*FALSE",
+               info = "get_instruments must pass already_clumped = FALSE for local clump.")
+})
+
+test_that("per-row clump_opts in run_ieugwasr_ard_compare includes p_backoff (Job 4)", {
+  src_path <- testthat::test_path("..", "..", "R", "ard_compare_grouped_ieugwasr.R")
+  skip_if_not(file.exists(src_path), "Source file not found")
+  lines <- readLines(src_path)
+  # Find the .run_input_hash( call site inside the runner and walk
+  # forward until the matching close paren, then assert p_backoff
+  # appears inside its argument block.
+  open_idx <- grep("\\.run_input_hash\\(", lines)
+  expect_true(length(open_idx) >= 1L,
+              info = ".run_input_hash( call site not found")
+  start <- open_idx[1]
+  depth <- 0L; end <- NA_integer_
+  for (i in seq.int(start, length(lines))) {
+    chars <- strsplit(lines[i], "")[[1]]
+    for (ch in chars) {
+      if (ch == "(") depth <- depth + 1L
+      if (ch == ")") {
+        depth <- depth - 1L
+        if (depth == 0L) { end <- i; break }
+      }
+    }
+    if (!is.na(end)) break
+  }
+  expect_false(is.na(end), info = "Could not find matching ) for .run_input_hash( call")
+  block <- paste(lines[start:end], collapse = "\n")
+  expect_match(block, "p_backoff\\s*=",
+               info = "p_backoff must appear in the per-row clump_opts list passed to .run_input_hash().")
 })
 
 test_that("per-row clump_opts in run_ieugwasr_ard_compare includes f_threshold", {

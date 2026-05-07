@@ -96,9 +96,12 @@ clump_sumstats_to_ivs <- function(vcf_path, ancestry,
     exposure               = tag
   )
   # Propagate any INFO-shaped column so preprocess_exposure_snps' INFO
-  # step can see it. The preprocessor accepts any of INFO/info/Rsq/R2/SI;
-  # gwasvcf::vcf_to_tibble typically yields `SI` (the FORMAT field).
-  info_candidates <- c("INFO", "info", "Rsq", "R2", "SI")
+  # step can see it. Priority matches the preprocessor's auto-detect:
+  # SI > Rsq > R2 > INFO > info. SI/Rsq/R2 take priority because in
+  # real GWAS-VCF output, `INFO` is typically the raw `;`-separated VCF
+  # INFO blob (not a numeric quality score) -- preferring it would
+  # silently coerce to NA and skip the filter (Job 4 fix).
+  info_candidates <- c("SI", "Rsq", "R2", "INFO", "info")
   matched_info <- info_candidates[info_candidates %in% names(hits)]
   if (length(matched_info)) {
     nm <- matched_info[1]

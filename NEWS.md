@@ -1,6 +1,61 @@
 # ardmr (development version)
 
-## Unified exposure-SNP preprocessing
+## Job 4: discipline-standard preprocessing order, local clumping, safer defaults
+
+A post-implementation review of Jobs 1-3 surfaced five concerns,
+addressed below. **These changes alter cache keys and IV composition
+for many runs**; wipe scoped caches per the advisory at the bottom
+of this file.
+
+- **Reordered preprocessing pipeline** so data-quality filters
+  (indel, MAF, INFO, palindromic) run BEFORE LD clumping. Previously,
+  a clump-elected lead SNP that failed any of those filters cost the
+  entire locus (no fallback to the next-best SNP at the locus). New
+  order: p-value -> rsid validate -> indel -> MAF -> INFO ->
+  palindromic -> clump -> F-stat. F-stat stays after clumping
+  because it's a per-SNP property and won't cause locus loss.
+- **Default `p_backoff` is now `c(5e-8)` (single rung) for every
+  flow.** The previous default `c(5e-8, 5e-7, 5e-6)` silently relaxed
+  genome-wide significance for any run that had 0 SNPs at the
+  strictest rung -- a known source of inflated MR causal estimates.
+  The ladder is now **opt-in everywhere**:
+  - `run_phenome_mr` / `ard_compare`: pass
+    `clump_opts$p_backoff = c(5e-8, 5e-7, 5e-6)`.
+  - `run_ieugwasr_ard_compare`: pass the new
+    `p_backoff = c(5e-8, 5e-7, 5e-6)` parameter (default `NULL` ->
+    single rung `c(p_threshold)`).
+  No flow's default behavior silently relaxes significance.
+- **Always local clumping** (removed `clump_opts$prefer_server_clump`
+  field). OpenGWAS server-side clumping uses its default LD panel
+  (typically EUR) regardless of the requested ancestry, producing
+  sub-optimal instruments for AFR/EAS/SAS analyses. ieugwasr-mode
+  extraction now fetches unclumped via `extract_instruments(clump =
+  FALSE)` (with `tophits` as fallback), and the unified preprocessor
+  clumps locally with `ld_pop_from_ancestry(ancestry)`. Slightly
+  slower per call; correct results for non-EUR ancestries. The
+  `run_ieugwasr_ard_compare` runner's per-id `get_instruments` was
+  refactored the same way.
+- **EAF-aware palindromic drop.** `clump_opts$drop_palindromic = TRUE`
+  now drops only *ambiguous* palindromes (A/T or C/G AND
+  `eaf in [0.42, 0.58]`); strand-resolvable palindromes (extreme
+  EAF) and palindromes with NA EAF are kept for downstream
+  `harmonise_data` to align from EAF. The preprocessor no longer
+  adds a `palindromic` column to the output tibble (TwoSampleMR's
+  harmonise computes its own).
+- **0-IV preprocessing is now a warning + early return**, not a
+  fatal error. `run_phenome_mr` returns
+  `list(MR_df = tibble(), results_df = tibble(), manhattan = NULL,
+  volcano = NULL, run_dir = <path>, status = "no_ivs")` and still
+  writes the manifest so the user can inspect per-step counts.
+- **INFO column auto-detect priority fixed** for VCF correctness: the
+  preprocessor now prefers `SI` > `Rsq` > `R2` > `INFO` > `info`. In
+  real GWAS-VCF data the `INFO` column is the raw `;`-separated VCF
+  INFO blob (not a numeric quality score); preferring it over `SI`
+  caused the filter to coerce the blob to NA and silently no-op.
+  Also added `is_ambiguous_palindrome()` as a package-level internal
+  helper.
+
+## Initial unified preprocessing rollout (Jobs 1-3, superseded in places by Job 4 above)
 
 Every input mode (`snps_only`, `snps_vcf`, `vcf_only`, `ieugwasr`,
 `snps_id`) now routes its IV tibble through a single

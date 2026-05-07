@@ -5,16 +5,28 @@
 
 #' Apply the unified exposure-SNP preprocessing pipeline.
 #'
-#' Steps, in order:
-#'   1. p-value backoff ladder (skipped if `clump_opts$already_p_filtered`)
-#'   2. LD clumping              (skipped if `clump_opts$already_clumped`)
-#'   3. rsid format validation + dedupe
-#'   4. drop indels  (default ON)
-#'   5. palindromic  (flag column always added; dropped only when
-#'                    `drop_palindromic = TRUE`)
-#'   6. F-statistic  (>= `f_threshold`)
-#'   7. MAF          (only if `maf_min` set; uses `pmin(eaf, 1-eaf)`)
-#'   8. INFO         (only if `info_min` set AND an INFO column is present)
+#' Steps, in order (locked):
+#'   1. p-value filter        (default single rung c(5e-8); ladder opt-in;
+#'                             skipped if `already_p_filtered = TRUE`)
+#'   2. rsid validate + dedupe
+#'   3. drop indels           (default ON)
+#'   4. MAF filter            (default OFF; if `maf_min` set;
+#'                             `pmin(eaf, 1-eaf)`)
+#'   5. INFO filter           (default OFF; if `info_min` set AND an INFO
+#'                             column is present; auto-detects
+#'                             `SI`/`Rsq`/`R2`/`INFO`/`info`)
+#'   6. palindromic drop      (default OFF; EAF-aware -- only ambiguous
+#'                             palindromes (eaf in [0.42, 0.58]) dropped)
+#'   7. LD clumping           (always local against the ancestry-aware
+#'                             1kg.v3 panel; skipped if
+#'                             `already_clumped = TRUE`)
+#'   8. F-statistic           (>= `f_threshold`; runs after clumping
+#'                             because it's per-SNP and won't cause
+#'                             locus loss)
+#'
+#' Data-quality filters (3-6) run BEFORE clumping so the clump step
+#' picks lead SNPs from a clean universe. F-stat runs AFTER clumping
+#' because it's a per-SNP property (no locus loss).
 #'
 #' Returns a list with the filtered tibble, per-step accounting, and the
 #' merged `clump_opts`. A 0-row return is normal when filters strip
@@ -24,9 +36,9 @@
 #' @param clump_opts Named list overriding the defaults documented at
 #'   `?run_phenome_mr` (`p_backoff`, `r2`, `kb`, `f_threshold`, `maf_min`,
 #'   `info_min`, `drop_indels`, `drop_palindromic`, `already_clumped`,
-#'   `already_p_filtered`, `prefer_server_clump`, `preprocess`). For
-#'   backward compat, `p_threshold` is accepted and translated to
-#'   `p_backoff = c(p_threshold)` with a deprecation warning.
+#'   `already_p_filtered`, `preprocess`). For backward compat,
+#'   `p_threshold` is accepted and translated to `p_backoff =
+#'   c(p_threshold)` with a deprecation warning.
 #' @param ancestry Ancestry code, e.g. "EUR".
 #' @param cache_dir Cache root; LD reference is read from
 #'   `<cache_dir>/ld_reference`.
@@ -49,7 +61,7 @@
 #' @keywords internal
 .preprocess_defaults <- function() {
   list(
-    p_backoff           = c(5e-8, 5e-7, 5e-6),
+    p_backoff           = c(5e-8),
     r2                  = 0.001,
     kb                  = 10000L,
     f_threshold         = 10,
@@ -57,7 +69,6 @@
     info_min            = NULL,
     drop_indels         = TRUE,
     drop_palindromic    = FALSE,
-    prefer_server_clump = TRUE,
     already_clumped     = FALSE,
     already_p_filtered  = FALSE,
     preprocess          = TRUE
@@ -157,7 +168,7 @@ preprocess_exposure_snps <- function(snps_tbl,
     steps_acc[[length(steps_acc) + 1L]] <<- rec
   }
 
-  # ---- Step 1: p-value backoff ----
+  # ---- Step 1: p-value filter (single rung default; ladder opt-in) ----
   n_in <- nrow(snps_tbl)
   if (isTRUE(co$already_p_filtered)) {
     if (verbose) logger::log_info("preprocess: step 1 (p-value) skipped (already_p_filtered)")
@@ -187,15 +198,145 @@ preprocess_exposure_snps <- function(snps_tbl,
     add_step("p_threshold", n_in, nrow(snps_tbl), value = chosen)
   }
 
-  # ---- Step 2: clump ----
+  # ---- Step 2: rsid validate + dedupe (must run before clumping) ----
+  n_in <- nrow(snps_tbl)
+  if (n_in == 0L) {
+    add_step("rsid_validate", 0L, 0L, n_invalid = 0L, n_duplicates = 0L)
+  } else {
+    valid <- is_rsid(as.character(snps_tbl$SNP))
+    n_invalid <- sum(!valid)
+    if (n_invalid > 0L) {
+      logger::log_warn("preprocess: step 2 dropped {n_invalid} rows with non-rsid SNP IDs")
+    }
+    snps_tbl <- snps_tbl[valid, , drop = FALSE]
+
+    dups <- duplicated(snps_tbl$SNP)
+    n_dup <- sum(dups)
+    if (n_dup > 0L) {
+      logger::log_warn(
+        "preprocess: step 2 collapsed {n_dup} duplicate rsid rows (keeping first occurrence)"
+      )
+    }
+    snps_tbl <- snps_tbl[!dups, , drop = FALSE]
+    if (verbose) {
+      logger::log_info("preprocess: step 2 (rsid validate+dedupe) {n_in} -> {nrow(snps_tbl)}")
+    }
+    add_step("rsid_validate", n_in, nrow(snps_tbl),
+             n_invalid = as.integer(n_invalid), n_duplicates = as.integer(n_dup))
+  }
+
+  # ---- Step 3: drop_indels (data quality, before clumping) ----
+  n_in <- nrow(snps_tbl)
+  if (!isTRUE(co$drop_indels)) {
+    add_step("drop_indels", n_in, n_in, skipped_reason = "drop_indels = FALSE")
+  } else if (n_in == 0L) {
+    add_step("drop_indels", 0L, 0L)
+  } else if (!all(c("effect_allele.exposure", "other_allele.exposure") %in% names(snps_tbl))) {
+    logger::log_warn("preprocess: step 3 (indel) skipped: allele columns missing")
+    add_step("drop_indels", n_in, n_in, skipped_reason = "allele columns missing")
+  } else {
+    ea <- toupper(as.character(snps_tbl$effect_allele.exposure))
+    oa <- toupper(as.character(snps_tbl$other_allele.exposure))
+    indel_codes <- c("-", "D", "I")
+    is_indel <- nchar(ea) > 1 | nchar(oa) > 1 | ea %in% indel_codes | oa %in% indel_codes
+    is_indel[is.na(is_indel)] <- FALSE
+    snps_tbl <- snps_tbl[!is_indel, , drop = FALSE]
+    if (verbose) logger::log_info("preprocess: step 3 (drop_indels) {n_in} -> {nrow(snps_tbl)}")
+    add_step("drop_indels", n_in, nrow(snps_tbl))
+  }
+
+  # ---- Step 4: MAF (data quality, before clumping) ----
+  n_in <- nrow(snps_tbl)
+  if (is.null(co$maf_min)) {
+    add_step("maf", n_in, n_in, value = NA_real_, skipped_reason = "maf_min not set")
+  } else if (n_in == 0L) {
+    add_step("maf", 0L, 0L, value = co$maf_min)
+  } else if (!"eaf.exposure" %in% names(snps_tbl)) {
+    logger::log_warn("preprocess: step 4 (MAF) skipped: 'eaf.exposure' column missing")
+    add_step("maf", n_in, n_in, value = co$maf_min,
+             skipped_reason = "no eaf.exposure column")
+  } else {
+    eaf <- suppressWarnings(as.numeric(snps_tbl$eaf.exposure))
+    maf <- pmin(eaf, 1 - eaf)
+    keep <- is.na(maf) | maf >= co$maf_min
+    snps_tbl <- snps_tbl[keep, , drop = FALSE]
+    if (verbose) {
+      logger::log_info("preprocess: step 4 (MAF>={co$maf_min}) {n_in} -> {nrow(snps_tbl)}")
+    }
+    add_step("maf", n_in, nrow(snps_tbl), value = co$maf_min)
+  }
+
+  # ---- Step 5: INFO (data quality, before clumping) ----
+  # Priority order: SI/Rsq/R2 (canonical numeric imputation-quality
+  # fields) BEFORE INFO/info (which in real GWAS-VCF data is usually
+  # the raw `;`-separated VCF INFO blob, not a numeric quality score).
+  n_in <- nrow(snps_tbl)
+  info_col_candidates <- c("SI", "Rsq", "R2", "INFO", "info")
+  if (is.null(co$info_min)) {
+    add_step("info", n_in, n_in, value = NA_real_, skipped_reason = "info_min not set")
+  } else if (n_in == 0L) {
+    add_step("info", 0L, 0L, value = co$info_min)
+  } else {
+    matched <- info_col_candidates[info_col_candidates %in% names(snps_tbl)]
+    if (!length(matched)) {
+      logger::log_warn(
+        "preprocess: step 5 (INFO) skipped: no INFO column found (looked for {paste(info_col_candidates, collapse=', ')})"
+      )
+      add_step("info", n_in, n_in, value = co$info_min, skipped_reason = "no INFO column")
+    } else {
+      info_col <- matched[1]
+      info_vals <- suppressWarnings(as.numeric(snps_tbl[[info_col]]))
+      keep <- is.na(info_vals) | info_vals >= co$info_min
+      snps_tbl <- snps_tbl[keep, , drop = FALSE]
+      if (verbose) {
+        logger::log_info(
+          "preprocess: step 5 (INFO>={co$info_min}, col={info_col}) {n_in} -> {nrow(snps_tbl)}"
+        )
+      }
+      add_step("info", n_in, nrow(snps_tbl), value = co$info_min, column = info_col)
+    }
+  }
+
+  # ---- Step 6: palindromic drop (EAF-aware, before clumping) ----
+  # Only AMBIGUOUS palindromes (A/T or C/G AND eaf in [0.42, 0.58])
+  # are dropped. Strand-resolvable palindromes are kept for downstream
+  # `harmonise_data` to align from EAF. No `palindromic` column is
+  # added to the output -- TwoSampleMR's harmonise computes its own.
+  n_in <- nrow(snps_tbl)
+  if (!isTRUE(co$drop_palindromic)) {
+    add_step("palindromic", n_in, n_in, dropped = FALSE,
+             skipped_reason = "drop_palindromic = FALSE")
+  } else if (n_in == 0L) {
+    add_step("palindromic", 0L, 0L, dropped = TRUE, n_dropped = 0L)
+  } else if (!all(c("effect_allele.exposure", "other_allele.exposure") %in% names(snps_tbl))) {
+    logger::log_warn("preprocess: step 6 (palindromic) skipped: allele columns missing")
+    add_step("palindromic", n_in, n_in, dropped = TRUE,
+             skipped_reason = "allele columns missing")
+  } else {
+    eaf_vec <- if ("eaf.exposure" %in% names(snps_tbl)) snps_tbl$eaf.exposure else rep(NA_real_, n_in)
+    ambig <- is_ambiguous_palindrome(snps_tbl$effect_allele.exposure,
+                                     snps_tbl$other_allele.exposure,
+                                     eaf_vec)
+    ambig[is.na(ambig)] <- FALSE
+    snps_tbl <- snps_tbl[!ambig, , drop = FALSE]
+    if (verbose) {
+      logger::log_info(
+        "preprocess: step 6 (palindromic, ambiguous-only) {n_in} -> {nrow(snps_tbl)}"
+      )
+    }
+    add_step("palindromic", n_in, nrow(snps_tbl), dropped = TRUE,
+             n_dropped = as.integer(sum(ambig)))
+  }
+
+  # ---- Step 7: LD clumping (always local, ancestry-aware) ----
   n_in <- nrow(snps_tbl)
   if (isTRUE(co$already_clumped)) {
-    if (verbose) logger::log_info("preprocess: step 2 (clump) skipped (already_clumped)")
+    if (verbose) logger::log_info("preprocess: step 7 (clump) skipped (already_clumped)")
     add_step("clump", n_in, n_in, r2 = co$r2, kb = co$kb, skipped_reason = "already_clumped")
   } else if (n_in == 0L) {
     add_step("clump", 0L, 0L, r2 = co$r2, kb = co$kb, skipped_reason = "no input rows")
   } else if (!"pval.exposure" %in% names(snps_tbl)) {
-    logger::log_warn("preprocess: step 2 (clump) skipped: 'pval.exposure' column missing")
+    logger::log_warn("preprocess: step 7 (clump) skipped: 'pval.exposure' column missing")
     add_step("clump", n_in, n_in, r2 = co$r2, kb = co$kb, skipped_reason = "no pval.exposure column")
   } else {
     if (!requireNamespace("ieugwasr", quietly = TRUE)) {
@@ -208,7 +349,7 @@ preprocess_exposure_snps <- function(snps_tbl,
     plink_bin <- tryCatch(.find_plink_bin(NULL), error = function(e) NULL)
     if (verbose) {
       logger::log_info(
-        "preprocess: step 2 (clump) ld_clump on {n_in} SNPs (pop={ld_pop}, r2={co$r2}, kb={co$kb})"
+        "preprocess: step 7 (clump) ld_clump on {n_in} SNPs (pop={ld_pop}, r2={co$r2}, kb={co$kb})"
       )
     }
     pvals <- suppressWarnings(as.numeric(snps_tbl$pval.exposure))
@@ -230,88 +371,15 @@ preprocess_exposure_snps <- function(snps_tbl,
                            drop = FALSE]
       add_step("clump", n_in, nrow(snps_tbl), r2 = co$r2, kb = co$kb)
     }
-    if (verbose) logger::log_info("preprocess: step 2 (clump) {n_in} -> {nrow(snps_tbl)}")
+    if (verbose) logger::log_info("preprocess: step 7 (clump) {n_in} -> {nrow(snps_tbl)}")
   }
 
-  # ---- Step 3: rsid validate + dedupe ----
-  n_in <- nrow(snps_tbl)
-  if (n_in == 0L) {
-    add_step("rsid_validate", 0L, 0L, n_invalid = 0L, n_duplicates = 0L)
-  } else {
-    valid <- is_rsid(as.character(snps_tbl$SNP))
-    n_invalid <- sum(!valid)
-    if (n_invalid > 0L) {
-      logger::log_warn("preprocess: step 3 dropped {n_invalid} rows with non-rsid SNP IDs")
-    }
-    snps_tbl <- snps_tbl[valid, , drop = FALSE]
-
-    dups <- duplicated(snps_tbl$SNP)
-    n_dup <- sum(dups)
-    if (n_dup > 0L) {
-      logger::log_warn(
-        "preprocess: step 3 collapsed {n_dup} duplicate rsid rows (keeping first occurrence)"
-      )
-    }
-    snps_tbl <- snps_tbl[!dups, , drop = FALSE]
-    if (verbose) {
-      logger::log_info("preprocess: step 3 (rsid validate+dedupe) {n_in} -> {nrow(snps_tbl)}")
-    }
-    add_step("rsid_validate", n_in, nrow(snps_tbl),
-             n_invalid = as.integer(n_invalid), n_duplicates = as.integer(n_dup))
-  }
-
-  # ---- Step 4: drop_indels ----
-  n_in <- nrow(snps_tbl)
-  if (!isTRUE(co$drop_indels)) {
-    add_step("drop_indels", n_in, n_in, skipped_reason = "drop_indels = FALSE")
-  } else if (n_in == 0L) {
-    add_step("drop_indels", 0L, 0L)
-  } else if (!all(c("effect_allele.exposure", "other_allele.exposure") %in% names(snps_tbl))) {
-    logger::log_warn("preprocess: step 4 (indel) skipped: allele columns missing")
-    add_step("drop_indels", n_in, n_in, skipped_reason = "allele columns missing")
-  } else {
-    ea <- toupper(as.character(snps_tbl$effect_allele.exposure))
-    oa <- toupper(as.character(snps_tbl$other_allele.exposure))
-    indel_codes <- c("-", "D", "I")
-    is_indel <- nchar(ea) > 1 | nchar(oa) > 1 | ea %in% indel_codes | oa %in% indel_codes
-    is_indel[is.na(is_indel)] <- FALSE
-    snps_tbl <- snps_tbl[!is_indel, , drop = FALSE]
-    if (verbose) logger::log_info("preprocess: step 4 (drop_indels) {n_in} -> {nrow(snps_tbl)}")
-    add_step("drop_indels", n_in, nrow(snps_tbl))
-  }
-
-  # ---- Step 5: palindromic flag (and optionally drop) ----
-  n_in <- nrow(snps_tbl)
-  if (n_in == 0L) {
-    add_step("palindromic", 0L, 0L, dropped = isTRUE(co$drop_palindromic), n_flagged = 0L)
-  } else if (!all(c("effect_allele.exposure", "other_allele.exposure") %in% names(snps_tbl))) {
-    logger::log_warn("preprocess: step 5 (palindromic) skipped: allele columns missing")
-    add_step("palindromic", n_in, n_in, dropped = isTRUE(co$drop_palindromic),
-             skipped_reason = "allele columns missing")
-  } else {
-    pal <- palindrome_flag(snps_tbl$effect_allele.exposure,
-                           snps_tbl$other_allele.exposure)
-    pal[is.na(pal)] <- FALSE
-    snps_tbl$palindromic <- pal
-    n_flagged <- sum(pal)
-    if (isTRUE(co$drop_palindromic)) {
-      snps_tbl <- snps_tbl[!pal, , drop = FALSE]
-      if (verbose) {
-        logger::log_info("preprocess: step 5 (palindromic, drop) {n_in} -> {nrow(snps_tbl)}")
-      }
-    } else if (verbose) {
-      logger::log_info("preprocess: step 5 (palindromic, flag-only) {n_flagged} flagged")
-    }
-    add_step("palindromic", n_in, nrow(snps_tbl),
-             dropped = isTRUE(co$drop_palindromic), n_flagged = as.integer(n_flagged))
-  }
-
-  # ---- Step 6: F-stat ----
+  # ---- Step 8: F-stat (per-SNP; safe to run after clumping) ----
   n_in <- nrow(snps_tbl)
   if (n_in == 0L) {
     add_step("f_stat", 0L, 0L, value = co$f_threshold)
   } else if (!all(c("beta.exposure", "se.exposure") %in% names(snps_tbl))) {
-    logger::log_warn("preprocess: step 6 (f_stat) skipped: beta.exposure/se.exposure missing")
+    logger::log_warn("preprocess: step 8 (f_stat) skipped: beta.exposure/se.exposure missing")
     add_step("f_stat", n_in, n_in, value = co$f_threshold,
              skipped_reason = "beta.exposure/se.exposure columns missing")
   } else {
@@ -320,58 +388,9 @@ preprocess_exposure_snps <- function(snps_tbl,
     keep <- is.finite(fs) & fs >= co$f_threshold
     snps_tbl <- snps_tbl[keep, , drop = FALSE]
     if (verbose) {
-      logger::log_info("preprocess: step 6 (f_stat>={co$f_threshold}) {n_in} -> {nrow(snps_tbl)}")
+      logger::log_info("preprocess: step 8 (f_stat>={co$f_threshold}) {n_in} -> {nrow(snps_tbl)}")
     }
     add_step("f_stat", n_in, nrow(snps_tbl), value = co$f_threshold)
-  }
-
-  # ---- Step 7: MAF ----
-  n_in <- nrow(snps_tbl)
-  if (is.null(co$maf_min)) {
-    add_step("maf", n_in, n_in, value = NA_real_, skipped_reason = "maf_min not set")
-  } else if (n_in == 0L) {
-    add_step("maf", 0L, 0L, value = co$maf_min)
-  } else if (!"eaf.exposure" %in% names(snps_tbl)) {
-    logger::log_warn("preprocess: step 7 (MAF) skipped: 'eaf.exposure' column missing")
-    add_step("maf", n_in, n_in, value = co$maf_min,
-             skipped_reason = "no eaf.exposure column")
-  } else {
-    eaf <- suppressWarnings(as.numeric(snps_tbl$eaf.exposure))
-    maf <- pmin(eaf, 1 - eaf)
-    keep <- is.na(maf) | maf >= co$maf_min
-    snps_tbl <- snps_tbl[keep, , drop = FALSE]
-    if (verbose) {
-      logger::log_info("preprocess: step 7 (MAF>={co$maf_min}) {n_in} -> {nrow(snps_tbl)}")
-    }
-    add_step("maf", n_in, nrow(snps_tbl), value = co$maf_min)
-  }
-
-  # ---- Step 8: INFO ----
-  n_in <- nrow(snps_tbl)
-  info_col_candidates <- c("INFO", "info", "Rsq", "R2", "SI")
-  if (is.null(co$info_min)) {
-    add_step("info", n_in, n_in, value = NA_real_, skipped_reason = "info_min not set")
-  } else if (n_in == 0L) {
-    add_step("info", 0L, 0L, value = co$info_min)
-  } else {
-    matched <- info_col_candidates[info_col_candidates %in% names(snps_tbl)]
-    if (!length(matched)) {
-      logger::log_warn(
-        "preprocess: step 8 (INFO) skipped: no INFO column found (looked for {paste(info_col_candidates, collapse=', ')})"
-      )
-      add_step("info", n_in, n_in, value = co$info_min, skipped_reason = "no INFO column")
-    } else {
-      info_col <- matched[1]
-      info_vals <- suppressWarnings(as.numeric(snps_tbl[[info_col]]))
-      keep <- is.na(info_vals) | info_vals >= co$info_min
-      snps_tbl <- snps_tbl[keep, , drop = FALSE]
-      if (verbose) {
-        logger::log_info(
-          "preprocess: step 8 (INFO>={co$info_min}, col={info_col}) {n_in} -> {nrow(snps_tbl)}"
-        )
-      }
-      add_step("info", n_in, nrow(snps_tbl), value = co$info_min, column = info_col)
-    }
   }
 
   if (verbose) {

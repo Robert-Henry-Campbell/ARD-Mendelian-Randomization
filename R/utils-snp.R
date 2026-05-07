@@ -13,6 +13,23 @@ palindrome_flag <- function(a1, a2) {
     (a1 == "C" & a2 == "G") | (a1 == "G" & a2 == "C")
 }
 
+#' Identify *ambiguous* palindromic SNPs (palindrome whose strand cannot
+#' be inferred from EAF).
+#'
+#' A palindrome (A/T or C/G) is *strand-resolvable* when its EAF is
+#' clearly far from 0.5; the minor-allele identity then settles which
+#' strand is which. At intermediate EAF the assignment is ambiguous.
+#' Returns TRUE only for palindromes with `eaf %in% [lo, hi]`. Rows
+#' with NA EAF return FALSE (we cannot assess; keep the variant for
+#' downstream harmonisation to handle).
+#' @keywords internal
+is_ambiguous_palindrome <- function(a1, a2, eaf, lo = 0.42, hi = 0.58) {
+  pal <- palindrome_flag(a1, a2)
+  eaf_num <- suppressWarnings(as.numeric(eaf))
+  ambig_af <- !is.na(eaf_num) & eaf_num >= lo & eaf_num <= hi
+  pal & ambig_af
+}
+
 #' @keywords internal
 # Wald-chi-squared statistic; named f_stat for community convention.
 f_stat <- function(beta, se) (beta / se) ^ 2

@@ -34,17 +34,19 @@ mk_args <- function() list(
 .default_preprocess_stub <- function(snps_tbl, clump_opts = list(),
                                      ancestry, cache_dir, confirm = "ask",
                                      verbose = TRUE) {
+  # Job 4 locked order: p -> rsid -> indel -> MAF -> INFO -> palindromic
+  # -> clump -> F-stat. The default stub passes everything through.
   list(
     snps          = tibble::as_tibble(snps_tbl),
     steps         = list(
       list(step = "p_threshold",  n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), value = 5e-8),
-      list(step = "clump",        n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), r2 = 0.001, kb = 10000L),
       list(step = "rsid_validate",n_in = NROW(snps_tbl), n_out = NROW(snps_tbl)),
       list(step = "drop_indels",  n_in = NROW(snps_tbl), n_out = NROW(snps_tbl)),
-      list(step = "palindromic",  n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), dropped = FALSE, n_flagged = 0L),
-      list(step = "f_stat",       n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), value = 10),
       list(step = "maf",          n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), value = NA_real_, skipped_reason = "maf_min not set"),
-      list(step = "info",         n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), value = NA_real_, skipped_reason = "info_min not set")
+      list(step = "info",         n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), value = NA_real_, skipped_reason = "info_min not set"),
+      list(step = "palindromic",  n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), dropped = FALSE, skipped_reason = "drop_palindromic = FALSE"),
+      list(step = "clump",        n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), r2 = 0.001, kb = 10000L),
+      list(step = "f_stat",       n_in = NROW(snps_tbl), n_out = NROW(snps_tbl), value = 10)
     ),
     resolved_opts = ardmr:::.resolve_clump_opts(clump_opts)
   )
@@ -151,7 +153,7 @@ test_that("manifest includes clump_opts_resolved as a superset of user clump_opt
   expect_equal(m$clump_opts_resolved$r2, 0.001)
   expect_equal(m$clump_opts_resolved$kb, 10000L)
   expect_equal(m$clump_opts_resolved$f_threshold, 10)
-  expect_equal(unlist(m$clump_opts_resolved$p_backoff), c(5e-8, 5e-7, 5e-6))
+  expect_equal(unlist(m$clump_opts_resolved$p_backoff), c(5e-8))   # Job 4 default
   expect_true(isTRUE(m$clump_opts_resolved$drop_indels))
   expect_false(isTRUE(m$clump_opts_resolved$drop_palindromic))
   expect_true(isTRUE(m$clump_opts_resolved$preprocess))
@@ -171,8 +173,8 @@ test_that("manifest includes preprocessing_steps with 8 entries each having step
   m <- read_manifest(cache_dir)
   expect_true("preprocessing_steps" %in% names(m))
   expect_length(m$preprocessing_steps, 8L)
-  expected_steps <- c("p_threshold", "clump", "rsid_validate", "drop_indels",
-                      "palindromic", "f_stat", "maf", "info")
+  expected_steps <- c("p_threshold", "rsid_validate", "drop_indels",
+                      "maf", "info", "palindromic", "clump", "f_stat")
   observed <- vapply(m$preprocessing_steps, function(x) x$step, character(1))
   expect_equal(observed, expected_steps)
   for (s in m$preprocessing_steps) {
@@ -187,7 +189,6 @@ test_that("preprocessing_steps roundtrips through JSON without losing structure"
   # Step `palindromic` carries a logical `dropped` field
   pal <- Filter(function(x) identical(x$step, "palindromic"), m$preprocessing_steps)[[1]]
   expect_false(isTRUE(pal$dropped))
-  expect_equal(pal$n_flagged, 0L)
   # Step `clump` carries r2/kb numerics
   clump <- Filter(function(x) identical(x$step, "clump"), m$preprocessing_steps)[[1]]
   expect_equal(clump$r2, 0.001)
@@ -250,92 +251,195 @@ test_that("preprocessing that drops a SNP changes iv_hash (post-preprocess)", {
 
 # ---- 0-IV preprocessing failure ------------------------------------------
 
-test_that("0-IV preprocessing -> error message lists per-step counts", {
+# Job 4 changed 0-IV from a fatal stop() to a logger::log_warn() +
+# early return. The capture helper below collects logger output for
+# warning-text assertions; the function still returns its list.
+.simple_console_appender <- function(lines) cat(lines, sep = "\n", file = stderr())
+with_captured_logs <- function(expr) {
+  captured <- character()
+  prev_thr <- logger::log_threshold()
+  logger::log_threshold(logger::TRACE)
+  logger::log_appender(function(lines) captured <<- c(captured, lines))
+  on.exit({
+    logger::log_appender(.simple_console_appender)
+    logger::log_threshold(prev_thr)
+  }, add = TRUE)
+  val <- force(expr)
+  list(value = val, logs = captured)
+}
+
+# Run with mocks AND capture logs. Returns list(cache_dir, logs).
+run_with_mocks_capture <- function(args, snps = NULL, preprocess_stub = NULL) {
+  cap <- with_captured_logs(run_with_mocks(args, snps, preprocess_stub))
+  list(cache_dir = cap$value, logs = cap$logs)
+}
+
+test_that("0-IV preprocessing -> warning lists per-step counts (no error)", {
   zero_stub <- function(snps_tbl, ...) {
     n <- NROW(snps_tbl)
     list(
       snps  = tibble::as_tibble(snps_tbl)[0, , drop = FALSE],
       steps = list(
         list(step = "p_threshold",   n_in = n, n_out = n, value = 5e-8),
-        list(step = "clump",         n_in = n, n_out = n, r2 = 0.001, kb = 10000L),
         list(step = "rsid_validate", n_in = n, n_out = n),
         list(step = "drop_indels",   n_in = n, n_out = 0L),
-        list(step = "palindromic",   n_in = 0L, n_out = 0L, dropped = FALSE, n_flagged = 0L),
-        list(step = "f_stat",        n_in = 0L, n_out = 0L, value = 10),
         list(step = "maf",           n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "maf_min not set"),
-        list(step = "info",          n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "info_min not set")
+        list(step = "info",          n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "info_min not set"),
+        list(step = "palindromic",   n_in = 0L, n_out = 0L, dropped = FALSE, skipped_reason = "drop_palindromic = FALSE"),
+        list(step = "clump",         n_in = 0L, n_out = 0L, r2 = 0.001, kb = 10000L),
+        list(step = "f_stat",        n_in = 0L, n_out = 0L, value = 10)
       ),
       resolved_opts = ardmr:::.resolve_clump_opts(list())
     )
   }
-  expect_error(
-    run_with_mocks(mk_args(), preprocess_stub = zero_stub),
-    "Preprocessing returned 0 instruments"
-  )
+  cap <- run_with_mocks_capture(mk_args(), preprocess_stub = zero_stub)
+  expect_true(any(grepl("Preprocessing returned 0 instruments", cap$logs)))
 })
 
-test_that("0-IV error message identifies the killing step", {
+test_that("0-IV warning identifies the killing step", {
   zero_stub <- function(snps_tbl, ...) {
     n <- NROW(snps_tbl)
     list(
       snps  = tibble::as_tibble(snps_tbl)[0, , drop = FALSE],
       steps = list(
         list(step = "p_threshold",   n_in = n, n_out = n, value = 5e-8),
-        list(step = "clump",         n_in = n, n_out = n, r2 = 0.001, kb = 10000L),
         list(step = "rsid_validate", n_in = n, n_out = n),
         list(step = "drop_indels",   n_in = n, n_out = n),
-        list(step = "palindromic",   n_in = n, n_out = n, dropped = FALSE, n_flagged = 0L),
-        list(step = "f_stat",        n_in = n, n_out = 0L, value = 10),
-        list(step = "maf",           n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "maf_min not set"),
-        list(step = "info",          n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "info_min not set")
+        list(step = "maf",           n_in = n, n_out = n, value = NA_real_, skipped_reason = "maf_min not set"),
+        list(step = "info",          n_in = n, n_out = n, value = NA_real_, skipped_reason = "info_min not set"),
+        list(step = "palindromic",   n_in = n, n_out = n, dropped = FALSE, skipped_reason = "drop_palindromic = FALSE"),
+        list(step = "clump",         n_in = n, n_out = n, r2 = 0.001, kb = 10000L),
+        list(step = "f_stat",        n_in = n, n_out = 0L, value = 10)
       ),
       resolved_opts = ardmr:::.resolve_clump_opts(list())
     )
   }
-  expect_error(
-    run_with_mocks(mk_args(), preprocess_stub = zero_stub),
-    "f_stat"
-  )
+  cap <- run_with_mocks_capture(mk_args(), preprocess_stub = zero_stub)
+  expect_true(any(grepl("f_stat", cap$logs)))
 })
 
-test_that("0-IV error message includes per-step counts in n_in -> n_out form", {
+test_that("0-IV warning includes per-step counts in n_in -> n_out form", {
   zero_stub <- function(snps_tbl, ...) {
     n <- NROW(snps_tbl)
     list(
       snps  = tibble::as_tibble(snps_tbl)[0, , drop = FALSE],
       steps = list(
         list(step = "p_threshold",   n_in = n, n_out = 0L, value = 5e-8),
-        list(step = "clump",         n_in = 0L, n_out = 0L, r2 = 0.001, kb = 10000L),
         list(step = "rsid_validate", n_in = 0L, n_out = 0L),
         list(step = "drop_indels",   n_in = 0L, n_out = 0L),
-        list(step = "palindromic",   n_in = 0L, n_out = 0L, dropped = FALSE, n_flagged = 0L),
-        list(step = "f_stat",        n_in = 0L, n_out = 0L, value = 10),
         list(step = "maf",           n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "maf_min not set"),
-        list(step = "info",          n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "info_min not set")
+        list(step = "info",          n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "info_min not set"),
+        list(step = "palindromic",   n_in = 0L, n_out = 0L, dropped = FALSE, skipped_reason = "drop_palindromic = FALSE"),
+        list(step = "clump",         n_in = 0L, n_out = 0L, r2 = 0.001, kb = 10000L),
+        list(step = "f_stat",        n_in = 0L, n_out = 0L, value = 10)
       ),
       resolved_opts = ardmr:::.resolve_clump_opts(list())
     )
   }
-  expect_error(
-    run_with_mocks(mk_args(), preprocess_stub = zero_stub),
-    "1 -> 0"  # the killing step's n_in -> n_out
-  )
+  cap <- run_with_mocks_capture(mk_args(), preprocess_stub = zero_stub)
+  expect_true(any(grepl("1 -> 0", cap$logs)))  # the killing step's n_in -> n_out
 })
 
-test_that("0-IV with empty preprocessing_steps -> bypass-mode error message", {
+test_that("0-IV with empty preprocessing_steps -> bypass-mode warning", {
   bypass_zero_stub <- function(snps_tbl, ...) {
     list(snps = tibble::as_tibble(snps_tbl)[0, , drop = FALSE],
          steps = list(),
          resolved_opts = ardmr:::.resolve_clump_opts(list()))
   }
   args <- mk_args(); args$clump_opts <- list(preprocess = FALSE)
-  # When preprocess = FALSE, the resolver bypasses preprocess and returns
-  # the input as-is. So we need to start with empty input.
   empty_snps <- mk_synth_exposure_snps()[0, ]
-  expect_error(
-    run_with_mocks(args, snps = empty_snps, preprocess_stub = bypass_zero_stub),
-    "no preprocessing steps were recorded"
+  cap <- run_with_mocks_capture(args, snps = empty_snps,
+                                preprocess_stub = bypass_zero_stub)
+  expect_true(any(grepl("no preprocessing steps were recorded", cap$logs)))
+})
+
+# ---- 0-IV: return list shape + manifest still written --------------------
+
+run_with_mocks_return <- function(args, snps = NULL, preprocess_stub = NULL) {
+  # Identical to run_with_mocks but returns the function result instead
+  # of just the cache_dir, so the caller can inspect the result list.
+  cache_dir <- tempfile("ardmr_run_")
+  dir.create(cache_dir, recursive = TRUE)
+  args$cache_dir <- cache_dir
+  args$exposure_snps <- if (is.null(snps)) mk_synth_exposure_snps() else snps
+  pp <- if (is.null(preprocess_stub)) .default_preprocess_stub else preprocess_stub
+  testthat::local_mocked_bindings(
+    Outcome_setup = function(sex, ancestry) {
+      tibble::tibble(description = "synth_outcome", ARD_selected = FALSE,
+                     aws_link = "https://invalid.example/x.tsv.bgz",
+                     aws_link_tabix = "https://invalid.example/x.tsv.bgz.tbi")
+    },
+    Variant_manifest_downloader = function(...) invisible(NULL),
+    exposure_snp_mapper = function(exposure_snps, ...) {
+      exposure_snps$panukb_chrom <- 1L; exposure_snps$panukb_pos <- 100L
+      exposure_snps$rsid <- exposure_snps$SNP; exposure_snps
+    },
+    compute_ld_matrix = function(...) list(matrix = matrix(1.0, 1L, 1L), snps_used = "rs1"),
+    panukb_snp_grabber = function(exposure_snps, MR_df, ...) {
+      MR_df$outcome_snps <- list(tibble::tibble()); MR_df
+    },
+    mr_business_logic = function(MR_df, exposure_snps, ...) {
+      list(MR_df = MR_df, results_df = tibble::tibble())
+    },
+    preprocess_exposure_snps = pp,
+    .package = "ardmr",
+    .env = parent.frame()
   )
+  res <- do.call(run_phenome_mr, args)
+  list(result = res, cache_dir = cache_dir)
+}
+
+test_that("0-IV: returned list has status = 'no_ivs' + empty MR/results tables + NULL plots", {
+  zero_stub <- function(snps_tbl, ...) {
+    n <- NROW(snps_tbl)
+    list(
+      snps  = tibble::as_tibble(snps_tbl)[0, , drop = FALSE],
+      steps = list(
+        list(step = "p_threshold",   n_in = n, n_out = 0L, value = 5e-8),
+        list(step = "rsid_validate", n_in = 0L, n_out = 0L),
+        list(step = "drop_indels",   n_in = 0L, n_out = 0L),
+        list(step = "maf",           n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "maf_min not set"),
+        list(step = "info",          n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "info_min not set"),
+        list(step = "palindromic",   n_in = 0L, n_out = 0L, dropped = FALSE, skipped_reason = "drop_palindromic = FALSE"),
+        list(step = "clump",         n_in = 0L, n_out = 0L, r2 = 0.001, kb = 10000L),
+        list(step = "f_stat",        n_in = 0L, n_out = 0L, value = 10)
+      ),
+      resolved_opts = ardmr:::.resolve_clump_opts(list())
+    )
+  }
+  out <- suppressWarnings(run_with_mocks_return(mk_args(), preprocess_stub = zero_stub))
+  expect_equal(out$result$status, "no_ivs")
+  expect_equal(nrow(out$result$MR_df), 0L)
+  expect_equal(nrow(out$result$results_df), 0L)
+  expect_null(out$result$manhattan)
+  expect_null(out$result$volcano)
+  expect_true(nzchar(out$result$run_dir))
+})
+
+test_that("0-IV: manifest is still written so the user can inspect the steps", {
+  zero_stub <- function(snps_tbl, ...) {
+    n <- NROW(snps_tbl)
+    list(
+      snps  = tibble::as_tibble(snps_tbl)[0, , drop = FALSE],
+      steps = list(
+        list(step = "p_threshold",   n_in = n, n_out = 0L, value = 5e-8),
+        list(step = "rsid_validate", n_in = 0L, n_out = 0L),
+        list(step = "drop_indels",   n_in = 0L, n_out = 0L),
+        list(step = "maf",           n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "maf_min not set"),
+        list(step = "info",          n_in = 0L, n_out = 0L, value = NA_real_, skipped_reason = "info_min not set"),
+        list(step = "palindromic",   n_in = 0L, n_out = 0L, dropped = FALSE, skipped_reason = "drop_palindromic = FALSE"),
+        list(step = "clump",         n_in = 0L, n_out = 0L, r2 = 0.001, kb = 10000L),
+        list(step = "f_stat",        n_in = 0L, n_out = 0L, value = 10)
+      ),
+      resolved_opts = ardmr:::.resolve_clump_opts(list())
+    )
+  }
+  out <- suppressWarnings(run_with_mocks_return(mk_args(), preprocess_stub = zero_stub))
+  manifest_path <- file.path(out$result$run_dir, "run_manifest.json")
+  expect_true(file.exists(manifest_path))
+  m <- jsonlite::read_json(manifest_path, simplifyVector = FALSE)
+  expect_equal(m$n_ivs, 0L)
+  expect_length(m$preprocessing_steps, 8L)
 })
 
 # ---- .format_zero_iv_error unit tests (the helper itself) ----------------

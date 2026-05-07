@@ -57,12 +57,15 @@ test_that("p-backoff: all rows pass at strictest rung -> value = 5e-8", {
   expect_equal(nrow(res$snps), 3L)
 })
 
-test_that("p-backoff: strictest empty -> walks to next rung", {
+test_that("p-backoff (opt-in ladder): strictest empty -> walks to next rung", {
   snps <- make_synthetic_exposure_snps(
     n = 3L, pval.exposure = c(1e-7, 5e-7, 9e-7)
   )
   res <- preprocess_exposure_snps(
-    snps, clump_opts = mk_skip_opts(already_p_filtered = FALSE),
+    snps,
+    # Explicitly opt into the ladder; default is single-rung.
+    clump_opts = mk_skip_opts(already_p_filtered = FALSE,
+                              p_backoff = c(5e-8, 5e-7, 5e-6)),
     ancestry = "EUR", verbose = FALSE
   )
   step <- get_step(res, "p_threshold")
@@ -71,17 +74,41 @@ test_that("p-backoff: strictest empty -> walks to next rung", {
   expect_equal(step$n_out, 1L)  # only 1e-7 passes p < 5e-7
 })
 
-test_that("p-backoff: all rungs empty -> 0-row tibble, no error", {
+test_that("p-backoff (opt-in ladder): all rungs empty -> 0-row tibble, no error", {
   snps <- make_synthetic_exposure_snps(
     n = 2L, pval.exposure = c(1e-3, 1e-2)
   )
   res <- preprocess_exposure_snps(
-    snps, clump_opts = mk_skip_opts(already_p_filtered = FALSE),
+    snps,
+    clump_opts = mk_skip_opts(already_p_filtered = FALSE,
+                              p_backoff = c(5e-8, 5e-7, 5e-6)),
     ancestry = "EUR", verbose = FALSE
   )
   step <- get_step(res, "p_threshold")
   expect_equal(step$value, 5e-6)  # last rung tried
   expect_equal(step$n_out, 0L)
+  expect_equal(nrow(res$snps), 0L)
+})
+
+test_that("p-backoff: default is single rung c(5e-8) (no silent relaxation)", {
+  res <- preprocess_exposure_snps(
+    make_synthetic_exposure_snps(n = 1L),
+    clump_opts = mk_skip_opts(already_p_filtered = FALSE),
+    ancestry = "EUR", verbose = FALSE
+  )
+  expect_equal(res$resolved_opts$p_backoff, c(5e-8))
+  step <- get_step(res, "p_threshold")
+  expect_equal(step$value, 5e-8)
+})
+
+test_that("p-backoff default: no fallback even if 0 rows", {
+  # Default single rung. Row at p = 1e-6 fails; no fallback.
+  snps <- make_synthetic_exposure_snps(n = 1L, pval.exposure = 1e-6)
+  res <- preprocess_exposure_snps(
+    snps, clump_opts = mk_skip_opts(already_p_filtered = FALSE),
+    ancestry = "EUR", verbose = FALSE
+  )
+  expect_equal(get_step(res, "p_threshold")$value, 5e-8)
   expect_equal(nrow(res$snps), 0L)
 })
 
@@ -273,39 +300,83 @@ test_that("drop_indels = FALSE leaves indels in place", {
 
 # ---- palindromic ----------------------------------------------------------
 
-test_that("palindromic: A/T pair flagged TRUE; non-pal flagged FALSE", {
+test_that("palindromic: drop_palindromic = FALSE keeps all rows; no palindromic column added", {
   snps <- make_synthetic_exposure_snps(
     n = 2L, SNP = c("rs1", "rs2"),
     effect_allele.exposure = c("A", "A"),
-    other_allele.exposure  = c("T", "G")
+    other_allele.exposure  = c("T", "G"),
+    eaf.exposure           = c(0.50, 0.50)
   )
   res <- preprocess_exposure_snps(
     snps, clump_opts = mk_skip_opts(drop_palindromic = FALSE),
     ancestry = "EUR", verbose = FALSE
   )
-  expect_true("palindromic" %in% names(res$snps))
-  expect_equal(res$snps$palindromic, c(TRUE, FALSE))
-  expect_equal(nrow(res$snps), 2L)  # not dropped
+  expect_false("palindromic" %in% names(res$snps))  # column NOT added (Job 4 / B4)
+  expect_equal(nrow(res$snps), 2L)
   step <- get_step(res, "palindromic")
-  expect_equal(step$n_flagged, 1L)
   expect_false(step$dropped)
+  expect_equal(step$skipped_reason, "drop_palindromic = FALSE")
 })
 
-test_that("palindromic: drop_palindromic = TRUE removes flagged rows", {
+test_that("palindromic: drop_palindromic = TRUE drops AMBIGUOUS palindromes (eaf in [0.42, 0.58])", {
   snps <- make_synthetic_exposure_snps(
-    n = 2L, SNP = c("rs1", "rs2"),
-    effect_allele.exposure = c("C", "A"),
-    other_allele.exposure  = c("G", "G")
+    n = 3L, SNP = c("rs1", "rs2", "rs3"),
+    effect_allele.exposure = c("A", "C", "A"),  # rs1, rs3 are palindromes
+    other_allele.exposure  = c("T", "T", "T"),  # rs2 is non-palindrome
+    eaf.exposure           = c(0.50, 0.50, 0.50)  # all intermediate
   )
   res <- preprocess_exposure_snps(
     snps, clump_opts = mk_skip_opts(drop_palindromic = TRUE),
     ancestry = "EUR", verbose = FALSE
   )
+  # Both ambiguous palindromes (rs1, rs3) dropped; non-palindrome (rs2) kept.
+  expect_equal(res$snps$SNP, "rs2")
   step <- get_step(res, "palindromic")
   expect_true(step$dropped)
-  expect_equal(step$n_in, 2L)
-  expect_equal(step$n_out, 1L)
-  expect_equal(res$snps$SNP, "rs2")
+  expect_equal(step$n_dropped, 2L)
+})
+
+test_that("palindromic: drop_palindromic = TRUE keeps strand-resolvable palindromes (extreme EAF)", {
+  snps <- make_synthetic_exposure_snps(
+    n = 3L, SNP = c("rs1", "rs2", "rs3"),
+    effect_allele.exposure = c("A", "A", "A"),  # all A/T palindromes
+    other_allele.exposure  = c("T", "T", "T"),
+    eaf.exposure           = c(0.10, 0.50, 0.95)  # extreme, ambiguous, extreme
+  )
+  res <- preprocess_exposure_snps(
+    snps, clump_opts = mk_skip_opts(drop_palindromic = TRUE),
+    ancestry = "EUR", verbose = FALSE
+  )
+  # Only rs2 (intermediate AF) is ambiguous; rs1, rs3 are strand-resolvable.
+  expect_setequal(res$snps$SNP, c("rs1", "rs3"))
+  expect_equal(get_step(res, "palindromic")$n_dropped, 1L)
+})
+
+test_that("palindromic: NA-EAF palindromes are KEPT (we can't assess)", {
+  snps <- make_synthetic_exposure_snps(
+    n = 1L,
+    effect_allele.exposure = "A", other_allele.exposure = "T",
+    eaf.exposure = NA_real_
+  )
+  res <- preprocess_exposure_snps(
+    snps, clump_opts = mk_skip_opts(drop_palindromic = TRUE),
+    ancestry = "EUR", verbose = FALSE
+  )
+  expect_equal(nrow(res$snps), 1L)
+  expect_equal(get_step(res, "palindromic")$n_dropped, 0L)
+})
+
+test_that("palindromic: drop_palindromic = TRUE never adds a palindromic column either", {
+  snps <- make_synthetic_exposure_snps(
+    n = 1L,
+    effect_allele.exposure = "A", other_allele.exposure = "G",
+    eaf.exposure = 0.50
+  )
+  res <- preprocess_exposure_snps(
+    snps, clump_opts = mk_skip_opts(drop_palindromic = TRUE),
+    ancestry = "EUR", verbose = FALSE
+  )
+  expect_false("palindromic" %in% names(res$snps))
 })
 
 # ---- F-stat ---------------------------------------------------------------
@@ -419,6 +490,26 @@ test_that("INFO: alternate column name 'Rsq' is detected", {
   expect_equal(res$snps$SNP, "rs2")
 })
 
+test_that("INFO priority: SI wins over INFO when both present (VCF correctness)", {
+  # In real GWAS-VCF, the `INFO` column is typically the raw VCF
+  # INFO blob (e.g. "AC=10;AF=0.5") while `SI` is the parsed numeric
+  # imputation-quality FORMAT field. We must prefer SI to avoid
+  # silently coercing the blob to NA and skipping the filter (Job 4
+  # corrects the column priority).
+  snps <- make_synthetic_exposure_snps(n = 2L, SNP = c("rs1","rs2"))
+  snps$SI   <- c(0.30, 0.95)              # numeric quality score
+  snps$INFO <- c("AC=10;AF=0.5",          # raw VCF INFO blob
+                 "AC=20;AF=0.3")
+  res <- preprocess_exposure_snps(
+    snps, clump_opts = mk_skip_opts(info_min = 0.8),
+    ancestry = "EUR", verbose = FALSE
+  )
+  step <- get_step(res, "info")
+  expect_equal(step$column, "SI")  # NOT "INFO"
+  expect_equal(step$n_out, 1L)     # rs1 (SI=0.30) dropped
+  expect_equal(res$snps$SNP, "rs2")
+})
+
 test_that("INFO: 'info_score' column NOT in detect list -> step skipped", {
   snps <- make_synthetic_exposure_snps(n = 2L, SNP = c("rs1","rs2"))
   snps$info_score <- c(0.1, 0.9)  # would be dropped if detected
@@ -458,12 +549,12 @@ test_that("INFO: NA value + info_min set -> row KEPT", {
 
 # ---- order regression ------------------------------------------------------
 
-test_that("order regression: indel runs AFTER clump (locked order)", {
-  # An indel SNP would be "preserved" if it survived clumping, then dropped
-  # by the indel filter. With the locked order (clump -> indel), the indel
-  # SNP is present until step 4, then dropped. If the order were reversed
-  # (indel -> clump), the indel would be dropped earlier and the recorded
-  # `n_in` for clump would be smaller. We assert step records here.
+test_that("order regression: indel runs BEFORE clump (Job 4 locked order)", {
+  # rs1 is an indel; rs2, rs3 are SNVs. With the new locked order
+  # (indel -> clump), the indel is dropped BEFORE clumping, so the
+  # clump step's n_in is 2 (not 3). Under the old order (clump -> indel)
+  # the clump step's n_in was 3. We assert the step records here to
+  # guard against accidental reordering.
   snps <- make_synthetic_exposure_snps(
     n = 3L,
     SNP = c("rs1", "rs2", "rs3"),
@@ -475,12 +566,54 @@ test_that("order regression: indel runs AFTER clump (locked order)", {
     clump_opts = mk_skip_opts(already_clumped = TRUE, drop_indels = TRUE),
     ancestry = "EUR", verbose = FALSE
   )
-  rsid_step  <- get_step(res, "rsid_validate")
   indel_step <- get_step(res, "drop_indels")
-  expect_equal(rsid_step$n_in,  3L)
-  expect_equal(rsid_step$n_out, 3L)
+  clump_step <- get_step(res, "clump")
   expect_equal(indel_step$n_in,  3L)  # all 3 reach the indel step
-  expect_equal(indel_step$n_out, 2L)  # rs1 dropped
+  expect_equal(indel_step$n_out, 2L)  # rs1 dropped before clumping
+  expect_equal(clump_step$n_in,  2L)  # only 2 SNVs reach clump
+})
+
+test_that("order regression: MAF runs BEFORE clump", {
+  # rs1 is below maf_min; rs2, rs3 are above. MAF must drop rs1 before
+  # the clump step sees the data.
+  snps <- make_synthetic_exposure_snps(
+    n = 3L, SNP = c("rs1", "rs2", "rs3"),
+    eaf.exposure = c(0.01, 0.30, 0.40)
+  )
+  res <- preprocess_exposure_snps(
+    snps,
+    clump_opts = mk_skip_opts(already_clumped = TRUE, maf_min = 0.05),
+    ancestry = "EUR", verbose = FALSE
+  )
+  expect_equal(get_step(res, "maf")$n_out, 2L)
+  expect_equal(get_step(res, "clump")$n_in, 2L)  # only the survivors hit clump
+})
+
+test_that("order regression: F-stat runs AFTER clump (per-SNP, no locus loss)", {
+  # F-stat is the only filter that runs AFTER clumping in the new
+  # order. Mimic by setting already_clumped = TRUE so the clump step
+  # is a no-op; the F-stat step still observes whatever survived MAF.
+  snps <- make_synthetic_exposure_snps(
+    n = 3L, SNP = c("rs1", "rs2", "rs3"),
+    beta.exposure = c(0.01, 0.10, 0.05),
+    se.exposure   = c(0.01, 0.01, 0.01)  # F = 1, 100, 25
+  )
+  res <- preprocess_exposure_snps(
+    snps, clump_opts = mk_skip_opts(already_clumped = TRUE, f_threshold = 10),
+    ancestry = "EUR", verbose = FALSE
+  )
+  # palindromic step is BEFORE clump in the new order; F-stat is AFTER.
+  pal <- get_step(res, "palindromic")
+  clump <- get_step(res, "clump")
+  fstat <- get_step(res, "f_stat")
+  # Step ordering check: pal -> clump -> f_stat
+  pal_idx <- which(vapply(res$steps, function(x) x$step, character(1)) == "palindromic")
+  clump_idx <- which(vapply(res$steps, function(x) x$step, character(1)) == "clump")
+  fstat_idx <- which(vapply(res$steps, function(x) x$step, character(1)) == "f_stat")
+  expect_lt(pal_idx, clump_idx)
+  expect_lt(clump_idx, fstat_idx)
+  # And F-stat correctly drops the weak instrument
+  expect_equal(fstat$n_out, 2L)
 })
 
 # ---- p_threshold deprecation ----------------------------------------------
@@ -538,8 +671,12 @@ test_that("manifest schema: 8 step records, each has step+n_in+n_out", {
     ancestry = "EUR", verbose = FALSE
   )
   expect_length(res$steps, 8L)
-  expected_steps <- c("p_threshold", "clump", "rsid_validate", "drop_indels",
-                      "palindromic", "f_stat", "maf", "info")
+  # Job 4 locked order: p -> rsid -> indel -> MAF -> INFO ->
+  # palindromic -> clump -> F-stat. Data-quality filters precede
+  # clumping so a clump-elected lead SNP that fails one of them
+  # doesn't cost the locus.
+  expected_steps <- c("p_threshold", "rsid_validate", "drop_indels",
+                      "maf", "info", "palindromic", "clump", "f_stat")
   observed_steps <- vapply(res$steps, function(x) x$step, character(1))
   expect_equal(observed_steps, expected_steps)
   for (s in res$steps) {

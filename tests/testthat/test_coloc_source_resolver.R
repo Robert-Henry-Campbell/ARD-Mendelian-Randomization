@@ -180,8 +180,9 @@ test_that("vcf_only: clump_sumstats_to_ivs called once with full clump_opts", {
   )
   expect_equal(r$mode, "vcf_only")
   expect_equal(observed$count, 1L)
-  # The full resolved clump_opts is plumbed through (Job 2b)
-  expect_equal(observed$clump_opts$p_backoff, c(5e-8, 5e-7, 5e-6))
+  # The full resolved clump_opts is plumbed through (Job 2b).
+  # Job 4 default: single-rung c(5e-8).
+  expect_equal(observed$clump_opts$p_backoff, c(5e-8))
   expect_equal(observed$clump_opts$r2, 0.001)
   expect_equal(observed$clump_opts$kb, 10000L)
   expect_equal(observed$clump_opts$f_threshold, 10)
@@ -203,21 +204,21 @@ test_that("vcf_only: 0-row return is NOT an error (downstream decides)", {
   expect_equal(nrow(r$exposure_snps), 0L)
 })
 
-# ---- ieugwasr (server clump) ----------------------------------------------
+# ---- ieugwasr (always local clump after Job 4) ----------------------------
 
-test_that("ieugwasr + prefer_server_clump=TRUE: extract_instruments called, preprocess flagged", {
+test_that("ieugwasr: extract_instruments called with clump = FALSE; local clump downstream", {
   fake_ivs <- mk_snps()
+  observed <- new.env()
   testthat::local_mocked_bindings(
-    extract_instruments = function(outcomes, p1, clump, r2, kb, ...) fake_ivs,
+    extract_instruments = function(outcomes, p1, clump = TRUE, ...) {
+      observed$clump <- clump
+      observed$p1    <- p1
+      fake_ivs
+    },
     .package = "TwoSampleMR"
   )
   testthat::local_mocked_bindings(
     coloc_fetch_metadata = function(exposure_id, ...) mk_fake_meta()
-  )
-  ieugwasr_called <- 0L
-  testthat::local_mocked_bindings(
-    ld_clump = function(...) { ieugwasr_called <<- ieugwasr_called + 1L; tibble::tibble() },
-    .package = "ieugwasr"
   )
   cap <- new.env()
   testthat::local_mocked_bindings(
@@ -228,13 +229,25 @@ test_that("ieugwasr + prefer_server_clump=TRUE: extract_instruments called, prep
     cache_dir = tempdir(), verbose = FALSE
   )
   expect_equal(r$mode, "ieugwasr")
+  expect_false(isTRUE(observed$clump))   # NEVER server-clumped (Job 4)
   expect_equal(cap$call_count, 1L)
   expect_true(isTRUE(cap$last_co$already_p_filtered))
-  expect_true(isTRUE(cap$last_co$already_clumped))
-  expect_equal(ieugwasr_called, 0L)  # no double-clump
+  expect_false(isTRUE(cap$last_co$already_clumped))  # local clump runs in preprocess
 })
 
-test_that("ieugwasr + prefer_server_clump=FALSE: safe_tophits called, only p flagged", {
+test_that("ieugwasr: prefer_server_clump field is gone (no longer recognised)", {
+  expect_false("prefer_server_clump" %in% names(ardmr:::.preprocess_defaults()))
+  res_opts <- ardmr:::.resolve_clump_opts(list())
+  expect_false("prefer_server_clump" %in% names(res_opts))
+})
+
+test_that("ieugwasr: falls back to safe_tophits on extract_instruments error", {
+  testthat::local_mocked_bindings(
+    extract_instruments = function(outcomes, p1, clump = TRUE, ...) {
+      stop("simulated server error")
+    },
+    .package = "TwoSampleMR"
+  )
   fake_top <- tibble::tibble(
     rsid = "rs1", ea = "A", nea = "G",
     beta = 0.05, se = 0.01, eaf = 0.3, p = 1e-10, n = 100000
@@ -252,13 +265,10 @@ test_that("ieugwasr + prefer_server_clump=FALSE: safe_tophits called, only p fla
   )
   r <- ardmr:::.resolve_coloc_source(
     exposure_id = "ieu-b-38", ancestry = "EUR",
-    clump_opts = list(prefer_server_clump = FALSE),
     cache_dir = tempdir(), verbose = FALSE
   )
   expect_equal(r$mode, "ieugwasr")
   expect_equal(cap$call_count, 1L)
-  expect_true(isTRUE(cap$last_co$already_p_filtered))
-  expect_false(isTRUE(cap$last_co$already_clumped))
   # The IVs sent to preprocess should be the .tophits_to_tsmr-converted
   # tibble (TwoSampleMR shape).
   expect_true("effect_allele.exposure" %in% names(cap$last_snps_in))
@@ -268,10 +278,40 @@ test_that("ieugwasr + prefer_server_clump=FALSE: safe_tophits called, only p fla
 
 # ---- ieugwasr backoff at source -------------------------------------------
 
-test_that("ieugwasr backoff: 0 at strictest, hits at next rung -> called twice", {
+test_that("ieugwasr default: single rung c(5e-8); no silent ladder", {
+  call_log <- new.env(); call_log$count <- 0L
+  testthat::local_mocked_bindings(
+    extract_instruments = function(outcomes, p1, clump = TRUE, ...) {
+      call_log$count <- call_log$count + 1L
+      call_log$last_p1 <- p1
+      NULL
+    },
+    .package = "TwoSampleMR"
+  )
+  testthat::local_mocked_bindings(
+    tophits = function(id, p = NULL, pval = NULL, ...) NULL,
+    .package = "ieugwasr"
+  )
+  testthat::local_mocked_bindings(
+    coloc_fetch_metadata = function(exposure_id, ...) mk_fake_meta()
+  )
+  cap <- new.env()
+  testthat::local_mocked_bindings(
+    preprocess_exposure_snps = mk_preprocess_recorder(cap)
+  )
+  r <- ardmr:::.resolve_coloc_source(
+    exposure_id = "ieu-b-38", ancestry = "EUR",
+    cache_dir = tempdir(), verbose = FALSE
+  )
+  # Default: just the strictest rung (5e-8). One call.
+  expect_equal(call_log$count, 1L)
+  expect_equal(call_log$last_p1, 5e-8)
+})
+
+test_that("ieugwasr backoff (opt-in): 0 at strictest, hits at next rung -> called twice", {
   call_log <- new.env(); call_log$pthr <- numeric(); call_log$count <- 0L
   testthat::local_mocked_bindings(
-    extract_instruments = function(outcomes, p1, clump, r2, kb, ...) {
+    extract_instruments = function(outcomes, p1, clump = TRUE, ...) {
       call_log$count <- call_log$count + 1L
       call_log$pthr  <- c(call_log$pthr, p1)
       if (p1 < 5e-7) NULL else mk_snps()
@@ -287,6 +327,7 @@ test_that("ieugwasr backoff: 0 at strictest, hits at next rung -> called twice",
   )
   r <- ardmr:::.resolve_coloc_source(
     exposure_id = "ieu-b-38", ancestry = "EUR",
+    clump_opts = list(p_backoff = c(5e-8, 5e-7, 5e-6)),  # opt in
     cache_dir = tempdir(), verbose = FALSE
   )
   expect_equal(r$mode, "ieugwasr")
@@ -294,14 +335,18 @@ test_that("ieugwasr backoff: 0 at strictest, hits at next rung -> called twice",
   expect_equal(call_log$pthr, c(5e-8, 5e-7))
 })
 
-test_that("ieugwasr backoff: 0 at all rungs -> 0 IVs, no error", {
+test_that("ieugwasr backoff (opt-in): 0 at all rungs -> 0 IVs, no error", {
   call_log <- new.env(); call_log$count <- 0L
   testthat::local_mocked_bindings(
-    extract_instruments = function(outcomes, p1, clump, r2, kb, ...) {
+    extract_instruments = function(outcomes, p1, clump = TRUE, ...) {
       call_log$count <- call_log$count + 1L
       NULL
     },
     .package = "TwoSampleMR"
+  )
+  testthat::local_mocked_bindings(
+    tophits = function(id, p = NULL, pval = NULL, ...) NULL,
+    .package = "ieugwasr"
   )
   testthat::local_mocked_bindings(
     coloc_fetch_metadata = function(exposure_id, ...) mk_fake_meta()
@@ -312,6 +357,7 @@ test_that("ieugwasr backoff: 0 at all rungs -> 0 IVs, no error", {
   )
   r <- ardmr:::.resolve_coloc_source(
     exposure_id = "ieu-b-38", ancestry = "EUR",
+    clump_opts = list(p_backoff = c(5e-8, 5e-7, 5e-6)),  # opt in
     cache_dir = tempdir(), verbose = FALSE
   )
   expect_equal(r$mode, "ieugwasr")
@@ -356,7 +402,8 @@ test_that("defaults merge: user maf_min preserved, defaults filled in", {
   expect_equal(r$clump_opts_resolved$r2, 0.001)
   expect_equal(r$clump_opts_resolved$kb, 10000L)
   expect_equal(r$clump_opts_resolved$f_threshold, 10)
-  expect_equal(r$clump_opts_resolved$p_backoff, c(5e-8, 5e-7, 5e-6))
+  expect_equal(r$clump_opts_resolved$p_backoff, c(5e-8))   # Job 4 default
+  expect_false("prefer_server_clump" %in% names(r$clump_opts_resolved))
 })
 
 # ---- p_threshold deprecation through the resolver ------------------------
@@ -415,11 +462,14 @@ test_that("deprecation: clump_opts$p_threshold translated to p_backoff via resol
   expect_null(cap$value$clump_opts_resolved$p_threshold)
 })
 
-# ---- ld_pop alignment notice ----------------------------------------------
+# ---- ld_pop alignment notice (REMOVED in Job 4) ---------------------------
+# Now that clumping is always local with the ancestry-aware LD panel,
+# there's no panel mismatch to surface. The notice was removed; we
+# regression-test that no such warning fires for any ancestry.
 
-test_that("ld_pop alignment: non-EUR ancestry + prefer_server_clump=TRUE logs note", {
+test_that("no 'server clumping uses its default' notice fires (always local)", {
   testthat::local_mocked_bindings(
-    extract_instruments = function(outcomes, p1, ...) mk_snps(),
+    extract_instruments = function(outcomes, p1, clump = TRUE, ...) mk_snps(),
     .package = "TwoSampleMR"
   )
   testthat::local_mocked_bindings(
@@ -428,31 +478,14 @@ test_that("ld_pop alignment: non-EUR ancestry + prefer_server_clump=TRUE logs no
   testthat::local_mocked_bindings(
     preprocess_exposure_snps = mk_preprocess_recorder(new.env())
   )
-  cap <- with_captured_logs(
-    ardmr:::.resolve_coloc_source(
-      exposure_id = "ieu-b-38", ancestry = "AFR",
-      cache_dir = tempdir(), verbose = TRUE
+  for (anc in c("EUR", "AFR", "EAS", "SAS")) {
+    cap <- with_captured_logs(
+      ardmr:::.resolve_coloc_source(
+        exposure_id = "ieu-b-38", ancestry = anc,
+        cache_dir = tempdir(), verbose = TRUE
+      )
     )
-  )
-  expect_true(any(grepl("server clumping uses its default", cap$logs)))
-})
-
-test_that("ld_pop alignment: EUR ancestry does NOT log the note", {
-  testthat::local_mocked_bindings(
-    extract_instruments = function(outcomes, p1, ...) mk_snps(),
-    .package = "TwoSampleMR"
-  )
-  testthat::local_mocked_bindings(
-    coloc_fetch_metadata = function(exposure_id, ...) mk_fake_meta()
-  )
-  testthat::local_mocked_bindings(
-    preprocess_exposure_snps = mk_preprocess_recorder(new.env())
-  )
-  cap <- with_captured_logs(
-    ardmr:::.resolve_coloc_source(
-      exposure_id = "ieu-b-38", ancestry = "EUR",
-      cache_dir = tempdir(), verbose = TRUE
-    )
-  )
-  expect_false(any(grepl("server clumping uses its default", cap$logs)))
+    expect_false(any(grepl("server clumping uses its default", cap$logs)),
+                 info = sprintf("notice unexpectedly fired for ancestry=%s", anc))
+  }
 })

@@ -16,17 +16,20 @@
 #' All modes route their IV tibble through [preprocess_exposure_snps()] for
 #' a single, unified exposure-SNP preprocessing pipeline. The `ieugwasr`
 #' branch handles the p-value backoff ladder at the source-fetch layer
-#' (since `extract_instruments`/`tophits` bound the data the preprocessor
-#' sees) and passes `already_p_filtered = TRUE` (and, when
-#' `prefer_server_clump = TRUE`, `already_clumped = TRUE`) downstream.
-#' The `snps_*` modes leave both flags FALSE so the preprocessor walks
-#' the ladder itself by re-filtering the input tibble.
+#' (fetching unclumped via `extract_instruments(clump = FALSE)` or
+#' `tophits` per rung) and passes `already_p_filtered = TRUE,
+#' already_clumped = FALSE` to the preprocessor. Local LD clumping then
+#' runs against the ancestry-aware 1kg.v3 panel inside
+#' `preprocess_exposure_snps`. The `snps_*` modes leave both flags
+#' FALSE so the preprocessor walks the ladder itself by re-filtering
+#' the input tibble.
 #'
 #' @return list(mode, exposure_snps, coloc_fetcher, coloc_metadata,
 #'   clump_opts_resolved, preprocessing_steps).
 #'   `preprocessing_steps` is a list (may be empty when
-#'   `clump_opts$preprocess = FALSE` or for vcf_only's interim state until
-#'   Job 2b refactors `clump_sumstats_to_ivs`).
+#'   `clump_opts$preprocess = FALSE` or for `vcf_only` whose
+#'   `clump_sumstats_to_ivs` runs the preprocessor internally and
+#'   returns just the SNPs).
 #' @keywords internal
 .resolve_coloc_source <- function(exposure_snps = NULL,
                                   exposure_sumstats = NULL,
@@ -53,18 +56,10 @@
   # Single source of truth for defaults + p_threshold deprecation.
   co <- .resolve_clump_opts(clump_opts)
 
-  # ld_pop alignment note: when prefer_server_clump = TRUE for a non-EUR
-  # ancestry, OpenGWAS does the clumping with its own (typically EUR) LD
-  # panel. Local steps still use ld_pop_from_ancestry(ancestry). Surface the
-  # discrepancy so users see it in their run logs.
-  if (verbose && has_id && !has_vcf && isTRUE(co$prefer_server_clump)) {
-    anc_norm <- toupper(trimws(as.character(ancestry)[1]))
-    if (!identical(anc_norm, "EUR") && !identical(anc_norm, "EUROPEAN")) {
-      logger::log_info(
-        "coloc-source: ancestry='{ancestry}' but prefer_server_clump=TRUE -- server clumping uses its default (typically EUR) LD panel."
-      )
-    }
-  }
+  # Clumping always runs locally against the ancestry-aware 1kg.v3
+  # panel (Job 4). The previous prefer_server_clump branch was removed
+  # because OpenGWAS's server-side clumping uses its default (EUR) LD
+  # panel regardless of the requested ancestry.
 
   # Helper: invoke preprocess (or bypass when co$preprocess = FALSE) and
   # build the per-mode return list.
@@ -178,44 +173,47 @@
     coloc_fetcher      = .ieugwasr_fetcher(exposure_id, cache_dir, verbose),
     coloc_metadata     = coloc_fetch_metadata(exposure_id, cache_dir, verbose),
     already_p_filtered = TRUE,
-    already_clumped    = isTRUE(co$prefer_server_clump)
+    already_clumped    = FALSE  # local clump always runs in preprocess
   ))
 }
 
 # ---- ieugwasr extraction with p-value backoff at the source layer --------
 
+#' Fetch unclumped instruments from OpenGWAS, walking the p_backoff
+#' ladder strictest-first.
+#'
+#' Always fetches WITHOUT server-side clumping so the unified
+#' preprocessor can clump locally against the ancestry-aware 1kg.v3
+#' panel. Falls back from `extract_instruments(clump = FALSE)` to
+#' `safe_tophits()` when the former fails.
 #' @keywords internal
 .ieugwasr_extract_with_backoff <- function(exposure_id, co, verbose = TRUE) {
   rungs <- as.numeric(co$p_backoff)
   for (rung in rungs) {
-    ivs <- if (isTRUE(co$prefer_server_clump)) {
-      if (verbose) {
-        logger::log_info(
-          "coloc-source: extract_instruments({exposure_id}) at p<{rung} (server clump)"
-        )
-      }
-      tryCatch(
-        TwoSampleMR::extract_instruments(
-          outcomes = exposure_id, p1 = rung, clump = TRUE, r2 = co$r2, kb = co$kb
-        ),
-        error = function(e) {
-          logger::log_warn("extract_instruments failed at p<{rung}: {conditionMessage(e)}")
-          NULL
-        }
+    if (verbose) {
+      logger::log_info(
+        "coloc-source: extract_instruments({exposure_id}) at p<{rung} (clump=FALSE; local clump downstream)"
       )
-    } else {
-      if (verbose) {
-        logger::log_info(
-          "coloc-source: tophits({exposure_id}) at p<{rung} (local clump downstream)"
+    }
+    ivs <- tryCatch(
+      TwoSampleMR::extract_instruments(
+        outcomes = exposure_id, p1 = rung, clump = FALSE
+      ),
+      error = function(e) {
+        logger::log_warn(
+          "extract_instruments failed at p<{rung}: {conditionMessage(e)}; falling back to tophits()"
         )
+        NULL
       }
+    )
+    if (is.null(ivs) || !NROW(ivs)) {
       th <- safe_tophits(exposure_id, rung)
-      if (is.null(th) || !nrow(th)) NULL else .tophits_to_tsmr(th, exposure_id)
+      if (!is.null(th) && nrow(th)) ivs <- .tophits_to_tsmr(th, exposure_id)
     }
     if (!is.null(ivs) && NROW(ivs) > 0L) {
       if (verbose) {
         logger::log_info(
-          "coloc-source: {nrow(ivs)} IVs from {exposure_id} at p<{rung}"
+          "coloc-source: {nrow(ivs)} IVs from {exposure_id} at p<{rung} (pre-clump)"
         )
       }
       return(tibble::as_tibble(ivs))
