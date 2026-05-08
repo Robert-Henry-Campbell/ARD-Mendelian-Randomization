@@ -30,17 +30,21 @@ Imports:
     TwoSampleMR
 Suggests:
     BiocManager,
+    curl,
+    devtools,
     genetics.binaRies,
     gwasvcf,
     mockery,
+    ps,
+    remotes,
+    scales,
+    susieR,
     testthat (>= 3.0.0),
-    VariantAnnotation,
     withr
 Remotes:
     bioc::GenomicRanges,
     bioc::IRanges,
     bioc::Rsamtools,
-    bioc::VariantAnnotation,
     mrcieu/genetics.binaRies,
     mrcieu/gwasvcf
 SystemRequirements: PLINK 1.9 or 2.0 (https://www.cog-genomics.org/plink/) for LD matrix computation
