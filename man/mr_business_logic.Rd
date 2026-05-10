@@ -14,6 +14,7 @@ mr_business_logic(
   leaveoneoutplot,
   plot_output_dir,
   cache_dir = ardmr_cache_dir(),
+  coloc_opts = list(),
   verbose = TRUE,
   test = FALSE
 )
@@ -25,7 +26,7 @@ mr_business_logic(
 
 \item{sensitivity_enabled}{character vector in
 c("egger_intercept","egger_slope_agreement","weighted_median","weighted_mode",
-"steiger_direction","leave_one_out","ivw_Q","ivw_I2")}
+"steiger_direction","leave_one_out","ivw_Q","ivw_I2","coloc")}
 
 \item{sensitivity_pass_min}{integer; minimum # of checks that must pass}
 
@@ -34,6 +35,13 @@ c("egger_intercept","egger_slope_agreement","weighted_median","weighted_mode",
 \item{plot_output_dir}{directory to write plots ("" = off)}
 
 \item{cache_dir}{path (unused here; kept for parity)}
+
+\item{coloc_opts}{named list of coloc-specific options:
+\code{exposure_id} (OpenGWAS id), \code{ancestry}, \code{window_kb} (default 500),
+\code{priors} (list with p1/p2/p12), \code{outcome_fetcher_factory}
+(\verb{function(rec) -> function(chr, start, end)}),
+\code{outcome_metadata_fn} (\verb{function(rec) -> list(N, type, ncase, ncontrol, s)}).
+Required only when \verb{"coloc" \\\%in\\\% sensitivity_enabled}.}
 
 \item{verbose}{logical}
 }

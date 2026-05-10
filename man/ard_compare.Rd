@@ -15,11 +15,13 @@ ard_compare(
   scatterplot = TRUE,
   snpforestplot = TRUE,
   leaveoneoutplot = TRUE,
+  clump_opts = list(already_clumped = TRUE, already_p_filtered = TRUE),
   cache_dir = ardmr_cache_dir(),
   logfile = NULL,
   verbose = TRUE,
   confirm = "yes",
-  force_refresh = TRUE
+  force_refresh = FALSE,
+  n_pheno_limit = NULL
 )
 }
 \arguments{
@@ -34,15 +36,28 @@ units for β-scale plots.}
 \code{sex} value must be one of \code{"both"}, \code{"male"}, or \code{"female"}. The
 \code{ancestry} code must match the inputs accepted by
 \code{\link[=run_phenome_mr]{run_phenome_mr()}}. \code{exposure_snps} should contain the TwoSampleMR-style
-instrument data for that group.}
+instrument data for that group. Each entry may \strong{additionally} carry
+one of \code{ieu_id} (an OpenGWAS study id) or \code{exposure_sumstats} (a path
+to a tabix-indexed GWAS-VCF) to give coloc a regional summary-statistics
+source for the exposure; without one, \code{run_phenome_mr()} runs with
+\code{acknowledge_no_coloc = TRUE} and coloc is skipped for that group.}
 
-\item{sensitivity_enabled}{Character vector of checks (default = all 8).}
+\item{sensitivity_enabled}{Character vector of checks (default = all 9 incl. coloc).}
 
 \item{sensitivity_pass_min}{Integer threshold to pass QC (default 6).}
 
 \item{Multiple_testing_correction}{"BH" or "bonferroni" (default "BH").}
 
 \item{scatterplot, snpforestplot, leaveoneoutplot}{Logical; produce per-outcome diagnostics.}
+
+\item{clump_opts}{Named list of preprocessing parameters forwarded to
+\code{\link[=run_phenome_mr]{run_phenome_mr()}} (which forwards them to \code{\link[=preprocess_exposure_snps]{preprocess_exposure_snps()}}).
+Default: \code{list(already_clumped = TRUE, already_p_filtered = TRUE)} --
+ard_compare's group SNPs have typically already been LD-clumped and
+p-value-filtered upstream, so the unified preprocessor's clump and
+p-backoff steps are skipped here. Override to apply additional
+preprocessing (e.g. \code{list(maf_min = 0.05, already_clumped = TRUE, already_p_filtered = TRUE)}). See \code{\link[=run_phenome_mr]{run_phenome_mr()}} for the full
+schema.}
 
 \item{cache_dir}{Cache directory for temporary files (default:
 \code{\link[=ardmr_cache_dir]{ardmr_cache_dir()}}).}
@@ -58,6 +73,12 @@ resources when using Neale data. One of "ask", "yes", or "no".}
 \item{force_refresh}{Logical; when \code{TRUE} (default) clear any existing
 outputs for each group before re-running \code{\link[=run_phenome_mr]{run_phenome_mr()}}. Set to
 \code{FALSE} to reuse cached results.}
+
+\item{n_pheno_limit}{Optional positive integer. If supplied, truncate the
+outcome phenotype list to the first N rows immediately after
+\code{\link[=Outcome_setup]{Outcome_setup()}}. Intended for fast end-to-end integration tests; the
+resulting multiple-testing thresholds, p-values, and enrichment p-values
+are NOT scientifically valid. Default \code{NULL} (no truncation).}
 }
 \value{
 Invisibly returns a list containing the compare output directory
