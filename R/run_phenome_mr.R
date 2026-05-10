@@ -468,6 +468,8 @@ run_phenome_mr <- function(
   metrics$exposure_mapped <- nrow(exposure_snps2)
   logger::log_info("Exposure mapping: {metrics$exposure_in - metrics$exposure_mapped} filtered; {metrics$exposure_mapped} remain")
 
+  try(utils::write.csv(exposure_snps2, file.path(cfg$plot_dir, "exposure_snps.csv"), row.names = FALSE), silent = TRUE)
+
   logger::log_info("2.5) Compute LD matrix for exposure SNPs…")
   ld_csv_path <- file.path(cfg$plot_dir, "exposure_snps_ld_matrix.csv")
   ld_try <- tryCatch(
