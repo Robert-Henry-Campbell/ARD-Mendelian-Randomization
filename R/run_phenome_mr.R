@@ -530,6 +530,19 @@ run_phenome_mr <- function(
         }
       }
       meta_fn <- function(rec) coloc_panukb_outcome_metadata(rec, ancestry = cfg$ancestry)
+    } else if (cfg$catalog == "neale") {
+      fetcher_factory <- function(rec) {
+        function(chr, start, end) {
+          coloc_fetch_outcome_neale_region(
+            rec = rec, sex = cfg$sex,
+            chr = chr, start = start, end = end,
+            neale_dir = cfg$neale_dir, cache_dir = cfg$cache_dir,
+            verbose = cfg$verbose,
+            force_refresh = isTRUE(cfg$force_refresh)
+          )
+        }
+      }
+      meta_fn <- function(rec) coloc_neale_outcome_metadata(rec, sex = cfg$sex)
     } else {
       logger::log_warn("coloc: catalog '{cfg$catalog}' not yet supported; coloc will be skipped per outcome")
       fetcher_factory <- function(rec) NULL

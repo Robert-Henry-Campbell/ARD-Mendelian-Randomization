@@ -16,14 +16,16 @@ run_ieugwasr_ard_compare(
  },
   prompt_for_units = interactive(),
   p_threshold = 5e-08,
+  p_backoff = NULL,
   phenoscanner = FALSE,
   phenoscanner_pval = 5e-08,
   phewas_pval = 5e-08,
   r2 = 0.001,
   kb = 10000,
   f_threshold = 10,
-  force_refresh = TRUE,
-  sensitivity_pass_min = 6
+  force_refresh = FALSE,
+  sensitivity_pass_min = 6,
+  n_pheno_limit = NULL
 )
 }
 \arguments{
@@ -38,6 +40,14 @@ exposure_units and phenoscanner_exclusions}
 \item{prompt_for_units}{If TRUE, interactively prompt for missing units; otherwise stop on missing units}
 
 \item{p_threshold}{Genome-wide significance threshold for instrument extraction (default 5e-8)}
+
+\item{p_backoff}{Optional numeric vector of p-value rungs tried
+strictest-first during per-row instrument extraction. Default
+\code{NULL} -> single rung \code{c(p_threshold)} (does NOT silently relax
+genome-wide significance). Pass an explicit ladder such as
+\code{c(5e-8, 5e-7, 5e-6)} to accept progressively weaker instruments
+for exposures that have no GWAS-significant SNPs. The chosen
+ladder is recorded in the run manifest's \code{clump_opts_resolved}.}
 
 \item{phenoscanner}{Logical; if TRUE, run a Phenoscanner lookup after the
 PheWAS filter for additional exclusion screening (default FALSE)}
@@ -55,6 +65,11 @@ exclusion filtering (default 5e-8)}
 \item{f_threshold}{Per-variant F-stat minimum (default 10)}
 
 \item{force_refresh}{If TRUE, force ard_compare() to refresh cached results}
+
+\item{n_pheno_limit}{Optional positive integer passed through to
+\code{\link[=run_phenome_mr]{run_phenome_mr()}}. If supplied, truncates the outcome phenotype list to
+the first N rows for fast end-to-end integration tests. Default \code{NULL}
+(no truncation). Results from a truncated run are NOT scientifically valid.}
 }
 \value{
 (invisible) list with the processed exposure group names, any

@@ -6,48 +6,127 @@
 \usage{
 run_phenome_mr(
   exposure,
-  exposure_snps,
   exposure_units,
   ancestry,
+  exposure_snps = NULL,
+  exposure_sumstats = NULL,
+  exposure_id = NULL,
   sex = c("both", "male", "female"),
   sensitivity_enabled = c("egger_intercept", "egger_slope_agreement", "weighted_median",
-    "weighted_mode", "steiger_direction", "leave_one_out", "ivw_Q", "ivw_I2"),
+    "weighted_mode", "steiger_direction", "leave_one_out", "ivw_Q", "ivw_I2", "coloc"),
   sensitivity_pass_min = 6,
   Multiple_testing_correction = c("BH", "bonferroni"),
   scatterplot = TRUE,
   snpforestplot = TRUE,
   leaveoneoutplot = TRUE,
+  genome_build = "GRCh37",
+  acknowledge_no_coloc = FALSE,
+  clump_opts = list(),
+  coloc_window_kb = 500L,
+  coloc_priors = list(p1 = 1e-04, p2 = 1e-04, p12 = 1e-05),
+  coloc_skip_mhc = TRUE,
   cache_dir = ardmr_cache_dir(),
   logfile = NULL,
   verbose = TRUE,
   confirm = "ask",
-  force_refresh = TRUE
+  force_refresh = FALSE,
+  n_pheno_limit = NULL
 )
 }
 \arguments{
 \item{exposure}{Character (mandatory) label for the exposure; used for
 naming output directories and plot titles.}
 
-\item{exposure_snps}{Data frame of exposure instruments (TwoSampleMR-like). needs cols:
-"id.exposure"           "Exposure"                "SNP" (must be rsid format) "Chr"
-"Pos"                    "effect_allele.exposure" "other_allele.exposure"  "eaf.exposure"
-"beta.exposure"          "se.exposure"            "palindromic"            "pval.exposure"
-"mr_keep"                "F"}
-
 \item{exposure_units}{Character (mandatory) description of the exposure
 units for β-scale plots.}
 
 \item{ancestry}{Character (mandatory), e.g. "EUR".}
 
+\item{exposure_snps}{Optional data frame of pre-filtered exposure instruments
+(TwoSampleMR-like). Required columns include \code{id.exposure}, \code{SNP},
+\code{effect_allele.exposure}, \code{other_allele.exposure}, \code{beta.exposure},
+\code{se.exposure}, \code{pval.exposure}. May be combined with \code{exposure_sumstats}
+(snps used as IVs, sumstats used for coloc).}
+
+\item{exposure_sumstats}{Optional path to a tabix-indexed GWAS-VCF (MRC IEU
+spec) for the exposure. Used as the regional summary-statistics source
+for colocalization. Cannot be combined with \code{exposure_id}.}
+
+\item{exposure_id}{Optional OpenGWAS study id (e.g. \code{"ieu-b-38"}). When
+supplied alone, IVs are extracted via \code{TwoSampleMR::extract_instruments}
+and the same id is used for coloc.}
+
 \item{sex}{One of "both","male","female". If not "both", you likely use Neale.}
 
-\item{sensitivity_enabled}{Character vector of checks (default = all 8).}
+\item{sensitivity_enabled}{Character vector of checks (default = all 9 incl. coloc).}
 
 \item{sensitivity_pass_min}{Integer threshold to pass QC (default 6).}
 
 \item{Multiple_testing_correction}{"BH" or "bonferroni" (default "BH").}
 
 \item{scatterplot, snpforestplot, leaveoneoutplot}{Logical; produce per-outcome diagnostics.}
+
+\item{genome_build}{Genome build of \code{exposure_sumstats} (default \code{"GRCh37"};
+anything else triggers a hard error).}
+
+\item{acknowledge_no_coloc}{Set to \code{TRUE} to acknowledge that supplying
+\code{exposure_snps} alone disables coloc. Required in that case.}
+
+\item{clump_opts}{Named list of preprocessing parameters used by the
+unified exposure-SNP preprocessing pipeline (see
+\code{\link[=preprocess_exposure_snps]{preprocess_exposure_snps()}}). Applied to all input modes
+(\code{snps_only}, \code{snps_vcf}, \code{vcf_only}, \code{ieugwasr}, \code{snps_id}) for
+parity. The pipeline runs in this order: p-value -> rsid validate
+-> drop indels -> MAF -> INFO -> palindromic -> LD clumping ->
+F-stat. Data-quality filters precede clumping so a clump-elected
+lead SNP that fails one of them does not cost the entire locus.
+Recognised fields:
+\describe{
+\item{\code{p_backoff}}{Numeric vector of p-value thresholds tried
+strictest-first. Default \code{c(5e-8)} (single rung); pass a
+multi-element vector to enable a backoff ladder
+(e.g. \code{c(5e-8, 5e-7, 5e-6)}). Replaces the deprecated
+\code{p_threshold} scalar (silently translated with a deprecation
+warning).}
+\item{\code{r2}, \code{kb}}{LD clumping params (defaults \code{0.001}, \code{10000}).
+Clumping is always local against the ancestry-aware 1kg.v3
+panel.}
+\item{\code{f_threshold}}{F-statistic minimum (default \code{10}). Runs
+AFTER clumping (per-SNP, no locus loss).}
+\item{\code{maf_min}}{Minimum minor-allele frequency. Default \code{0.01}
+(1\%, standard MR practice); applied as \code{pmin(eaf, 1-eaf) >= maf_min}. Pass \code{NULL} to disable. Rows with \code{NA} EAF are
+kept; the step is automatically skipped when the
+\code{eaf.exposure} column is missing.}
+\item{\code{info_min}}{Minimum INFO/imputation-quality score (default
+\code{NULL} = off); auto-detects an \code{SI}/\code{Rsq}/\code{R2}/\code{INFO}/\code{info}
+column (SI/Rsq/R2 take priority because in real GWAS-VCF data
+the \code{INFO} column is typically the raw \verb{;}-separated VCF INFO
+blob, not a numeric score). Rows with \code{NA} INFO are kept. The
+same threshold also applies to coloc-region fetching.}
+\item{\code{drop_indels}}{Drop variants where either allele is non-SNV
+(\code{nchar > 1} or \code{-}/\code{D}/\code{I} codes). Default \code{TRUE}.}
+\item{\code{drop_palindromic}}{Drop AMBIGUOUS palindromic SNPs
+(A/T or C/G pairs AND \verb{eaf in [0.42, 0.58]}).
+Strand-resolvable palindromes (extreme EAF) are kept for
+downstream \code{harmonise_data} to align from EAF. The
+preprocessor does NOT add a \code{palindromic} column;
+TwoSampleMR's harmonise computes its own. Default \code{FALSE}.}
+\item{\code{already_clumped}, \code{already_p_filtered}}{Caller hint that LD
+clumping or p-value filtering have already been done upstream;
+skips the corresponding local step. Defaults \code{FALSE}.}
+\item{\code{preprocess}}{Master opt-out: when \code{FALSE}, no preprocessing
+is applied (the input is passed through as-is). Default \code{TRUE}.}
+}
+The merged-and-applied list is recorded in \code{run_manifest.json} as
+\code{clump_opts_resolved}; per-step \code{n_in}/\code{n_out} accounting is in
+\code{preprocessing_steps}.}
+
+\item{coloc_window_kb}{Half-window (kb) around each IV used to build coloc
+regions; overlapping windows are merged (default 500).}
+
+\item{coloc_priors}{Coloc priors \code{list(p1, p2, p12)} (defaults match coloc).}
+
+\item{coloc_skip_mhc}{Skip loci overlapping chr6:25-35Mb (default \code{TRUE}).}
 
 \item{cache_dir}{Cache directory for temporary files (default:
 \code{\link[=ardmr_cache_dir]{ardmr_cache_dir()}}).}
@@ -61,12 +140,26 @@ units for β-scale plots.}
 resources when using Neale data. One of "ask", "yes", or "no".}
 
 \item{force_refresh}{Logical; if \code{TRUE}, re-download remote resources even if
-they are already cached. Defaults to \code{TRUE}.}
+they are already cached. Defaults to \code{FALSE} — caches are now keyed by
+IV-set hash + run-input hash so cross-run collisions are impossible.
+When \code{TRUE}, only entries matching the current run's keys are deleted
+(other exposures' caches and other runs' outputs are preserved).}
+
+\item{n_pheno_limit}{Optional positive integer. If supplied, truncate the
+outcome phenotype list to the first N rows immediately after
+\code{\link[=Outcome_setup]{Outcome_setup()}}. Intended for fast end-to-end integration tests; the
+resulting multiple-testing thresholds, p-values, and enrichment p-values
+are NOT scientifically valid. Default \code{NULL} (no truncation).}
 
 \item{Neale_GWAS_dir}{Optional path to Neale sumstats; created if missing.}
 }
 \value{
-A list: MR_df, results_df, manhattan (ggplot), volcano (ggplot)
+A list: \code{MR_df}, \code{results_df}, \code{manhattan} (ggplot),
+\code{volcano} (ggplot). When preprocessing strips every IV, the
+function emits a \code{logger::log_warn} (not an error), still writes
+the run manifest so the user can inspect per-step counts, and
+returns
+\verb{list(MR_df = tibble(), results_df = tibble(), manhattan = NULL, volcano = NULL, run_dir = <plot_output_dir>, status = "no_ivs")}.
 }
 \description{
 Builds the outcome plan, maps exposure SNPs, fetches outcome SNP rows,
