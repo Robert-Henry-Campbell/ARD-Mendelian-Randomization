@@ -41,14 +41,14 @@
 # a few minutes. With Neale ON expect many hours and ~500 GB on disk.
 # -----------------------------------------------------------------------------
 
-setwd("PATH/TO/ardmr")          # path to package source
+#setwd("/mnt/sdg/robert/ardmr/ARD-Mendelian-Randomization")          # path to package source
 devtools::load_all()
 
-Sys.setenv(ARDMR_CACHE_DIR = "PATH/TO/CACHE")     # tens-of-GB scratch dir
+Sys.setenv(ARDMR_CACHE_DIR = "/mnt/sdg/robert/ardmr/ardmr_cache")     # tens-of-GB scratch dir
 
 # ---- toggles ----------------------------------------------------------------
-download_neale_sumstats     <- FALSE      # ~500 GB, many hours
-download_panukb_tabix_index <- FALSE      # ~few GB, ~30 min
+download_neale_sumstats     <- TRUE      # ~500 GB, many hours
+download_panukb_tabix_index <- TRUE      # ~few GB, ~30 min
 panukb_ancestry             <- "EUR"      # ancestry to pre-fetch tabix .tbi for
 
 cache_dir <- ardmr_cache_dir()
