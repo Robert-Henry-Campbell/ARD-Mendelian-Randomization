@@ -1,0 +1,28 @@
+exposure_group,ieu_id,exposure,exposure_units,exposure_snps,ancestry,sex,multiple_testing_correction,confirm,phenoscanner_exclusions,contains_ukb,sample_size,consortium,author,year,pmid,population_raw,sex_raw
+telomere_length,ieu-b-4879,telomere length,,,EUR,both,BH,yes,"educat, school, smok",no,472174,NA,Codd,2021,,European,Males and Females
+cognitive_decline,finn-b-R18_OTHER_SYMPTOMS_SIGNS_INVOLVI_COGNITIVE_FUNCTIONS_AWARE,Other symptoms and signs involving cognitive functions and awareness,,,EUR,both,BH,yes,"educat, school, smok",no,,NA,NA,2021,,European,Males and Females
+telomere_length,ebi-a-GCST90101892,NK-cell telomere length,,,EUR,,BH,yes,"educat, school, smok",no,902,NA,Andreu-S<U+00E1>nchez S,2022,35681050,European,NA
+telomere_length,ebi-a-GCST90101891,B-cell telomere length,,,EUR,,BH,yes,"educat, school, smok",no,902,NA,Andreu-S<U+00E1>nchez S,2022,35681050,European,NA
+telomere_length,ebi-a-GCST90101890,Memory T-cell telomere length,,,EUR,,BH,yes,"educat, school, smok",no,902,NA,Andreu-S<U+00E1>nchez S,2022,35681050,European,NA
+telomere_length,ebi-a-GCST90101889,Naive T-cell telomere length,,,EUR,,BH,yes,"educat, school, smok",no,902,NA,Andreu-S<U+00E1>nchez S,2022,35681050,European,NA
+telomere_length,ebi-a-GCST90101888,Lymphocyte telomere length,,,EUR,,BH,yes,"educat, school, smok",no,902,NA,Andreu-S<U+00E1>nchez S,2022,35681050,European,NA
+telomere_length,ebi-a-GCST90101887,Granulocyte telomere length,,,EUR,,BH,yes,"educat, school, smok",no,902,NA,Andreu-S<U+00E1>nchez S,2022,35681050,European,NA
+frailty_index,ebi-a-GCST90020053,Frailty index,,,EUR,,BH,yes,"educat, school, smok",yes,175226,NA,Atkins JL,2021,34431594,European,NA
+epigenetic_age,ebi-a-GCST90014304,DNA methylation PhenoAge acceleration,,,AFR,,BH,yes,"educat, school, smok",no,6148,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014303,DNA methylation-estimated plasminogen activator inhibitor-1 levels,,,AFR,,BH,yes,"educat, school, smok",no,6149,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014302,Intrinsic epigenetic age acceleration,,,EUR,,BH,yes,"educat, school, smok",no,34461,NA,McCartney DL,2021,34187551,European,NA
+epigenetic_age,ebi-a-GCST90014301,DNA methylation Hannum age acceleration,,,AFR,,BH,yes,"educat, school, smok",no,6148,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014300,DNA methylation GrimAge acceleration,,,EUR,,BH,yes,"educat, school, smok",no,34467,NA,McCartney DL,2021,34187551,European,NA
+epigenetic_age,ebi-a-GCST90014299,DNA methylation-estimated granulocyte proportions,,,AFR,,BH,yes,"educat, school, smok",no,6152,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014298,DNA methylation PhenoAge acceleration,,,AFR,,BH,yes,"educat, school, smok",no,6148,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014297,DNA methylation-estimated plasminogen activator inhibitor-1 levels,,,AFR,,BH,yes,"educat, school, smok",no,6149,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014296,Intrinsic epigenetic age acceleration,,,AFR,,BH,yes,"educat, school, smok",no,6148,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014295,DNA methylation Hannum age acceleration,,,AFR,,BH,yes,"educat, school, smok",no,6148,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014294,DNA methylation GrimAge acceleration,,,AFR,,BH,yes,"educat, school, smok",no,6148,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014293,DNA methylation-estimated granulocyte proportions,,,AFR,,BH,yes,"educat, school, smok",no,6152,NA,McCartney DL,2021,34187551,African American or Afro-Caribbean,NA
+epigenetic_age,ebi-a-GCST90014292,DNA methylation PhenoAge acceleration,,,EUR,,BH,yes,"educat, school, smok",no,34463,NA,McCartney DL,2021,34187551,European,NA
+epigenetic_age,ebi-a-GCST90014291,DNA methylation-estimated plasminogen activator inhibitor-1 levels,,,EUR,,BH,yes,"educat, school, smok",no,34448,NA,McCartney DL,2021,34187551,European,NA
+epigenetic_age,ebi-a-GCST90014290,Intrinsic epigenetic age acceleration,,,EUR,,BH,yes,"educat, school, smok",no,34461,NA,McCartney DL,2021,34187551,European,NA
+epigenetic_age,ebi-a-GCST90014289,DNA methylation Hannum age acceleration,,,EUR,,BH,yes,"educat, school, smok",no,34449,NA,McCartney DL,2021,34187551,European,NA
+epigenetic_age,ebi-a-GCST90014288,DNA methylation GrimAge acceleration,,,EUR,,BH,yes,"educat, school, smok",no,34467,NA,McCartney DL,2021,34187551,European,NA
+epigenetic_age,ebi-a-GCST90014287,DNA methylation-estimated granulocyte proportions,,,EUR,,BH,yes,"educat, school, smok",no,34470,NA,McCartney DL,2021,34187551,European,NA
