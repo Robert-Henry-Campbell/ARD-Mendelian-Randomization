@@ -5,6 +5,7 @@ set -euo pipefail
 : "${ARDMR_CACHE_DIR:?ARDMR_CACHE_DIR must be set (tens-of-GB scratch dir)}"
 : "${OPENGWAS_JWT:?OPENGWAS_JWT must be set}"
 export ARDMR_PKG_PATH ARDMR_CACHE_DIR OPENGWAS_JWT
+cd "$ARDMR_PKG_PATH"
 
 SCRIPT_DIR="$ARDMR_PKG_PATH/inst/scripts/19batch"
 LOG_DIR="$ARDMR_CACHE_DIR/logs_19batch"

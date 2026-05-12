@@ -17,7 +17,7 @@ result <- run_ieugwasr_ard_compare(
   csv_path             = csv_path,
   prompt_for_units     = FALSE,
   p_threshold          = 5e-8,
-  p_backoff            = c(5e-8, 5e-7, 5e-6),
+  p_backoff            = NULL,
   r2                   = 0.001,
   kb                   = 10000,
   f_threshold          = 10,
