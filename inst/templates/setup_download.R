@@ -139,7 +139,7 @@ if (isTRUE(download_panukb_tabix_index)) {
 
   n_present <- 0L; n_downloaded <- 0L; n_failed <- 0L
   for (k in seq_len(total)) {
-    idx_hash  <- tryCatch(digest::digest(urls[k], algo = "xxhash64"),
+    idx_hash  <- tryCatch(digest::digest(unname(urls[k]), algo = "xxhash64"),
                           error = function(e) digest::digest(urls[k]))
     dest <- file.path(idx_cache_dir,
                       paste0(.slug(labels[k]), "_", idx_hash, ".tbi"))
