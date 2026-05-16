@@ -93,7 +93,7 @@ result <- run_ieugwasr_ard_compare(
   # phenoscanner_pval  = 5e-8,         # only if phenoscanner = TRUE
 
   # MR sensitivity / multiple testing
-  sensitivity_pass_min = 5,            # of 9 (panel always incl. coloc)
+  sensitivity_pass_min = 6,            # of 9 (panel always incl. coloc)
 
   # cache / debug
   force_refresh        = FALSE,        # TRUE only when re-running from scratch

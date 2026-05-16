@@ -65,7 +65,7 @@ ard_compare(
     )
   ),
   sensitivity_enabled         = sens_no_coloc,
-  sensitivity_pass_min        = 5,         # of 8; standard genome-wide MR
+  sensitivity_pass_min        = 6,         # of 8; standard genome-wide MR
   Multiple_testing_correction = "BH",
   clump_opts                  = clump_opts_gw,
   force_refresh               = FALSE,
@@ -90,7 +90,7 @@ ard_compare(
     )
   ),
   sensitivity_enabled         = sens_no_coloc,
-  sensitivity_pass_min        = 5,
+  sensitivity_pass_min        = 6,
   Multiple_testing_correction = "BH",
   clump_opts                  = clump_opts_gw,
   force_refresh               = FALSE,

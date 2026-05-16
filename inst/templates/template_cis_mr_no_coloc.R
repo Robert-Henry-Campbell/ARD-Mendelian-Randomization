@@ -62,7 +62,7 @@ ard_compare(
     )
   ),
   sensitivity_enabled         = sens_no_coloc,
-  sensitivity_pass_min        = 4,         # of 8; cis-MR with few IVs
+  sensitivity_pass_min        = 6,         # of 8; cis-MR with few IVs
   Multiple_testing_correction = "BH",
   clump_opts                  = clump_opts_cis,
   force_refresh               = FALSE,
@@ -87,7 +87,7 @@ ard_compare(
     )
   ),
   sensitivity_enabled         = sens_no_coloc,
-  sensitivity_pass_min        = 4,
+  sensitivity_pass_min        = 6,
   Multiple_testing_correction = "BH",
   clump_opts                  = clump_opts_cis,
   force_refresh               = FALSE,
